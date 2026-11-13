@@ -1,7 +1,11 @@
-# Legato MCP server: cloud desktops for Claude Code, Cursor and other agents
+# Legato MCP server: give your coding agent its own computer
 
-`legato mcp` is an MCP server that gives any MCP-capable agent a Linux desktop (E2B). Each action returns as soon as
-the screen has settled, with the new screenshot attached, so the agent never sleeps or asks for extra screenshots.
+Add Legato to Claude Code, Cursor or any other MCP client, and your agent gets a Linux desktop in the cloud. It can
+open apps, click, type and see the screen, without touching your machine. Use it to test a GUI you are building, check
+a page in a real browser, or hand a whole desktop task to a cheaper open model.
+
+The desktops run on [E2B](https://e2b.dev), so you need an E2B API key. Each action comes back with a screenshot as
+soon as the screen stops changing, so your agent never waits longer than it has to.
 
 ```bash
 pip install "legatolabs[e2b,mcp]"
