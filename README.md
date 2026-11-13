@@ -21,7 +21,7 @@ desk.kill()
 ```
 
 `legato.local()` drives your own screen instead, and `legato.attach(shell=run)` any Linux sandbox you can run a command
-in, such as Docker or a VM ([sandboxes](docs/sandboxes.md)). With a model on your own GPU, nothing leaves your machine:
+in, such as Docker or a VM ([sandboxes](https://legato.computer/docs/sandboxes)). With a model on your own GPU, nothing leaves your machine:
 
 ```bash
 pip install "legatolabs[local]"
@@ -30,7 +30,7 @@ legato run "Open the terminal and print the date" --sandbox local --model Qwen/Q
 
 ## Results
 
-Same model, same desktops, 24 office tasks per run. [Method and raw data](docs/benchmarks.md).
+Same model, same desktops, 24 office tasks per run. [Method and raw data](https://legato.computer/docs/benchmarks).
 
 | Model | Compared with | Time | Success |
 |---|---|---|---|
@@ -46,10 +46,10 @@ Same model, same desktops, 24 office tasks per run. [Method and raw data](docs/b
 
 ## More
 
-- [Models](docs/models.md) · [Sandboxes](docs/sandboxes.md) · [MCP server](docs/mcp.md) · [RL rollouts](docs/rl.md) · [FAQ](docs/faq.md)
-- Compare: [Anthropic's demo](docs/compare/anthropic-computer-use-demo.md) · [OSWorld's Qwen agent](docs/compare/osworld-qwen-agent.md) · [Agent S3](docs/compare/agent-s3.md) · [UI-TARS-desktop](docs/compare/ui-tars-desktop.md)
-- Migrate: [from cua-agent](docs/migrate/from-cua-agent.md) · [from Bytebot](docs/migrate/from-bytebot.md)
-- For coding agents: [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md)
+- [Models](https://legato.computer/docs/models) · [Sandboxes](https://legato.computer/docs/sandboxes) · [MCP server](https://legato.computer/docs/mcp) · [RL rollouts](https://legato.computer/docs/rl) · [FAQ](https://legato.computer/docs/faq)
+- Compare: [Anthropic's demo](https://legato.computer/docs/compare/anthropic-computer-use-demo) · [OSWorld's Qwen agent](https://legato.computer/docs/compare/osworld-qwen-agent) · [Agent S3](https://legato.computer/docs/compare/agent-s3) · [UI-TARS-desktop](https://legato.computer/docs/compare/ui-tars-desktop)
+- Migrate: [from cua-agent](https://legato.computer/docs/migrate/from-cua-agent) · [from Bytebot](https://legato.computer/docs/migrate/from-bytebot)
+- For coding agents: [llms.txt](https://legato.computer/llms.txt) · [AGENTS.md](https://github.com/legatolabs/legato/blob/main/AGENTS.md)
 
 Apache-2.0. Hosted desktops and models: [legato.computer](https://legato.computer).
 
