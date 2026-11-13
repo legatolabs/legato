@@ -90,6 +90,18 @@ the loop alone cannot. These are measurements of each part, not end-to-end task 
 A running process survives all three, and a fork is isolated from its parent. These are single checks, not a
 benchmark.
 
+## A coding agent on a desktop container (single check)
+
+Claude Code with `legato mcp --sandbox docker` checked a signup form served from the host: it opened Firefox from the
+desktop's terminal, tried an invalid and a valid email, and reported both messages correctly. The MCP server's
+`--record` log has every action and its wait.
+
+| run | actions | wait for the screen per action | Claude Code, end to end |
+|---|---|---|---|
+| signup form, invalid then valid email | 9 | median 0.71 s (0.39–1.04 s) | 35.1 s, 14 turns |
+
+One run, not a benchmark. Raw data: [benchmarks/results/mcp/claude-code-signup](../benchmarks/results/mcp/claude-code-signup).
+
 ## What these results do not show
 
 - Only office tasks.

@@ -1,0 +1,11 @@
+{"t": 0.233, "step": 1, "event": "open", "screenshot": "0001-open.png", "width": 1280, "height": 800}
+{"t": 2.939, "step": 2, "event": "type", "screenshot": "0002-type.png", "action": "type \"firefox http://host.docker.internal:8799\u2026\"", "settle_s": 0.385}
+{"t": 7.109, "step": 3, "event": "wait", "screenshot": "0003-wait.png", "action": "wait", "settle_s": 1.037}
+{"t": 9.944, "step": 4, "event": "click", "screenshot": "0004-click.png", "action": "click (181, 234)", "settle_s": 0.506}
+{"t": 10.789, "step": 5, "event": "type", "screenshot": "0005-type.png", "action": "type \"not-an-email\"", "settle_s": 0.633}
+{"t": 11.965, "step": 6, "event": "click", "screenshot": "0006-click.png", "action": "click (373, 234)", "settle_s": 0.887}
+{"t": 16.911, "step": 7, "event": "click", "screenshot": "0007-click.png", "action": "click (181, 234)", "settle_s": 0.709}
+{"t": 17.945, "step": 8, "event": "key", "screenshot": "0008-key.png", "action": "key ctrl+a", "settle_s": 0.825}
+{"t": 18.851, "step": 9, "event": "type", "screenshot": "0009-type.png", "action": "type \"ada@example.com\"", "settle_s": 0.699}
+{"t": 19.942, "step": 10, "event": "click", "screenshot": "0010-click.png", "action": "click (373, 234)", "settle_s": 0.798}
+{"t": 21.729, "step": 11, "event": "close", "screenshot": null}
