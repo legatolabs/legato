@@ -23,6 +23,7 @@ from typing import Any
 from legato.actions import Action
 from legato.env import Env
 from legato.settle import LOCAL_RULES, Waiter
+from legato.tools import local_shell
 
 # legato's parser emits xdotool key names; pyautogui has its own
 KEYS = {"Return": "enter", "Escape": "esc", "Tab": "tab", "BackSpace": "backspace", "Delete": "delete",
@@ -43,6 +44,8 @@ def _need(name: str):
 class LocalEnv(Env):
     """This computer's primary screen. `mac_cmd` sends Ctrl shortcuts as Cmd on macOS, since models learn Linux and
     Windows shortcuts (ctrl+c, ctrl+s)."""
+
+    shell = staticmethod(local_shell)
 
     def __init__(self, mac_cmd: bool = True, fixed_wait_s: float | None = None, *, gui: Any = None, grabber: Any = None):
         self.gui = gui or _need("pyautogui")

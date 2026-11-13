@@ -52,6 +52,13 @@ pip install "legatolabs[local]"
 legato run "Open the terminal and print the date" --sandbox local --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
 ```
 
+Give the model a shell beside the screen, or your own functions as `legato.Tool`s. Results go back as text:
+
+```python
+env = legato.attach(desk)
+agent = legato.Harness(model, base_url, api_key, tools=[legato.tools.bash(env)])
+```
+
 ## Results
 
 Same model, same desktops, 24 office tasks per run. [Method and raw data](https://legato.computer/docs/benchmarks).

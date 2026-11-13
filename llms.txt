@@ -27,6 +27,7 @@ desk.kill()
 ```
 
 - Desktops: `legato.local()` (this computer; moves the real mouse), `legato.providers.docker(width, height)` (returns `(stop, env)`), `legato.attach(shell=fn_running_a_command_returning_stdout)` (any Linux sandbox with X, python3, xdotool, scrot), `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)` (anything else).
+- Tools beside the screen: `legato.Harness(..., tools=[legato.tools.bash(env)])` gives the model a shell in that desktop (`bash()` alone: this computer). `legato.Tool(name, description, json_schema, handler)` wraps your own function; the handler returns text.
 - Coordinates: Claude models use pixels automatically; other models use a 0–1000 grid (`coords="norm1000"`). Set `coords=` explicitly for a model you have not checked.
 - Thinking models: the default `max_tokens=4096` is usually enough; raise it if `result.report()` shows cut-off turns.
 - To compare with Anthropic's reference loop: `legato.Harness.reference(...)` with `legato.attach(desk, fixed_wait_s=2.0)`.

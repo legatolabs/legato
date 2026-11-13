@@ -207,3 +207,81 @@ def test_cut_off_reply_gets_a_note_and_the_run_continues(server):
     assert res.done and res.steps == 2 and server["bodies"][0]["max_tokens"] == 4096
     texts = [p.get("text", "") for m in server["bodies"][1]["messages"] if m["role"] == "user" for p in m["content"]]
     assert any("token limit" in t for t in texts)
+
+
+# ------------------------------------------------------------ tools beside computer
+def named(name: str, args: dict) -> dict:
+    return {"type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+
+
+def recorder(log: list, name: str = "note", fail: bool = False) -> legato.Tool:
+    def handler(args):
+        if fail:
+            raise RuntimeError("disk full")
+        log.append(("tool", args["text"]))
+        return f"noted {args['text']}"
+    return legato.Tool(name, "Write a note.", {"type": "object", "properties": {"text": {"type": "string"}}}, handler)
+
+
+def counting_env(log: list, shots: list):
+    png = fake_env([])._shot
+    return legato.attach(screenshot=lambda: shots.append(1) or png(), execute=lambda a: log.append(a.type))
+
+
+def test_tools_run_in_order_and_results_reach_the_next_turn(server):
+    server["script"] = [
+        {"tool_calls": [tc({"action": "left_click", "coordinate": [500, 500]}), named("note", {"text": "x"}),
+                        tc({"action": "type", "text": "42"})]},
+        {"tool_calls": [tc({"action": "done"})]}]
+    log = []
+    res = legato.Harness("m", server["url"], tools=[recorder(log)]).run("t", counting_env(log, []))
+    assert res.done and log == ["click", ("tool", "x"), "type"]
+    first, second = server["bodies"]
+    assert [t["function"]["name"] for t in first["tools"]] == ["computer", "note"]
+    assert "Besides `computer` you have: `note` (Write a note.)" in first["messages"][0]["content"]
+    last = second["messages"][-1]["content"]
+    assert last[0] == {"type": "text", "text": "note result:\nnoted x"} and last[1]["type"] == "image_url"
+    assert '"tool": "note"' in second["messages"][-2]["content"]
+    assert 'note({"text": "x"})' in res.actions and "tools" in res.report()
+
+
+def test_no_tools_sends_the_same_request_as_before(server):
+    legato.Harness("m", server["url"]).run("t", fake_env([]))
+    body = server["bodies"][0]
+    assert body["tools"] == [legato.computer_tool(legato.harness.CLAUDE_STYLE_ACTIONS)]
+    assert "Besides" not in body["messages"][0]["content"]
+
+
+def test_a_raising_tool_is_reported_and_a_tool_only_turn_gets_a_fresh_screenshot(server):
+    server["script"] = [{"tool_calls": [named("note", {"text": "x"})]}, {"tool_calls": [tc({"action": "done"})]}]
+    shots = []
+    res = legato.Harness("m", server["url"], tools=[recorder([], fail=True)]).run("t", counting_env([], shots))
+    assert res.done and res.error is None
+    last = server["bodies"][1]["messages"][-1]["content"]
+    assert last[0]["text"] == "note result:\nerror: RuntimeError: disk full" and last[1]["type"] == "image_url"
+    assert len(shots) == 2                                 # the first screenshot, then one after the tool ran
+
+
+def test_an_unknown_tool_stops_the_batch(server):
+    server["script"] = [{"tool_calls": [named("str_replace_editor", {"path": "x"}), tc({"action": "wait"})]},
+                        {"tool_calls": [tc({"action": "done"})]}]
+    log = []
+    res = legato.Harness("m", server["url"], tools=[recorder(log)]).run("t", counting_env(log, []))
+    assert res.done and log == []
+    assert "(unknown tool: str_replace_editor)" in server["bodies"][1]["messages"][-2]["content"]
+
+
+def test_tools_without_native_tool_calls(server):
+    server["script"] = [{"content": 'Noting. {"name": "note", "arguments": {"text": "y"}}'}, {"content": '{"action": "done"}'}]
+    log = []
+    res = legato.Harness("m", server["url"], native_tools=False, tools=[recorder(log)]).run("t", fake_env([]))
+    assert res.done and log == [("tool", "y")]
+    system = server["bodies"][0]["messages"][0]["content"]
+    assert '{"name": "<tool>", "arguments": {...}}' in system and '- note: Write a note. Parameters: {"type"' in system
+
+
+def test_tool_names_must_be_free():
+    with pytest.raises(ValueError):
+        legato.Harness("m", "http://x/v1", tools=[recorder([], name="computer")])
+    with pytest.raises(ValueError):
+        legato.Harness("m", "http://x/v1", tools=[recorder([]), recorder([])])
