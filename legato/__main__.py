@@ -4,7 +4,7 @@
       --model qwen/qwen3-vl-235b-a22b-instruct --base-url https://openrouter.ai/api/v1 [--api-key-env OPENROUTER_API_KEY]
       [--max-steps 30] [--coords norm1000|pixels] [--sandbox e2b]
 
-Runs the open harness on a fresh E2B Desktop sandbox (needs `pip install "legato[e2b]"` and E2B_API_KEY) and prints
+Runs the open harness on a fresh E2B Desktop sandbox (needs `pip install "legatolabs[e2b]"` and E2B_API_KEY) and prints
 where the time went.
 
   legato bench office generate|report ...   the Legato Office Bench (Excel to PowerPoint tasks)
@@ -54,7 +54,7 @@ def main(argv=None) -> int:
     try:
         from e2b_desktop import Sandbox
     except ImportError:
-        print('E2B Desktop is not installed: pip install "legato[e2b]"', file=sys.stderr)
+        print('E2B Desktop is not installed: pip install "legatolabs[e2b]"', file=sys.stderr)
         return 2
     agent = Harness(model=a.model, base_url=a.base_url, api_key=os.environ.get(a.api_key_env, ""), coords=a.coords)
     desk = Sandbox.create()

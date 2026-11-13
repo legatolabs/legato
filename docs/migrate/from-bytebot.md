@@ -43,7 +43,7 @@ requests.post("http://localhost:9991/tasks", json={"description": "Add a Total r
 After: the same desktop, driven by Legato. Request shapes follow bytebotd's validation classes [8].
 
 ```bash
-pip install legato httpx
+pip install legatolabs httpx
 ```
 
 ```python

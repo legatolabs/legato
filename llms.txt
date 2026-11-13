@@ -1,6 +1,6 @@
 # Legato
 
-> Legato is an open-source (Apache-2.0) computer-use harness for any OpenAI-compatible vision model: Qwen, DeepSeek, Claude, vLLM or SGLang servers, or OpenRouter. It drives a desktop sandbox (E2B or any sandbox you can screenshot) with a Claude-style `computer` tool, waits until the screen is ready instead of sleeping a fixed time, batches actions, and bounds every model call. `pip install "legato[e2b]"`.
+> Legato is an open-source (Apache-2.0) computer-use harness for any OpenAI-compatible vision model: Qwen, DeepSeek, Claude, vLLM or SGLang servers, or OpenRouter. It drives a desktop sandbox (E2B or any sandbox you can screenshot) with a Claude-style `computer` tool, waits until the screen is ready instead of sleeping a fixed time, batches actions, and bounds every model call. Install with `pip install "legatolabs[e2b]"` (the PyPI package is `legatolabs`; the module is imported as `legato`).
 
 Measured results, same model and same desktops, 24 office tasks per run:
 - Claude Sonnet 5.5: 1.48x faster than a re-implementation of Anthropic's computer-use reference loop, 48/48 vs 48/48 success (one run).

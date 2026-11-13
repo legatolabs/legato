@@ -2,7 +2,7 @@
 # (then the workflow creates the v<version> tag itself after publishing). Uses PyPI Trusted Publishing: no token is
 # stored anywhere.
 # One-time setup on pypi.org -> Your account -> Publishing -> Add a new pending publisher:
-#   PyPI project name: legato · Owner: legatolabs · Repository: legato · Workflow: release.yml · Environment: pypi
+#   PyPI project name: legatolabs · Owner: legatolabs · Repository: legato · Workflow: release.yml · Environment: pypi
 name: release
 on:
   push:

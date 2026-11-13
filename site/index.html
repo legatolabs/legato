@@ -42,7 +42,7 @@
     <h1>Agents, in<br><em>one motion.</em></h1>
     <p class="lead">Inference got fast. Sandboxes got fast. The loop between them didn't. We're building the runtime for computer-use agents and the RL that trains them.</p>
     <div class="cta">
-      <button class="install" type="button" data-copy="pip install legato" aria-label="Copy the install command"><span class="p">$</span> pip install legato <span class="copied" aria-hidden="true">copy</span></button>
+      <button class="install" type="button" data-copy="pip install legatolabs" aria-label="Copy the install command"><span class="p">$</span> pip install legatolabs <span class="copied" aria-hidden="true">copy</span></button>
       <a class="link" href="/#access">Request early access →</a>
       <a class="link dim" href="/docs/benchmarks">Read the results →</a>
     </div>
@@ -159,7 +159,7 @@
           <button role="tab" id="t-cli" aria-controls="p-cli" aria-selected="false" tabindex="-1">CLI</button>
         </div>
         <div class="tabpanel" role="tabpanel" id="p-py" aria-labelledby="t-py">
-<pre><span class="c"># pip install "legato[e2b]"</span>
+<pre><span class="c"># pip install "legatolabs[e2b]"</span>
 <span class="k">import</span> os, legato
 <span class="k">from</span> e2b_desktop <span class="k">import</span> Sandbox
 
@@ -172,11 +172,11 @@ print(result.report())   <span class="c"># model, actions, waiting for the scree
         </div>
         <div class="tabpanel" role="tabpanel" id="p-mcp" aria-labelledby="t-mcp" hidden>
 <pre><span class="c"># a cloud desktop for Claude Code, Cursor or any MCP client</span>
-pip install <span class="s">"legato[e2b,mcp]"</span>
+pip install <span class="s">"legatolabs[e2b,mcp]"</span>
 claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp</pre>
         </div>
         <div class="tabpanel" role="tabpanel" id="p-cli" aria-labelledby="t-cli" hidden>
-<pre>pip install <span class="s">"legato[e2b]"</span>
+<pre>pip install <span class="s">"legatolabs[e2b]"</span>
 legato run <span class="s">"Create a folder named reports on the desktop"</span> \
     --model anthropic/claude-sonnet-5.5 --base-url https://openrouter.ai/api/v1</pre>
         </div>

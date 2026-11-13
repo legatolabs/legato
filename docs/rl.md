@@ -35,7 +35,7 @@ legato.rl collect ────────────────────�
 ## Quickstart
 
 ```bash
-pip install -e legato/sdk
+pip install legatolabs
 export LEGATO_POLICY_KEY=...            # the model server's key; never passed on the command line
 
 # 1. Check the server: logprobs, token ids, cached-token reporting

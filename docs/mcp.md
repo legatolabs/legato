@@ -5,7 +5,7 @@ act on. Each action returns as soon as the screen has settled, with the new scre
 sleeps or asks for extra screenshots.
 
 ```bash
-pip install "legato[e2b,mcp]"
+pip install "legatolabs[e2b,mcp]"
 claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp
 ```
 

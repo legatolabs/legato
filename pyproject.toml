@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "legato"
+name = "legatolabs"
 version = "0.1.0"
 description = "Open computer-use harness for any OpenAI-compatible model (Qwen, DeepSeek, Claude, vLLM, OpenRouter): ready-wait instead of fixed sleeps, bounded calls, measured against the reference loops."
 readme = "README.md"

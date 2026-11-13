@@ -1,6 +1,6 @@
 """Legato as an MCP server: give any agent (Claude Code, Cursor, your own) a cloud desktop with Legato's ready-wait.
 
-    pip install "legato[e2b,mcp]"
+    pip install "legatolabs[e2b,mcp]"
     claude mcp add legato -e E2B_API_KEY=... -- legato mcp          # Claude Code
     # Cursor and others: {"mcpServers": {"legato": {"command": "legato", "args": ["mcp"], "env": {"E2B_API_KEY": "..."}}}}
 
@@ -33,7 +33,7 @@ except ImportError:                    # mcp 1.x
         from mcp.server.fastmcp import Image
         from mcp.server.fastmcp.exceptions import ToolError
     except ImportError as e:           # pragma: no cover
-        raise ImportError('the MCP server needs the mcp package: pip install "legato[mcp]"') from e
+        raise ImportError('the MCP server needs the mcp package: pip install "legatolabs[mcp]"') from e
 
 
 def e2b_factory(resolution: tuple[int, int]):

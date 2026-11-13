@@ -6,7 +6,7 @@ screenshot and send input to) with a Claude-style `computer` tool. It waits unti
 sleeping a fixed time, and it bounds every model call. Apache-2.0.
 
 ```bash
-pip install "legato[e2b]"
+pip install "legatolabs[e2b]"      # the package is legatolabs on PyPI; you import it as `legato`
 ```
 
 ## Results
@@ -81,7 +81,7 @@ measure the difference on your own tasks.
 ## Reproduce the benchmarks
 
 ```bash
-pip install "legato[office,video]"
+pip install "legatolabs[office,video]"
 legato bench office generate --out bench --repeat 2          # 24 tasks: .xlsx data, .pptx decks, grader specs
 legato rl collect --tasks bench/tasks.json --harness legato --policy-url https://openrouter.ai/api/v1 \
     --model qwen/qwen3.8-27b --api-key-env OPENROUTER_API_KEY --eval-only --osworld ~/OSWorld \
@@ -109,7 +109,7 @@ The desktops are OSWorld's Docker VMs, so you need a Linux host with KVM and an
 settled, with the new screenshot. See [docs/mcp.md](docs/mcp.md).
 
 ```bash
-pip install "legato[e2b,mcp]"
+pip install "legatolabs[e2b,mcp]"
 claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp
 ```
 
@@ -121,6 +121,8 @@ the model server and the trainer. See [docs/rl.md](docs/rl.md).
 
 ## FAQ
 
+- **Why `pip install legatolabs` but `import legato`?** The PyPI name `legato` was taken, so the package is published as
+  `legatolabs`. The module, the command line tool and the docs all use `legato`.
 - **Is Legato an alternative to cua-agent or Bytebot?** Yes, for the agent loop. Both are no longer maintained; see
   the migration guides above.
 - **Which models work?** Any model behind an OpenAI-compatible chat API that accepts images. Native tool calls are

@@ -59,7 +59,7 @@ asyncio.run(main())
 After, on the same Cua sandbox through `cua_sandbox.sync`, Cua's blocking wrapper [11]:
 
 ```bash
-pip install legato cua-sandbox
+pip install legatolabs cua-sandbox
 ```
 
 ```python

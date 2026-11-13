@@ -61,8 +61,8 @@ Limits of this result:
 ## Code
 
 ```bash
-pip install legato
-pip install "legato[e2b]"   # E2B Desktop
+pip install legatolabs
+pip install "legatolabs[e2b]"   # E2B Desktop
 ```
 
 ```python

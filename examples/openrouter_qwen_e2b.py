@@ -1,6 +1,6 @@
 """An open model through OpenRouter on an E2B desktop.
 
-    pip install "legato[e2b]"
+    pip install "legatolabs[e2b]"
     export OPENROUTER_API_KEY=... E2B_API_KEY=...
     python examples/openrouter_qwen_e2b.py "Open the terminal and print the date"
 """

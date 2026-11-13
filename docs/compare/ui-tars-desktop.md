@@ -46,8 +46,8 @@ that Legato can parse, or a parser for its format [12].
 ## Code
 
 ```bash
-pip install legato
-pip install "legato[e2b]"   # E2B Desktop
+pip install legatolabs
+pip install "legatolabs[e2b]"   # E2B Desktop
 ```
 
 ```python
