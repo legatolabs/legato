@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legatolabs"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open computer-use harness for any OpenAI-compatible model (Qwen, DeepSeek, Claude, vLLM, OpenRouter): ready-wait instead of fixed sleeps, bounded calls, measured against the reference loops."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,6 +37,7 @@ dev = ["pytest>=8", "mcp>=1.2", "python-pptx>=1.0", "openpyxl>=3.1", "imageio>=2
 
 [project.scripts]
 legato = "legato.__main__:main"
+legatolabs = "legato.__main__:main"   # so `uvx legatolabs ...` works
 
 [project.urls]
 Homepage = "https://legato.computer"
@@ -47,6 +48,9 @@ Issues = "https://github.com/legatolabs/legato/issues"
 
 [tool.setuptools.packages.find]
 include = ["legato*"]
+
+[tool.setuptools.package-data]
+legato = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

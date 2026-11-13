@@ -13,4 +13,4 @@ from legato.settle import Waiter, wrap
 
 __all__ = ["Action", "Env", "Harness", "Obs", "RunResult", "Waiter", "attach", "computer_tool", "hosted", "parse",
            "wrap"]
-__version__ = "0.1.0"
+__version__ = "0.1.1"

@@ -6,6 +6,8 @@
 <title>Legato · agents, in one motion</title>
 <meta name="description" content="Legato Labs builds the runtime between models and machines for computer-use agents and the RL that trains them. Open-source harness for any model: 1.48x faster than Anthropic's computer-use reference loop on the same model.">
 <link rel="canonical" href="https://legato.computer/">
+<link rel="alternate" type="text/markdown" href="/docs/index.md">
+<link rel="ai-catalog" href="/.well-known/ai-catalog.json">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,7 +29,7 @@
       legato
     </a>
     <nav class="nav" aria-label="Main">
-      <a href="/#research">Research</a>
+      <a href="/docs/benchmarks">Benchmarks</a>
       <a href="/#projects" class="hide-sm">Projects</a>
       <a href="/docs">Docs</a>
       <a href="https://github.com/legatolabs/legato" rel="noopener" class="hide-sm">GitHub</a>
@@ -51,10 +53,10 @@
 
 <section class="metrics" aria-label="Measured results">
   <div class="wrap grid4">
-    <div><div class="n">1.48×</div><div class="t">faster than Anthropic's computer-use reference loop, same Claude model, 48/48 vs 48/48 solved</div></div>
-    <div><div class="n">+19 pts</div><div class="t">success over OSWorld's Qwen agent with the same open model, at the same speed</div></div>
-    <div><div class="n">40–53%</div><div class="t">of rollout time was waiting the screen did not need, under fixed waits on OSWorld</div></div>
-    <div><div class="n">0.6 s</div><div class="t">to pause a desktop with its memory; 0.2–0.4 s to resume, 1.7 s to fork</div></div>
+    <div><div class="n">1.48×</div><div class="t">faster than Anthropic's reference loop, same Claude model, same success</div></div>
+    <div><div class="n">+19 pts</div><div class="t">success over OSWorld's Qwen agent, same open model, same speed</div></div>
+    <div><div class="n">40–53%</div><div class="t">of OSWorld rollout time was idle under fixed sleeps</div></div>
+    <div><div class="n">0.6 s</div><div class="t">to pause a desktop with its memory, 1.7 s to fork it</div></div>
   </div>
 </section>
 
@@ -62,62 +64,17 @@
   <div class="wrap two">
     <div class="label"><span class="hash">#</span> About the lab</div>
     <div class="body">
-      <p>Legato Labs is an applied research lab working on the loop between a model and the machine it operates: screenshot, read history, choose an action, act, wait for the screen. A computer-use agent runs that loop hundreds of times per task. Model providers optimize the model call and sandbox providers optimize the machine. The time lost between them is ours.</p>
-      <p>We publish what we measure. Every comparison runs the same model on the same desktops. Pass bars are written down before each run, and results are reported whichever way they fall, including the ones that did not hold up.</p>
+      <p>Legato Labs works on the loop between a model and the machine it operates: screenshot, decide, act, wait for the screen. We publish what we measure, same model and same desktops, with the bars set before each run.</p>
     </div>
   </div>
 </section>
 
-<section id="research" class="doc-block">
-  <div class="wrap two">
-    <div class="label"><span class="hash">#</span> Research notes</div>
-    <div class="body">
-      <ol class="notes">
-        <li>
-          <a href="/docs/benchmarks#h2h-1-claude-and-qwen-24-tasks-2-attempts-each-0-errors">
-            <span class="no">N°05</span><span class="date">Nov 2026</span>
-            <span class="title">Same Claude model, 1.48× faster than Anthropic's reference loop</span>
-            <span class="gist">24 office tasks on real desktops. The saving is almost all fixed waiting: 14 s vs 45 s per task. Model time is unchanged.</span>
-          </a>
-        </li>
-        <li>
-          <a href="/docs/benchmarks#h2h-2-qwen-again-with-the-fix-on-fresh-task-data-24-tasks-2-attempts-each-0-errors">
-            <span class="no">N°04</span><span class="date">Nov 2026</span>
-            <span class="title">Open models: our 2.4× did not replicate. The success gain did.</span>
-            <span class="gist">On fresh tasks, Legato ties OSWorld's Qwen agent on time and solves 19 points more. The first run's speedup came from four runaway 32k-token replies.</span>
-          </a>
-        </li>
-        <li>
-          <a href="/docs/benchmarks#osworld-tasks-on-osworlds-own-harness-runtime-only">
-            <span class="no">N°03</span><span class="date">Nov 2026</span>
-            <span class="title">Where a computer-use rollout's time goes</span>
-            <span class="gist">1,560 rollouts on OSWorld with OSWorld's own harness. Waiting for the screen instead of sleeping cut task time to 0.52 of the 5 s setting, at equal success.</span>
-          </a>
-        </li>
-        <li>
-          <a href="/docs/benchmarks#osworld-tasks-on-osworlds-own-harness-runtime-only">
-            <span class="no">N°02</span><span class="date">Nov 2026</span>
-            <span class="title">Prefix caches and screenshot history</span>
-            <span class="gist">Dropping one old screenshot per step cut the prefix-cache hit rate from 85% to 25%. Dropping them in chunks kept it.</span>
-          </a>
-        </li>
-        <li>
-          <a href="/docs/benchmarks#managed-desktops-pause-resume-and-fork-live-check">
-            <span class="no">N°01</span><span class="date">Nov 2026</span>
-            <span class="title">Desktops that pause, resume and fork with their memory</span>
-            <span class="gist">Pause in 0.6 s, resume in 0.2–0.4 s, fork in 1.7 s. A running process survives, and a fork is isolated from its parent.</span>
-          </a>
-        </li>
-      </ol>
-    </div>
-  </div>
-</section>
 
 <section id="figure" class="doc-block">
   <div class="wrap">
     <figure class="fig">
       <video src="/media/demo-claude.mp4" poster="/media/demo-poster.jpg" controls muted playsinline preload="none" aria-label="Side-by-side replay: reference loop vs Legato"></video>
-      <figcaption><span class="no">Fig. 1</span> Claude Sonnet 5.5 copying a chart from LibreOffice Calc into Impress, played at 4×. Left: Anthropic's computer-use reference loop (our re-implementation), 237.5 s. Right: Legato, 91.8 s. Both passed the grader. These are the screenshots each agent saw at their real timestamps, not a simulation. This is one task; the averages are in N°05.</figcaption>
+      <figcaption><span class="no">Fig. 1</span> Claude Sonnet 5.5, same task, 4× speed. Left: Anthropic's reference loop, 237.5 s. Right: Legato, 91.8 s. Both passed. Real screenshots at real timestamps.</figcaption>
     </figure>
   </div>
 </section>
@@ -129,19 +86,19 @@
       <div class="cards">
         <a class="card" href="https://github.com/legatolabs/legato" rel="noopener">
           <div class="h"><span>legato</span><span class="tag">open source</span></div>
-          <p>A computer-use harness for any OpenAI-compatible model: Qwen, DeepSeek, Claude or your own vLLM server. It waits for the screen instead of sleeping, batches actions and bounds every call. Apache-2.0.</p>
+          <p>Computer-use harness for any OpenAI-compatible model. Apache-2.0.</p>
         </a>
         <a class="card" href="/docs/mcp">
           <div class="h"><span>legato mcp</span><span class="tag">open source</span></div>
-          <p>A cloud desktop for Claude Code, Cursor or any MCP client. Every action returns once the screen has settled, with the new screenshot.</p>
+          <p>A cloud desktop for Claude Code, Cursor or any MCP client.</p>
         </a>
         <a class="card" href="/docs/rl">
           <div class="h"><span>legato rl</span><span class="tag">open source</span></div>
-          <p>Graded desktop rollouts for computer-use RL: token logprobs, GRPO groups with oversampling and straggler cancel, and a time profile per batch.</p>
+          <p>Graded desktop rollouts for computer-use RL.</p>
         </a>
         <a class="card" href="/#access">
           <div class="h"><span>Legato Cloud</span><span class="tag beta">beta</span></div>
-          <p>Desktops that pause, resume and fork with their memory, open models served with warm sessions, and rollouts at scale, run for you.</p>
+          <p>Managed desktops that pause, resume and fork, plus hosted open models.</p>
         </a>
       </div>
     </div>
@@ -190,7 +147,7 @@ legato run <span class="s">"Create a folder named reports on the desktop"</span>
   <div class="wrap two">
     <div class="label"><span class="hash">#</span> Early access</div>
     <div class="body">
-      <p>We are working with a small number of design partners on Legato Cloud: agents in production, RL on desktops, and evals. Keys are issued by hand.</p>
+      <p>Legato Cloud is in private beta with a small number of design partners.</p>
       <form class="wl" id="wl" novalidate>
         <div class="row">
           <label>email<input type="email" name="email" required autocomplete="email" placeholder="you@company.com"></label>

@@ -2,6 +2,7 @@
 // to a clean-URL page (/docs, /docs/benchmarks, /docs/compare/agent-s3, ...), with the raw Markdown next to each page
 // (/docs/benchmarks.md), llms.txt, llms-full.txt, a sitemap and robots.txt. The docs are the same files GitHub shows,
 // so the site and the repository cannot drift.  Run: cd site && npm ci && node build.mjs
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,6 +85,7 @@ function page({ title, description, body, rel, url }) {
 <meta name="description" content="${esc(description)}">
 <link rel="canonical" href="${ORIGIN}${url}">
 <link rel="alternate" type="text/markdown" href="${url === "/docs" ? "/docs/index.md" : url + ".md"}">
+<link rel="ai-catalog" href="/.well-known/ai-catalog.json">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -134,5 +136,36 @@ cpSync(join(ROOT, "llms.txt"), join(DIST, "llms.txt"));
 writeFileSync(join(DIST, "llms-full.txt"), full.join("\n\n"));
 writeFileSync(join(DIST, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
   + urls.map((u) => `  <url><loc>${ORIGIN}${u}</loc></url>`).join("\n") + "\n</urlset>\n");
-writeFileSync(join(DIST, "robots.txt"), `User-agent: *\nAllow: /\nSitemap: ${ORIGIN}/sitemap.xml\n`);
+// robots.txt: allow everyone, say how the content may be used (Content Signals), and point at the agent catalog
+writeFileSync(join(DIST, "robots.txt"), `User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\nAllow: /\n\n`
+  + `Sitemap: ${ORIGIN}/sitemap.xml\nAgentmap: ${ORIGIN}/.well-known/ai-catalog.json\n`);
+
+// agent skills (Agent Skills Discovery RFC 0.2.0) from skills/<name>/SKILL.md, and the ARD catalog that lists them
+const WK = join(DIST, ".well-known");
+const skills = existsSync(join(ROOT, "skills")) ? readdirSync(join(ROOT, "skills")) : [];
+const skillEntries = skills.map((name) => {
+  const md = readFileSync(join(ROOT, "skills", name, "SKILL.md"));
+  mkdirSync(join(WK, "agent-skills", name), { recursive: true });
+  writeFileSync(join(WK, "agent-skills", name, "SKILL.md"), md);
+  const description = (md.toString().match(/^description:\s*(.+)$/m) || [, ""])[1].trim();
+  return { name, type: "skill-md", description, url: `${ORIGIN}/.well-known/agent-skills/${name}/SKILL.md`,
+           digest: "sha256:" + createHash("sha256").update(md).digest("hex") };
+});
+mkdirSync(join(WK, "agent-skills"), { recursive: true });
+writeFileSync(join(WK, "agent-skills", "index.json"), JSON.stringify(
+  { $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json", skills: skillEntries }, null, 2));
+writeFileSync(join(WK, "ai-catalog.json"), JSON.stringify({
+  specVersion: "1.0",
+  host: { displayName: "Legato Labs", identifier: "did:web:legato.computer" },
+  entries: [
+    ...skillEntries.map((s) => ({ identifier: `urn:air:legato.computer:skill:${s.name}`, displayName: "Use Legato",
+      type: "text/markdown", url: s.url, description: s.description,
+      representativeQueries: ["run a computer-use agent on a desktop with an open model",
+        "open-source alternative to Claude computer use", "drive an E2B desktop with Qwen",
+        "computer-use harness for OpenRouter models"] })),
+    { identifier: "urn:air:legato.computer:docs:llms-txt", displayName: "Legato documentation index", type: "text/plain",
+      url: `${ORIGIN}/llms.txt`, representativeQueries: ["how to install and use legato",
+        "legato computer-use benchmarks", "legato mcp server setup"] },
+  ],
+}, null, 2));
 console.log(`built ${files.length} docs pages into ${relative(ROOT, DIST)}`);

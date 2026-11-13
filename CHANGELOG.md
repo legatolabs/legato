@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- `legato run --json` prints one JSON result, for scripts and coding agents.
+- Clear errors when the E2B extra, `E2B_API_KEY` or the model key is missing.
+- A `legatolabs` command alias, so `uvx legatolabs mcp` works.
+- Ships `py.typed`.
+- Listed on the MCP Registry as `io.github.legatolabs/legato`.
+
 ## 0.1.0
 
 - `legato.Harness`: a computer-use loop for any OpenAI-compatible model. It has a ready-wait, chunked screenshot

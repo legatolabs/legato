@@ -15,6 +15,7 @@ where the time went.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -49,23 +50,38 @@ def main(argv=None) -> int:
     r.add_argument("--coords", default=None, choices=["norm1000", "pixels"],
                    help="default: pixels for Claude models, norm1000 (0-1000 grid) otherwise")
     r.add_argument("--sandbox", default="e2b", choices=["e2b"])
+    r.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
     a = ap.parse_args(argv)
     from legato import Harness, attach
     try:
         from e2b_desktop import Sandbox
     except ImportError:
-        print('E2B Desktop is not installed: pip install "legatolabs[e2b]"', file=sys.stderr)
-        return 2
-    agent = Harness(model=a.model, base_url=a.base_url, api_key=os.environ.get(a.api_key_env, ""), coords=a.coords)
+        return _fail('E2B Desktop is not installed. Run: pip install "legatolabs[e2b]"')
+    if not os.environ.get("E2B_API_KEY"):
+        return _fail("E2B_API_KEY is not set. Get a key at https://e2b.dev and export it.")
+    key = os.environ.get(a.api_key_env, "")
+    if not key and not any(h in a.base_url for h in ("localhost", "127.0.0.1", "0.0.0.0")):
+        return _fail(f"{a.api_key_env} is not set. Export your model provider's key, or pass --api-key-env NAME.")
+    agent = Harness(model=a.model, base_url=a.base_url, api_key=key, coords=a.coords)
+    say = (lambda *_: None) if a.json else print
     desk = Sandbox.create()
     try:
         res = agent.run(a.task, attach(desk), max_steps=a.max_steps,
-                        on_step=lambda i, acts, t: print(f"turn {i + 1}: {', '.join(x.describe() for x in acts) or '-'} "
-                                                         f"(model {t['model_s']:.1f} s, waiting {t['settle_s']:.1f} s)"))
+                        on_step=lambda i, acts, t: say(f"turn {i + 1}: {', '.join(x.describe() if x else 'screenshot' for x in acts) or '-'}"
+                                                       f" (model {t['model_s']:.1f} s, waiting {t['settle_s']:.1f} s)"))
     finally:
         desk.kill()
-    print(res.report())
+    if a.json:
+        print(json.dumps({"done": res.done, "failed": res.failed, "error": res.error, "steps": res.steps,
+                          "actions": res.actions, "wall_s": round(res.wall_s, 2), "usage": res.usage}))
+    else:
+        print(res.report())
     return 0 if res.done else 1
+
+
+def _fail(msg: str) -> int:
+    print(f"legato: {msg}", file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.legatolabs/legato",
+  "title": "Legato",
+  "description": "Cloud Linux desktops for any agent: each action returns the settled screenshot.",
+  "websiteUrl": "https://legato.computer/docs/mcp",
+  "repository": {
+    "url": "https://github.com/legatolabs/legato",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "legatolabs",
+      "version": "0.1.1",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {"type": "named", "name": "--with", "value": "mcp>=1.2", "description": "The MCP server extra"},
+        {"type": "named", "name": "--with", "value": "e2b-desktop>=2.7", "description": "The E2B desktop extra"}
+      ],
+      "packageArguments": [
+        {"type": "positional", "value": "mcp"}
+      ],
+      "environmentVariables": [
+        {
+          "name": "E2B_API_KEY",
+          "description": "E2B API key, for the cloud desktops (e2b.dev)",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "OPENROUTER_API_KEY",
+          "description": "Only for desktop_run_task with its default model",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

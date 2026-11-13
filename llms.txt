@@ -1,37 +1,45 @@
 # Legato
 
-> Legato is an open-source (Apache-2.0) computer-use harness for any OpenAI-compatible vision model: Qwen, DeepSeek, Claude, vLLM or SGLang servers, or OpenRouter. It drives a desktop sandbox (E2B or any sandbox you can screenshot) with a Claude-style `computer` tool, waits until the screen is ready instead of sleeping a fixed time, batches actions, and bounds every model call. Install with `pip install "legatolabs[e2b]"` (the PyPI package is `legatolabs`; the module is imported as `legato`).
+> Open-source computer-use harness for any OpenAI-compatible vision model (Qwen, DeepSeek, Claude, vLLM, OpenRouter). It drives a desktop with a `computer` tool, waits for the screen instead of sleeping, and bounds every model call. Apache-2.0.
 
-Measured results, same model and same desktops, 24 office tasks per run:
-- Claude Sonnet 5.5: 1.48x faster than a re-implementation of Anthropic's computer-use reference loop, 48/48 vs 48/48 success (one run).
-- Qwen3.8-27B: about the same speed as OSWorld's Qwen agent scaffold, 74% vs 55% success over two runs.
+## Instructions for coding agents
 
-## Docs
-
-- [README](https://legato.computer/docs): what it is, results, quickstart
-- [Benchmarks](https://legato.computer/docs/benchmarks): method, all numbers, raw rollouts, what the results do not show
-- [Models](https://legato.computer/docs/models): coordinates, thinking models, tool calls, caching, settings
-- [Sandboxes](https://legato.computer/docs/sandboxes): E2B, any sandbox via screenshot/execute functions, OSWorld VMs
-- [MCP server](https://legato.computer/docs/mcp): `legato mcp` gives Claude Code, Cursor or any MCP client a cloud desktop with settled screenshots
-- [RL rollouts](https://legato.computer/docs/rl): `legato rl collect`, trajectory format, logprobs, GRPO groups
-- [FAQ](https://legato.computer/docs/faq)
-
-## Comparisons and migration
-
-- [Legato vs Anthropic's computer-use demo](https://legato.computer/docs/compare/anthropic-computer-use-demo)
-- [Legato vs OSWorld's Qwen agent](https://legato.computer/docs/compare/osworld-qwen-agent)
-- [Legato vs Agent S3](https://legato.computer/docs/compare/agent-s3)
-- [Legato vs UI-TARS-desktop](https://legato.computer/docs/compare/ui-tars-desktop)
-- [Migrating from cua-agent](https://legato.computer/docs/migrate/from-cua-agent)
-- [Migrating from Bytebot](https://legato.computer/docs/migrate/from-bytebot)
-
-## Minimal example
+- Install `pip install "legatolabs[e2b]"`. The PyPI name is `legatolabs`, but the import is `import legato`. There is no `pip install legato`.
+- Keys come from the environment: the model key (for example `OPENROUTER_API_KEY`) and `E2B_API_KEY` for E2B desktops.
+- Minimal loop:
 
 ```python
 import os, legato
 from e2b_desktop import Sandbox
 agent = legato.Harness(model="qwen/qwen3.8-27b", base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
 desk = Sandbox.create()
-print(agent.run("Open the terminal and print the date", legato.attach(desk)).report())
+result = agent.run("Open the terminal and print the date", legato.attach(desk), max_steps=30)
+print(result.done, result.report())
 desk.kill()
 ```
+
+- Any other sandbox: `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)`.
+- Coordinates: Claude models use pixels automatically; other models use a 0–1000 grid (`coords="norm1000"`). Set `coords=` explicitly for a model you have not checked.
+- Thinking models: the default `max_tokens=4096` is usually enough; raise it if `result.report()` shows cut-off turns.
+- To compare with Anthropic's reference loop: `legato.Harness.reference(...)` with `legato.attach(desk, fixed_wait_s=2.0)`.
+- MCP server for coding agents: `pip install "legatolabs[e2b,mcp]"`, then `claude mcp add legato -e E2B_API_KEY=... -- legato mcp`.
+
+## Docs (Markdown)
+
+- [README](https://legato.computer/docs/index.md): overview and quickstart
+- [Benchmarks](https://legato.computer/docs/benchmarks.md): results, method, raw data
+- [Models](https://legato.computer/docs/models.md): coordinates, thinking models, settings
+- [Sandboxes](https://legato.computer/docs/sandboxes.md): E2B, any sandbox, OSWorld VMs
+- [MCP server](https://legato.computer/docs/mcp.md)
+- [RL rollouts](https://legato.computer/docs/rl.md)
+- [FAQ](https://legato.computer/docs/faq.md)
+- [All docs in one file](https://legato.computer/llms-full.txt)
+
+## Optional
+
+- [vs Anthropic's demo](https://legato.computer/docs/compare/anthropic-computer-use-demo.md)
+- [vs OSWorld's Qwen agent](https://legato.computer/docs/compare/osworld-qwen-agent.md)
+- [vs Agent S3](https://legato.computer/docs/compare/agent-s3.md)
+- [vs UI-TARS-desktop](https://legato.computer/docs/compare/ui-tars-desktop.md)
+- [Migrate from cua-agent](https://legato.computer/docs/migrate/from-cua-agent.md)
+- [Migrate from Bytebot](https://legato.computer/docs/migrate/from-bytebot.md)
