@@ -37,7 +37,9 @@ For VS Code (`.vscode/mcp.json`): `{"servers": {"legato": {"type": "stdio", "com
 | `["mcp"]` with `E2B_API_KEY` set | a cloud desktop on E2B |
 
 Then ask, for example: "Open http://host.docker.internal:3000 in Firefox on the Legato desktop and check that the login
-form works." From inside the container, `host.docker.internal` is your machine, so the agent can test the app you are
+form works." ![Claude Code checks a signup form on a Legato desktop](https://legato.computer/media/claude-code-legato.gif)
+
+From inside the container, `host.docker.internal` is your machine, so the agent can test the app you are
 running. We ran this flow with Claude Code end to end: it started Firefox from the desktop's terminal, filled in a
 signup form served from the host, and reported the page's validation message. The tools are listed on the
 [MCP page](../mcp.md).

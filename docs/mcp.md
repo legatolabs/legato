@@ -37,5 +37,7 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
 
 - **`desktop_act` lets your agent drive.** Use it when your agent's own model (for example Claude in Claude Code) does
   the computer use.
+- **See what the agent did:** `legato mcp --record DIR` saves every screenshot the agent got, with a `log.jsonl` of its
+  actions, under `DIR/<desktop_id>/`.
 - **`desktop_run_task` delegates.** Use it to offload a whole GUI task to a cheaper open model while your agent keeps
   working.

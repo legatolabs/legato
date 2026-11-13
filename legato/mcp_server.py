@@ -43,18 +43,37 @@ def e2b_factory(resolution: tuple[int, int]):
     return providers.e2b(*resolution)
 
 
-def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_factory, about: str = "") -> _Server:
+def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_factory, about: str = "",
+                 record: str | None = None) -> _Server:
     """The MCP server. `factory(resolution)` returns (sandbox, env); the default starts an E2B desktop. `about` tells
-    the agent what kind of desktop it gets."""
+    the agent what kind of desktop it gets. With `record`, every screenshot the agent gets is saved under
+    record/<desktop_id>/, with a log.jsonl of the actions."""
     srv = _Server("legato", instructions=(
         "Desktops for computer use. Open one with desktop_open, act with desktop_act using pixel coordinates of "
         "the latest screenshot, and close it with desktop_close when done. desktop_act returns as soon as the screen "
         "has settled, so there is no need to wait or take extra screenshots." + (" " + about if about else "")))
     desks: dict[str, dict] = {}
 
+    def keep(did: str, event: str, png: bytes | None, **detail: Any) -> None:
+        if not record:
+            return
+        import json
+        from pathlib import Path
+        d = desks[did]
+        d["n"] = d.get("n", 0) + 1
+        folder = Path(record) / did
+        folder.mkdir(parents=True, exist_ok=True)
+        name = f"{d['n']:04d}-{event}.png"
+        if png:
+            (folder / name).write_bytes(png)
+        with open(folder / "log.jsonl", "a") as f:
+            f.write(json.dumps({"t": round(time.time() - d["opened"], 3), "step": d["n"], "event": event,
+                                "screenshot": name if png else None, **detail}) + "\n")
+
     def shot(d: dict) -> Image:
         obs = d["env"].observe()
         d["wh"] = (obs.width, obs.height)
+        d["png"] = obs.screenshot
         return Image(data=obs.screenshot, format="png")
 
     def get(desktop_id: str) -> dict:
@@ -72,6 +91,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         desks[did] = {"sb": sb, "env": env, "wh": (width, height), "opened": time.time()}
         img = shot(desks[did])
         w, h = desks[did]["wh"]
+        keep(did, "open", desks[did]["png"], width=w, height=h)
         return [f"desktop_id: {did} ({w}x{h})", img]
 
     @srv.tool()
@@ -95,12 +115,15 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         last = d["env"].last
         note = (f"{a.describe()}: done in {time.monotonic() - t:.2f} s "
                 f"(waited {last.get('settle_s', 0.0):.2f} s for the screen)")
+        keep(desktop_id, kind, obs.screenshot, action=a.describe(), settle_s=round(last.get("settle_s", 0.0), 3))
         return [note, Image(data=obs.screenshot, format="png")]
 
     @srv.tool()
     def desktop_screenshot(desktop_id: str) -> Image:
         """The current screen of an open desktop."""
-        return shot(get(desktop_id))
+        img = shot(get(desktop_id))
+        keep(desktop_id, "screenshot", desks[desktop_id]["png"])
+        return img
 
     @srv.tool()
     def desktop_run_task(desktop_id: str, task: str, model: str = "qwen/qwen3.8-27b",
@@ -112,14 +135,17 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         d = get(desktop_id)
         agent = Harness(model=model, base_url=base_url, api_key=os.environ.get(api_key_env, ""))
         res = agent.run(task, d["env"], max_steps=max_steps)
-        return [res.report() + "\nactions: " + "; ".join(res.actions[-20:]), shot(d)]
+        img = shot(d)
+        keep(desktop_id, "run_task", d["png"], task=task, model=model, done=res.done, actions=res.actions[-50:])
+        return [res.report() + "\nactions: " + "; ".join(res.actions[-20:]), img]
 
     @srv.tool()
     def desktop_close(desktop_id: str) -> str:
         """Stop a desktop."""
-        d = desks.pop(desktop_id, None)
-        if d is None:
+        if desktop_id not in desks:
             return f"no open desktop {desktop_id!r}"
+        keep(desktop_id, "close", None)
+        d = desks.pop(desktop_id)
         from legato import providers
         providers.close(d["sb"])
         return f"closed {desktop_id} after {time.time() - d['opened']:.0f} s"
@@ -136,9 +162,11 @@ def main(argv=None) -> int:
                     help="e2b (default), local (this computer), or your own: path/to/file.py:function or "
                          "module:function, a function (width, height) returning a legato Env (see docs/sandboxes.md)")
     ap.add_argument("--local", action="store_true", help="the same as --sandbox local (moves your real mouse)")
+    ap.add_argument("--record", metavar="DIR", help="save every screenshot the agent gets, with a log of its actions, "
+                                                   "under DIR/<desktop_id>/")
     a = ap.parse_args(argv)
     spec = "local" if a.local else a.sandbox
     make = providers.load(spec)
     providers.warm(spec)                       # e.g. pull the desktop image while the agent gets going
-    build_server(lambda res: make(*res), about=providers.about(spec)).run()
+    build_server(lambda res: make(*res), about=providers.about(spec), record=a.record).run()
     return 0

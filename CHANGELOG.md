@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `legato mcp --record DIR`: every screenshot the agent got, with a log of its actions.
+
 ## 0.1.5
 
 - The MCP server tells the agent what kind of desktop it has (for docker: a terminal is open, and the user's apps are

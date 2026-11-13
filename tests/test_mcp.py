@@ -53,3 +53,23 @@ def test_open_act_screenshot_close():
         assert "closed" in r.content[0].text and killed == [True]
     asyncio.run(go())
     assert [(a.type, a.x, a.y) for a in done[:1]] == [("click", 10, 20)]
+
+
+def test_record(tmp_path):
+    import json
+
+    def factory(res):
+        return None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None, fixed_wait_s=0.0)
+
+    srv = build_server(factory, record=str(tmp_path))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        did = r.content[0].text.split()[1]
+        await srv.call_tool("desktop_act", {"desktop_id": did, "action": "click", "x": 1, "y": 2})
+        await srv.call_tool("desktop_close", {"desktop_id": did})
+        return did
+    did = asyncio.run(go())
+    log = [json.loads(line) for line in (tmp_path / did / "log.jsonl").read_text().splitlines()]
+    assert [e["event"] for e in log] == ["open", "click", "close"]
+    assert (tmp_path / did / log[1]["screenshot"]).read_bytes().startswith(b"\x89PNG")
