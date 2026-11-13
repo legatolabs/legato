@@ -29,6 +29,11 @@ desktops are Linux today; managed Windows and macOS desktops are planned for Leg
 Use a desktop container (`--sandbox docker`) or a cloud desktop when you can: the agent then never touches your own
 screen or files. On your own screen, move the mouse into a corner to stop it.
 
+**How does it compare with other computer-use MCP servers?**
+Legato can give the agent a desktop container, any sandbox or a cloud desktop instead of your own screen, and each
+action returns once the screen has settled. Several others act through the accessibility tree on your own screen
+([comparison](compare/computer-use-mcp-servers.md)).
+
 **Which desktops?**
 Your own computer (macOS, Windows, Linux), any Linux sandbox you can run a command in (Docker, SSH, Daytona, your own
 VMs), E2B, anything you can screenshot and send input to, and OSWorld's VMs ([sandboxes](sandboxes.md)). Managed
