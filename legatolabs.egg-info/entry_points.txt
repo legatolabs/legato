@@ -1,2 +1,0 @@
-[console_scripts]
-legato = legato.__main__:main
