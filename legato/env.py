@@ -34,6 +34,7 @@ from typing import Any, Callable
 
 from legato.actions import Action
 from legato.settle import LOCAL_RULES, Waiter, rule_kind
+from legato.tools import wrap_command
 
 HELPER_PATH = "/tmp/legato_step.py"
 HELPER = r'''
@@ -238,7 +239,11 @@ def xdotool_cmds(a: Action) -> tuple[list[list[str]], float]:
 
 class Env:
     """An attached sandbox. `last` holds the timing of the latest act: act_s, settle_s, obs_s. With `fixed_wait_s` it
-    sleeps that long after every action instead of waiting for the screen (to reproduce a fixed-sleep loop)."""
+    sleeps that long after every action instead of waiting for the screen (to reproduce a fixed-sleep loop).
+    `shell(cmd, timeout_s) -> output` runs a command on the desktop's computer, for `legato.tools.bash`; None when the
+    desktop has no shell."""
+
+    shell: Callable[[str, float], str] | None = None
 
     def __init__(self, screenshot: Callable[[], bytes], execute: Callable[[Action], Any] | None = None,
                  step: Callable[[Action], dict] | None = None, fixed_wait_s: float | None = None):
@@ -307,6 +312,10 @@ class E2BEnv(Env):
             self.helper = False
         super().__init__(self._screenshot, self._sdk_execute, self._helper_step if self.helper else None,
                          fixed_wait_s=fixed_wait_s)
+
+    def shell(self, cmd: str, timeout_s: float = 30.0) -> str:
+        r = self.sb.commands.run(wrap_command(cmd, timeout_s), timeout=timeout_s + 15)
+        return (r.stdout or "") + (r.stderr or "")
 
     def _screenshot(self) -> bytes:
         b = self.sb.screenshot()
@@ -389,6 +398,9 @@ class ShellEnv(Env):
             raise RuntimeError("Legato's helper did not answer from the sandbox; it needs an X display and xdotool "
                                "(and python3 and scrot where the native helper can't run). "
                                f"Output: {out[-300:]!r}") from None
+
+    def shell(self, cmd: str, timeout_s: float = 30.0) -> str:
+        return _stdout(self.run(self.PRE + wrap_command(cmd, timeout_s)))
 
     def _screenshot(self) -> bytes:
         out = self._call({"cmds": [], "rule": {**LOCAL_RULES["default"], "cap": 0}, "shot": True})
