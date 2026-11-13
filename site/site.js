@@ -125,6 +125,23 @@
     });
   });
 
+  /* ---------- figures: play while on screen, unless the reader paused them or prefers less motion ---------- */
+  const vids = document.querySelectorAll("video[data-autoplay]");
+  if (vids.length && "IntersectionObserver" in window
+      && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const io = new IntersectionObserver((entries) => {
+      for (const { target: v, isIntersecting } of entries) {
+        if (isIntersecting && !v.dataset.held) { v.preload = "auto"; v.play().catch(() => {}); }
+        else if (!isIntersecting && !v.paused) { v.dataset.auto = "1"; v.pause(); }
+      }
+    }, { threshold: 0.4 });
+    for (const v of vids) {
+      v.addEventListener("pause", () => { if (v.dataset.auto) delete v.dataset.auto; else v.dataset.held = "1"; });
+      v.addEventListener("play", () => { delete v.dataset.held; });
+      io.observe(v);
+    }
+  }
+
   /* ---------- copy ---------- */
   for (const b of document.querySelectorAll("[data-copy]")) {
     b.addEventListener("click", async () => {

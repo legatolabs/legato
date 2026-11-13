@@ -33,6 +33,8 @@ Same model, same desktops, all arms run at the same time.
 
 - **Claude:** the saving is waiting. Per task, Legato waited 14.0 s for the screen against 44.5 s, with about the same
   model time.
+- **The replay on legato.computer** is `office-11-paste_chart`, attempt 1: 151.7 s of agent time for the reference
+  loop, 78.8 s for Legato, both passed.
 - **Qwen:** this run's speed gap came from four runaway 32,768-token replies in OSWorld's agent. It did not replicate
   (see H2H-2).
 

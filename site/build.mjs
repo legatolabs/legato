@@ -146,8 +146,6 @@ for (const f of readdirSync(SITE).filter((n) => /^[0-9a-f]{32}\.txt$/.test(n))) 
 cpSync(join(SITE, "brand"), join(DIST, "brand"), { recursive: true });
 mkdirSync(join(DIST, "media"), { recursive: true });
 if (existsSync(join(SITE, "media"))) cpSync(join(SITE, "media"), join(DIST, "media"), { recursive: true });
-const video = join(ROOT, "benchmarks/results/h2h-1/demo-claude.mp4");
-if (existsSync(video)) cpSync(video, join(DIST, "media/demo-claude.mp4"));
 
 const files = ["README.md", ...walk(join(ROOT, "docs")).map((p) => relative(ROOT, p).split("\\").join("/"))];
 const urls = ["/"], full = [];

@@ -83,8 +83,8 @@
 <section id="figure" class="doc-block">
   <div class="wrap">
     <figure class="fig">
-      <video src="/media/demo-claude.mp4" poster="/media/demo-poster.jpg" controls muted playsinline preload="none" aria-label="Side-by-side replay: reference loop vs Legato"></video>
-      <figcaption><span class="no">Fig. 1</span> Claude Sonnet 5.5, same task, 4× speed. Left: Anthropic's reference loop, 237.5 s. Right: Legato, 91.8 s. Both passed. Real screenshots at real timestamps.</figcaption>
+      <video poster="/media/race-poster.jpg" width="1920" height="1080" controls muted loop playsinline preload="none" data-autoplay aria-label="Side-by-side replay: Anthropic's reference loop and Legato, same model and task"><source src="/media/race-claude.mp4" type="video/mp4"><source src="/media/race-claude.webm" type="video/webm"></video>
+      <figcaption><span class="no">Fig. 1</span> Claude Sonnet 5.5 on one office task, played at 5× speed. Same model, same desktop; only the loop differs. Anthropic's reference loop took 151.7 s from the first screenshot to the last model turn, Legato 78.8 s, and both passed. Across 24 tasks Legato was 1.48× faster at the same success rate (<a href="/docs/benchmarks">benchmarks</a>).</figcaption>
     </figure>
   </div>
 </section>
@@ -176,12 +176,14 @@ legato run <span class="s">"Create a folder named reports on the desktop"</span>
     --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1</pre>
         </div>
       </div>
-      <figure class="fig fig2">
-        <img src="/media/claude-code-legato.gif" alt="Claude Code checks a signup form on a Legato desktop container" width="960" height="656" loading="lazy">
-        <figcaption><span class="no">Fig. 2</span> Claude Code, given Legato's MCP server, opens the app running on the host in Firefox inside a desktop container, tries an invalid and a valid email, and reports what the page said. A real run, sped up.</figcaption>
-      </figure>
       <p class="more"><a href="/docs">Documentation →</a> <a href="/docs/sandboxes">Bring your own sandbox →</a> <a href="/docs/compare/anthropic-computer-use-demo">Comparisons →</a></p>
     </div>
+  </div>
+  <div class="wrap">
+    <figure class="fig fig2">
+      <video poster="/media/claude-code-legato-poster.jpg" width="1920" height="1080" controls muted loop playsinline preload="none" data-autoplay aria-label="Claude Code checks a signup form in a Legato desktop container"><source src="/media/claude-code-legato.mp4" type="video/mp4"><source src="/media/claude-code-legato.webm" type="video/webm"></video>
+      <figcaption><span class="no">Fig. 2</span> Claude Code with Legato's MCP server, in real time. It opens the app running on the host in Firefox inside a desktop container, tries an invalid and a valid email, and reports what the page said, including a bug: the success message is red. Every image is a screenshot the server returned.</figcaption>
+    </figure>
   </div>
 </section>
 
