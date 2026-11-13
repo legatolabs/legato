@@ -30,7 +30,8 @@ the desktop runs and how they see the screen. Checked against each project's own
 - **Native Windows automation:** Windows-MCP or Terminator.
 - **Hand a long GUI task to a cheaper model,** or measure and train agents: Legato (`desktop_run_task`,
   [benchmarks](../benchmarks.md), [RL rollouts](../rl.md)).
-- **No install, on a Claude plan, on a Mac:** Claude Code's built-in computer use.
+- **No install, on a Claude plan, on a Mac:** Claude Code's built-in computer use. On Linux, a Team plan, Bedrock, in
+  `claude -p` or in parallel sessions, it isn't available; Legato is ([guide](../guides/claude-code-computer-use-anywhere.md)).
 
 Legato works from screenshots and pixel coordinates, the way vision-language models are trained to act. That works on
 any app, including ones with a poor accessibility tree, but it gives the model no element IDs.

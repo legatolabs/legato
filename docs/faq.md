@@ -21,6 +21,11 @@ No. Bring any model: Qwen through OpenRouter, Claude, or your own vLLM server, w
 Yes, through the MCP server: `claude mcp add legato -- legato mcp --sandbox docker` gives the agent a desktop container
 to look at and click ([guide](guides/coding-agent-computer.md)).
 
+**Claude Code's `computer-use` server isn't in `/mcp`. What can I use?**
+The built-in server needs a Mac, a Pro, Max or Ultra plan and an interactive session. Legato's MCP server works on
+Linux and Windows, on Team and Enterprise plans, with Bedrock or Vertex AI, in `claude -p`, and in several sessions at
+once ([guide](guides/claude-code-computer-use-anywhere.md)).
+
 **Does it work on macOS and Windows?**
 Yes, on your own computer: `legato.local()` drives the screen of a Mac, a Windows PC or a Linux desktop. Cloud
 desktops are Linux today; managed Windows and macOS desktops are planned for Legato Cloud.

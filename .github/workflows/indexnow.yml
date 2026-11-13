@@ -1,0 +1,22 @@
+# Tell Bing, Yandex and the other IndexNow engines (which feed ChatGPT search and Copilot) that the site changed.
+# The key file is site/<key>.txt, served at https://legato.computer/<key>.txt.
+name: indexnow
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "README.md", "llms.txt", "site/**"]
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for the Vercel deploy, then submit every sitemap URL
+        run: |
+          key=$(basename site/[0-9a-f]*.txt .txt)
+          sleep 180
+          urls=$(curl -fsS https://legato.computer/sitemap.xml | grep -o '<loc>[^<]*</loc>' | sed 's/<[^>]*>//g' \
+            | python3 -c 'import json,sys; print(json.dumps([u.strip() for u in sys.stdin if u.strip()] + ["https://legato.computer/llms.txt", "https://legato.computer/llms-full.txt"]))')
+          body="{\"host\":\"legato.computer\",\"key\":\"$key\",\"keyLocation\":\"https://legato.computer/$key.txt\",\"urlList\":$urls}"
+          curl -sS -o /dev/null -w "IndexNow: %{http_code}\n" -X POST https://api.indexnow.org/indexnow \
+            -H "Content-Type: application/json; charset=utf-8" -d "$body"

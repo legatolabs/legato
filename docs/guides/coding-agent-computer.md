@@ -41,6 +41,7 @@ desktop, fix the bug, then reload the page there to check your fix."
 ![Claude Code sees a chart bug on a Legato desktop, fixes it and checks the fix](https://legato.computer/media/claude-code-legato.gif)
 
 From inside the container, `host.docker.internal` is your machine, so the agent can test the app you are
-running. We ran this flow with Claude Code end to end: it started Firefox from the desktop's terminal, saw the bars
+running. On Linux, start your dev server on `0.0.0.0` (for example `npm run dev -- --host 0.0.0.0`): a server that
+listens only on `127.0.0.1` can't be reached from the container. We ran this flow with Claude Code end to end: it started Firefox from the desktop's terminal, saw the bars
 hanging from the top of the chart, changed one line, and reloaded to check the fix. The tools are listed on the
 [MCP page](../mcp.md).
