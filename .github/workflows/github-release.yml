@@ -1,5 +1,5 @@
-# Create (or update) the GitHub release for an existing tag, from its CHANGELOG.md section. New versions get theirs
-# from release.yml; this is for tags made before that.
+# Create (or update) the GitHub release for an existing tag, from its CHANGELOG.md section, and attach the Claude
+# Desktop extension (legato.mcpb) built from the dispatched ref. New versions get both from release.yml.
 name: github-release
 on:
   workflow_dispatch:
@@ -22,3 +22,11 @@ jobs:
           test -s notes.md || { echo "no CHANGELOG section for $V"; exit 1; }
           gh release view "v$V" >/dev/null 2>&1 && gh release edit "v$V" --notes-file notes.md \
             || gh release create "v$V" --title "v$V" --notes-file notes.md --verify-tag
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ inputs.version }}
+        run: |
+          jq --arg v "$V" '.version = $v' mcpb/manifest.json > m.json && mv m.json mcpb/manifest.json
+          npx -y @anthropic-ai/mcpb validate mcpb/manifest.json
+          npx -y @anthropic-ai/mcpb pack mcpb legato.mcpb
+          gh release upload "v$V" legato.mcpb --clobber

@@ -2,5 +2,5 @@
 name = "legato-desktop-extension"
 version = "0.1.5"
 description = "Legato's MCP server packaged as a Claude Desktop extension"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["legatolabs[mcp,local,e2b]>=0.1.5"]
