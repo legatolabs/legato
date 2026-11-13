@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.legatolabs/legato",
   "title": "Legato",
-  "description": "A computer for any agent: a desktop container, your screen or the cloud, with settled screenshots.",
+  "description": "Computer use for Claude Code, Codex or Cursor: a Docker desktop, your own screen or E2B.",
   "websiteUrl": "https://legato.computer/docs/mcp",
   "repository": {
     "url": "https://github.com/legatolabs/legato",
