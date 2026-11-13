@@ -7,6 +7,11 @@
   while the wait sits out its quiet time. The stop rule and the JSON it answers are unchanged. Sandboxes it can't run
   in keep the Python helper; `LEGATO_HELPER=python` chooses it.
 - Requests to OpenRouter name Legato as the app (`HTTP-Referer`, `X-Title`); `LEGATO_NO_ATTRIBUTION=1` turns it off.
+- `Harness(tools=[...])`: tools beside `computer`. `legato.tools.bash(env)` runs commands in the desktop's own shell
+  (E2B, `attach(shell=...)`, `--sandbox docker`, `legato.local()`); `legato.Tool` wraps your own function. Calls run
+  in the order the model sent them, each result goes back as text, and a tool that raises is reported to the model.
+  Models without native tool calls are told the JSON form. Without `tools`, requests are unchanged.
+  `result.report()` shows tool time.
 
 ## 0.1.8
 
