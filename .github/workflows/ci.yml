@@ -21,3 +21,16 @@ jobs:
         with:
           node-version: "22"
       - run: cd site && npm ci && node build.mjs
+  desktop:
+    # the --sandbox docker path: build the desktop image and drive it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: docker build -t legato-desktop:ci docker/desktop
+      - run: pytest -q tests/test_bring_your_own.py
+        env:
+          LEGATO_TEST_DOCKER_IMAGE: legato-desktop:ci
