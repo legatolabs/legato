@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "legato",
   "display_name": "Legato",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Give Claude a computer: a desktop container, this computer's screen, or a cloud desktop, that it can see and click.",
   "long_description": "Legato opens a desktop and lets Claude click, type and read the screen. Each action returns the new screenshot as soon as the screen has stopped changing. Choose where the desktop runs: a Linux container on this machine (needs Docker; Claude cannot touch your own screen), this computer's own screen (macOS and Windows: give Claude Desktop Screen Recording and Accessibility permission), or an E2B cloud desktop (needs an E2B API key). Open source, Apache-2.0: https://github.com/legatolabs/legato",
   "author": {

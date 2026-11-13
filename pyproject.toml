@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legatolabs"
-version = "0.1.5"
+version = "0.1.6"
 description = "Open-source computer-use harness for any OpenAI-compatible model (Qwen, DeepSeek, Claude, vLLM): drive your own computer, any sandbox or cloud desktops, with an MCP server for coding agents."
 readme = "README.md"
 requires-python = ">=3.10"
