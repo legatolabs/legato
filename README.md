@@ -2,6 +2,7 @@
 
 Open-source computer-use harness for any OpenAI-compatible model: Qwen, DeepSeek, Claude, or your own vLLM server.
 It drives a desktop with a `computer` tool, waits for the screen instead of sleeping, and bounds every model call.
+Bring your own computer: your own screen (macOS, Windows, Linux), any sandbox you already run, or a cloud desktop.
 
 ```bash
 pip install "legatolabs[e2b]"      # PyPI name: legatolabs. Import name: legato.
@@ -19,7 +20,13 @@ print(result.report())                                # where the time went
 desk.kill()
 ```
 
-Or from the shell: `legato run "Open the terminal and print the date" --model qwen/qwen3.8-27b --base-url https://openrouter.ai/api/v1`
+`legato.local()` drives your own screen instead, and `legato.attach(shell=run)` any Linux sandbox you can run a command
+in, such as Docker or a VM ([sandboxes](docs/sandboxes.md)). With a model on your own GPU, nothing leaves your machine:
+
+```bash
+pip install "legatolabs[local]"
+legato run "Open the terminal and print the date" --sandbox local --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
+```
 
 ## Results
 

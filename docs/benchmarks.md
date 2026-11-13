@@ -56,7 +56,30 @@ official OSWorld-Verified submission.
 
 With fixed sleeps, 40–53% of rollout time was idle.
 
-## Managed desktops: pause, resume and fork (live check)
+## Legato Cloud: what the managed version adds
+
+The open-source loop runs anywhere. Legato Cloud also runs the model and the desktop, side by side, so it can save time
+the loop alone cannot. These are measurements of each part, not end-to-end task times. Raw data:
+[benchmarks/results/cloud](../benchmarks/results/cloud).
+
+**Live in the beta**
+
+| what | measured |
+|---|---|
+| A warm prefix cache: each run stays on one engine, and its next request is prefilled while the screen settles | a new screenshot with the history already cached prefills in 70 ms, vs 158 ms for the whole conversation (UI-TARS-1.5-7B and Qwen2.5-VL-7B); 255 ms vs 676 ms (Qwen2.5-VL-32B); 133 real desktop steps |
+| Speculative decoding (MTP-4) on the hosted Qwen3.8-27B | median task 1.46 s, vs 1.85 s without it (59 web tasks; 54 vs 55 succeeded) |
+| Pause, resume and fork a running desktop, memory included | see the table below |
+| Desktops from a warm pool | booting is off the critical path |
+
+**In development**
+
+| what | measured so far |
+|---|---|
+| Memory-snapshot forks | a running desktop restored in 0.7–0.9 s, vs 3.9–7.4 s to boot one and replay to the same point; 36 of 36 restores had the same screen and files, and 15 of 16 forks finished their task |
+| Forking a whole run, not only its desktop | the fork keeps the model's cached history, so it continues without prefilling it again (not yet measured) |
+| Denser desktops | 16 desktops per container: 0.67 container-seconds per episode, vs 10.46 with one per container (scripted replays; 29 of 30 vs 30 of 30 passed) |
+
+### Pause, resume and fork (live check)
 
 | step | E2B SDK | through the API |
 |---|---|---|
@@ -73,6 +96,7 @@ benchmark.
 - Only two models are measured end to end.
 - The Claude result is one run.
 - There is no head-to-head yet against Agent S3 or UI-TARS-desktop.
+- The Legato Cloud numbers measure parts (prefill, decoding, forks, density), not whole tasks.
 
 ## Raw data
 

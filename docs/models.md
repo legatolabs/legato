@@ -1,7 +1,7 @@
 # Which models work with Legato, and how to set them up
 
 Any model behind an OpenAI-compatible chat API that accepts images: OpenRouter, Together, Fireworks, or your own vLLM
-or SGLang server. Two settings depend on the model: coordinates and, for thinking models, the token budget.
+or SGLang server, including one on the same machine. Two settings depend on the model: coordinates and, for thinking models, the token budget.
 
 | model | through | with `legato.Harness` | notes |
 |---|---|---|---|
@@ -11,6 +11,18 @@ or SGLang server. Two settings depend on the model: coordinates and, for thinkin
 | DeepSeek-V4-Flash-Vision | vLLM, 8 H100 | runtime only | not yet tested with `legato.Harness` |
 
 Other models are untested; please open an issue with what you find.
+
+## On your own GPU
+
+Serve an open vision model with vLLM (or SGLang) and point Legato at it. A local server needs no API key.
+
+```bash
+vllm serve Qwen/Qwen3.5-9B --port 8000
+legato run "Rename the screenshots on the desktop by date" --sandbox local \
+    --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
+```
+
+## Settings
 
 - **Coordinates.** `coords="norm1000"` (default for non-Claude models) is `[x, y]` on a 0–1000 grid, the Qwen-VL
   convention. `coords="pixels"` (default for Claude) sends screenshots at Anthropic's recommended size (1024x768,

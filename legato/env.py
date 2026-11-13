@@ -10,7 +10,11 @@ trip). This avoids the SDK's slow paths: a synced mouse move that can stall ~15 
 place, 75 ms gaps between typed chunks, and one remote call per primitive. If the helper cannot run, it falls back
 to the SDK's own calls and client-side settle.
 
-Any other sandbox: `legato.attach(screenshot=fn, execute=fn)`. `fn(action)` performs an Action; legato settles
+Any Linux sandbox where you can run a shell command (Docker, SSH, Daytona, Modal, your own VMs):
+`legato.attach(shell=run)`, where `run(cmd)` runs a shell command in the sandbox and returns its stdout. The same helper
+then runs inside it, so each action is one call. The sandbox needs an X display, python3, xdotool and scrot.
+
+Anything else: `legato.attach(screenshot=fn, execute=fn)`. `fn(action)` performs an Action; legato settles
 client-side from the screenshot function.
 """
 from __future__ import annotations
@@ -262,13 +266,62 @@ class E2BEnv(Env):
             time.sleep(1.0)
 
 
-def attach(sandbox=None, *, screenshot: Callable[[], bytes] | None = None,
+class ShellEnv(Env):
+    """Any Linux sandbox with an X display where `run(cmd) -> stdout` runs a shell command: Legato installs its helper
+    there, and each action is then one call that acts, waits for the screen and returns the screenshot."""
+
+    PRE = "export DISPLAY=${DISPLAY:-:0}; "
+
+    def __init__(self, run: Callable[[str], Any], blink_off: bool = True, fixed_wait_s: float | None = None):
+        self.run = run
+        if blink_off:
+            run(self.PRE + "xfconf-query -c xsettings -p /Net/CursorBlink -n -t bool -s false 2>/dev/null || true; "
+                "gsettings set org.gnome.desktop.interface cursor-blink false 2>/dev/null || true")
+        run(f"echo {base64.b64encode(HELPER.encode()).decode()} | base64 -d > {HELPER_PATH}")
+        super().__init__(self._screenshot, self._execute_only, self._helper_step, fixed_wait_s=fixed_wait_s)
+
+    def _call(self, spec: dict) -> dict:
+        out = self.run(self.PRE + f"python3 {HELPER_PATH} " + shlex.quote(json.dumps(spec)))
+        out = out.decode() if isinstance(out, (bytes, bytearray)) else str(getattr(out, "stdout", out) or "")
+        try:
+            return json.loads(out.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            raise RuntimeError("Legato's helper did not answer from the sandbox; it needs an X display, python3, "
+                               f"xdotool and scrot. Output: {out[-300:]!r}") from None
+
+    def _screenshot(self) -> bytes:
+        out = self._call({"cmds": [], "rule": {**LOCAL_RULES["default"], "cap": 0}, "shot": True})
+        return base64.b64decode(out["png"])
+
+    def _execute_only(self, a: Action) -> None:          # for fixed_wait_s: act, no wait
+        cmds, extra = xdotool_cmds(a)
+        self._call({"cmds": cmds, "sleep": extra, "rule": {**LOCAL_RULES["default"], "cap": 0}})
+
+    def _helper_step(self, a: Action) -> dict:
+        cmds, extra = xdotool_cmds(a)
+        rule = LOCAL_RULES.get(rule_kind(a.type)) or LOCAL_RULES["default"]
+        t = time.monotonic()
+        out = self._call({"cmds": cmds, "sleep": extra, "rule": rule, "shot": True})
+        rtt = time.monotonic() - t
+        settle = float(out.get("settle_s", 0.0))
+        self._pending_png = base64.b64decode(out["png"]) if out.get("png") else None
+        return {"act_s": rtt - settle, "settle_s": settle, "capped": out.get("capped"), "helper": True}
+
+
+def attach(sandbox=None, *, shell: Callable[[str], Any] | None = None, screenshot: Callable[[], bytes] | None = None,
            execute: Callable[[Action], Any] | None = None, blink_off: bool = True,
            fixed_wait_s: float | None = None) -> Env:
-    """An E2B Desktop sandbox, or any sandbox given as screenshot / execute functions. `fixed_wait_s` replaces the wait
-    for the screen with a fixed sleep after each action (Anthropic's reference loop sleeps 2.0 s)."""
+    """Attach to a sandbox:
+    - `attach(e2b_sandbox)`: an E2B Desktop.
+    - `attach(shell=run)`: any Linux sandbox with an X display, where `run(cmd)` runs a shell command and returns
+      stdout (Docker, SSH, Daytona, Modal, your own VMs). It needs python3, xdotool and scrot.
+    - `attach(screenshot=fn, execute=fn)`: anything else.
+    `fixed_wait_s` replaces the wait for the screen with a fixed sleep after each action (Anthropic's reference loop
+    sleeps 2.0 s). For this computer's own screen, use `legato.local()`."""
     if sandbox is not None and hasattr(sandbox, "commands") and hasattr(sandbox, "screenshot"):
         return E2BEnv(sandbox, blink_off=blink_off, fixed_wait_s=fixed_wait_s)
+    if shell is not None:
+        return ShellEnv(shell, blink_off=blink_off, fixed_wait_s=fixed_wait_s)
     if screenshot is None or execute is None:
-        raise TypeError("attach(e2b_sandbox) or attach(screenshot=fn, execute=fn)")
+        raise TypeError("attach(e2b_sandbox), attach(shell=run) or attach(screenshot=fn, execute=fn)")
     return Env(screenshot, execute, fixed_wait_s=fixed_wait_s)

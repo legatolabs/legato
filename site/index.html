@@ -96,21 +96,43 @@
       <div class="cards">
         <a class="card" href="https://github.com/legatolabs/legato" rel="noopener">
           <div class="h"><span>legato</span><span class="tag">open source</span></div>
-          <p>Computer-use harness for any OpenAI-compatible model. Apache-2.0.</p>
+          <p>Computer-use harness for any OpenAI-compatible model, on any computer. Apache-2.0.</p>
         </a>
         <a class="card" href="/docs/mcp">
           <div class="h"><span>legato mcp</span><span class="tag">open source</span></div>
-          <p>A cloud desktop for Claude Code, Cursor or any MCP client.</p>
+          <p>Your screen, your sandbox or a cloud desktop, for Claude Code, Cursor or any MCP client.</p>
         </a>
         <a class="card" href="/docs/rl">
           <div class="h"><span>legato rl</span><span class="tag">open source</span></div>
           <p>Graded desktop rollouts for computer-use RL.</p>
         </a>
-        <a class="card" href="/#access">
+        <a class="card" href="/#cloud">
           <div class="h"><span>Legato Cloud</span><span class="tag beta">beta</span></div>
-          <p>Managed desktops that pause, resume and fork, plus hosted open models.</p>
+          <p>The model and the desktop side by side: warm caches, forks with memory, hosted open models.</p>
         </a>
       </div>
+    </div>
+  </div>
+</section>
+
+<section id="cloud" class="doc-block">
+  <div class="wrap two">
+    <div class="label"><span class="hash">#</span> Legato Cloud</div>
+    <div class="body">
+      <p>The open-source harness runs on any computer. Legato Cloud runs the model and the desktop side by side, so it saves time the loop alone cannot. Each number is one part, measured; <a href="/docs/benchmarks#legato-cloud-what-the-managed-version-adds">method and raw data</a>.</p>
+      <div class="gains">
+        <div><div class="n">2.3–2.7×</div><div class="t">faster prefill per step: each run's history stays cached on one engine, and the next request is prefilled while the screen settles</div></div>
+        <div><div class="n">1.27×</div><div class="t">faster median task with speculative decoding on the hosted open model</div></div>
+        <div><div class="n">2.0 s</div><div class="t">to fork a running desktop through the API, open apps and memory included</div></div>
+        <div><div class="n">warm pool</div><div class="t">desktops boot ahead of time, so a run rarely waits for one</div></div>
+      </div>
+      <p class="sub">In development</p>
+      <div class="gains dev">
+        <div><div class="n">0.7–0.9 s</div><div class="t">to restore a desktop from a memory snapshot, vs 3.9–7.4 s to boot one and replay to the same point</div></div>
+        <div><div class="n">no re-prefill</div><div class="t">when a whole run forks: the fork keeps the model's cached history</div></div>
+        <div><div class="n">16×</div><div class="t">denser: 16 desktops per container, 15.6× less container time per episode</div></div>
+      </div>
+      <p class="more"><a href="/#access">Request early access →</a></p>
     </div>
   </div>
 </section>
@@ -133,22 +155,24 @@
 agent = legato.Harness(model=<span class="s">"qwen/qwen3.8-27b"</span>,
                        base_url=<span class="s">"https://openrouter.ai/api/v1"</span>,
                        api_key=os.environ[<span class="s">"OPENROUTER_API_KEY"</span>])
-desk = Sandbox.create()
+desk = Sandbox.create()     <span class="c"># or legato.local(), or legato.attach(shell=run) for your sandbox</span>
 result = agent.run(<span class="s">"Open the terminal and print the date"</span>, legato.attach(desk))
 print(result.report())   <span class="c"># model, actions, waiting for the screen</span></pre>
         </div>
         <div class="tabpanel" role="tabpanel" id="p-mcp" aria-labelledby="t-mcp" hidden>
-<pre><span class="c"># a cloud desktop for Claude Code, Cursor or any MCP client</span>
-pip install <span class="s">"legatolabs[e2b,mcp]"</span>
-claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp</pre>
+<pre><span class="c"># a computer for Claude Code, Cursor or any MCP client</span>
+pip install <span class="s">"legatolabs[mcp,local]"</span>
+claude mcp add legato -- legato mcp --local                  <span class="c"># your screen</span>
+claude mcp add legato -- legato mcp --sandbox my.py:desktop  <span class="c"># your sandbox</span></pre>
         </div>
         <div class="tabpanel" role="tabpanel" id="p-cli" aria-labelledby="t-cli" hidden>
-<pre>pip install <span class="s">"legatolabs[e2b]"</span>
-legato run <span class="s">"Create a folder named reports on the desktop"</span> \
-    --model anthropic/claude-sonnet-5.5 --base-url https://openrouter.ai/api/v1</pre>
+<pre><span class="c"># your own screen and a model on your own GPU: nothing leaves the machine</span>
+pip install <span class="s">"legatolabs[local]"</span>
+legato run <span class="s">"Create a folder named reports on the desktop"</span> --sandbox local \
+    --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1</pre>
         </div>
       </div>
-      <p class="more"><a href="/docs">Documentation →</a> <a href="/docs/compare/anthropic-computer-use-demo">Comparisons →</a> <a href="/docs/migrate/from-cua-agent">Migrating from cua-agent →</a></p>
+      <p class="more"><a href="/docs">Documentation →</a> <a href="/docs/sandboxes">Bring your own sandbox →</a> <a href="/docs/compare/anthropic-computer-use-demo">Comparisons →</a></p>
     </div>
   </div>
 </section>

@@ -18,18 +18,20 @@ print(result.done, result.report())
 desk.kill()
 ```
 
-- Any other sandbox: `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)`.
+- This computer: `legato.local()` (`pip install "legatolabs[local]"`); it moves the real mouse. Any Linux sandbox with a shell: `legato.attach(shell=fn_running_a_command_returning_stdout)` (needs X, python3, xdotool, scrot inside). Anything else: `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)`.
+- CLI and MCP take `--sandbox e2b|local|path/to/file.py:function`, where the function gets (width, height) and returns a `legato.attach(...)` result.
 - Coordinates: Claude models use pixels automatically; other models use a 0–1000 grid (`coords="norm1000"`). Set `coords=` explicitly for a model you have not checked.
 - Thinking models: the default `max_tokens=4096` is usually enough; raise it if `result.report()` shows cut-off turns.
 - To compare with Anthropic's reference loop: `legato.Harness.reference(...)` with `legato.attach(desk, fixed_wait_s=2.0)`.
-- MCP server for coding agents: `pip install "legatolabs[e2b,mcp]"`, then `claude mcp add legato -e E2B_API_KEY=... -- legato mcp`.
+- MCP server for coding agents: `pip install "legatolabs[mcp,local]"`, then `claude mcp add legato -- legato mcp --local` (this computer), `-- legato mcp --sandbox file.py:function` (your sandbox), or `-e E2B_API_KEY=... -- legato mcp` (E2B, needs the `e2b` extra).
+- A local model server (`--base-url http://localhost:8000/v1`) needs no API key.
 
 ## Docs (Markdown)
 
 - [README](https://legato.computer/docs/index.md): overview and quickstart
 - [Benchmarks](https://legato.computer/docs/benchmarks.md): results, method, raw data
 - [Models](https://legato.computer/docs/models.md): coordinates, thinking models, settings
-- [Sandboxes](https://legato.computer/docs/sandboxes.md): E2B, any sandbox, OSWorld VMs
+- [Sandboxes](https://legato.computer/docs/sandboxes.md): this computer, any Linux sandbox, E2B, anything else, OSWorld VMs
 - [MCP server](https://legato.computer/docs/mcp.md)
 - [RL rollouts](https://legato.computer/docs/rl.md)
 - [FAQ](https://legato.computer/docs/faq.md)

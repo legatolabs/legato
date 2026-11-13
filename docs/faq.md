@@ -15,11 +15,12 @@ About the same speed, with more success: 71/96 vs 53/96 over two runs ([benchmar
 Legato covers the agent loop for both: [cua-agent](migrate/from-cua-agent.md), [Bytebot](migrate/from-bytebot.md).
 
 **Does it include a model, or need a GPU?**
-No. Bring any model: Qwen through OpenRouter, Claude, or your own vLLM server.
+No. Bring any model: Qwen through OpenRouter, Claude, or your own vLLM server, which can run on the same machine.
 
 **Which desktops?**
-Full desktops: E2B Desktop, any sandbox through `legato.attach(screenshot=..., execute=...)`, and OSWorld's Docker VMs
-([sandboxes](sandboxes.md)). For browser-only work, a Playwright-based tool such as Browser Use or Stagehand usually
+Your own computer (macOS, Windows, Linux), any Linux sandbox you can run a command in (Docker, SSH, Daytona, your own
+VMs), E2B, anything you can screenshot and send input to, and OSWorld's VMs ([sandboxes](sandboxes.md)). Managed
+Windows and macOS cloud desktops are planned for Legato Cloud. For browser-only work, a Playwright-based tool such as Browser Use or Stagehand usually
 fits better.
 
 **RL training?**

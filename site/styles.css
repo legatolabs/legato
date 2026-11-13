@@ -122,6 +122,16 @@ header, main, footer { position: relative; z-index: 1; }
 .card p { margin: 0; color: var(--fg-3); font-size: 13px; line-height: 1.65; }
 @media (max-width: 680px) { .cards { grid-template-columns: 1fr; } }
 
+/* Legato Cloud gains */
+.gains { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); margin-top: 22px; }
+.gains > div { padding: 20px 22px 22px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.gains .n { font: 400 36px/1 var(--serif); color: var(--fg); margin-bottom: 10px; }
+.gains .t { font-size: 12.5px; line-height: 1.55; color: var(--fg-3); }
+.gains.dev { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.gains.dev .n { color: var(--fg-2); font-size: 30px; }
+.body .sub { margin: 34px 0 0; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-4); }
+@media (max-width: 680px) { .gains, .gains.dev { grid-template-columns: minmax(0, 1fr); } }
+
 /* code panel */
 .panel { border: 1px solid var(--line-2); background: var(--bg-2); }
 .tabs { display: flex; border-bottom: 1px solid var(--line-2); }

@@ -1,0 +1,65 @@
+{
+ "config": {
+  "poll_s": 0.03,
+  "digest_reduce": 2,
+  "type_delay_ms": 2,
+  "key_delay_ms": 40,
+  "dclick_delay_ms": 60,
+  "mousemove_sync": true,
+  "park_pointer": false,
+  "desktops": 1,
+  "setup_cmds": [],
+  "env": {}
+ },
+ "rule": {
+  "key": {
+   "floor": 1.0,
+   "quiet": 0.75,
+   "mode": "any",
+   "react": null,
+   "cpu_quiet": 0.05,
+   "cpu_src": "all",
+   "a11y_quiet": 0.05,
+   "train_wait": 1.2887,
+   "train_early": 0.0,
+   "n": 83
+  },
+  "type": {
+   "floor": 0.75,
+   "quiet": 0.05,
+   "mode": "any",
+   "react": null,
+   "cpu_quiet": null,
+   "cpu_src": null,
+   "a11y_quiet": null,
+   "train_wait": 0.7505,
+   "train_early": 0.0,
+   "n": 20
+  },
+  "click": {
+   "floor": 0.0,
+   "quiet": 0.1,
+   "mode": "any",
+   "react": null,
+   "cpu_quiet": null,
+   "cpu_src": null,
+   "a11y_quiet": null,
+   "train_wait": 0.2082,
+   "train_early": 0.0,
+   "n": 16
+  },
+  "double_click": {
+   "floor": 0.0,
+   "quiet": 0.05,
+   "mode": "any",
+   "react": null,
+   "cpu_quiet": null,
+   "cpu_src": null,
+   "a11y_quiet": null,
+   "train_wait": 0.05,
+   "train_early": 0.0,
+   "n": 3
+  }
+ },
+ "since_gen": 3
+}

@@ -1,0 +1,390 @@
+[
+ {
+  "op": "calc.insert_column",
+  "boot_s": 4.755228013999982,
+  "boot_app_s": 1.988655558,
+  "task": "f_calc_insert_column_0",
+  "n_steps": 9,
+  "fork_at": 4,
+  "exec_rtt_s": 0.15432652100000155,
+  "replay_s": 2.6364223220000156,
+  "pre_digests": 1,
+  "snapshot_s": 2.1757906830000024,
+  "single": {
+   "restore_s": 0.8715941520000001,
+   "digest_ok": true,
+   "files_ok": true
+  },
+  "fork_finish_s": 4.683760288999991,
+  "fork_success": true,
+  "orig_success": null,
+  "fanout_wall_s": 2.6550471279999783,
+  "fanout": [
+   {
+    "restore_s": 0.7942979390000175,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 2.0010276140000087,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.8134641970000018,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.8179501709999784,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.659934652000004,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.9156812169999853,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.8180689760000064,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.820191575999985,
+    "digest_ok": true,
+    "files_ok": true
+   }
+  ],
+  "diverge": [
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   }
+  ]
+ },
+ {
+  "op": "writer.change_word",
+  "boot_s": 4.124732088999991,
+  "boot_app_s": 1.922483671,
+  "task": "f_writer_change_word_0",
+  "n_steps": 6,
+  "fork_at": 3,
+  "exec_rtt_s": 0.16409141799999816,
+  "replay_s": 1.8377148080000154,
+  "pre_digests": 3,
+  "snapshot_s": 3.133888839000008,
+  "single": {
+   "restore_s": 0.7859814619999952,
+   "digest_ok": true,
+   "files_ok": true
+  },
+  "fork_finish_s": 2.5228578649999918,
+  "fork_success": true,
+  "orig_success": null,
+  "fanout_wall_s": 3.600275161000013,
+  "fanout": [
+   {
+    "restore_s": 0.8693138750000173,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.8242818690000036,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.8256003239999927,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.6901981450000108,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.7659620940000025,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.703609125999975,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 2.119417864000013,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.6868182199999922,
+    "digest_ok": true,
+    "files_ok": true
+   }
+  ],
+  "diverge": [
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": false
+   },
+   {
+    "finished": false,
+    "untouched": true
+   }
+  ]
+ },
+ {
+  "op": "text.indent_line",
+  "boot_s": 3.1389103610000006,
+  "boot_app_s": 1.0907291059999997,
+  "task": "f_text_indent_line_0",
+  "n_steps": 3,
+  "fork_at": 1,
+  "exec_rtt_s": 0.15699063799999635,
+  "replay_s": 0.8792763669999886,
+  "pre_digests": 2,
+  "snapshot_s": 1.9365823699999964,
+  "single": {
+   "restore_s": 0.7426220870000009,
+   "digest_ok": true,
+   "files_ok": true
+  },
+  "fork_finish_s": 1.2422635140000011,
+  "fork_success": true,
+  "orig_success": null,
+  "fanout_wall_s": 3.61149591100002,
+  "fanout": [
+   {
+    "restore_s": 1.7094084599999917,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.5544090260000019,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.8288328720000209,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.8215554930000053,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.841279720000017,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 2.1528219949999823,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.6942501069999878,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.665564025000009,
+    "digest_ok": true,
+    "files_ok": true
+   }
+  ],
+  "diverge": [
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   }
+  ]
+ },
+ {
+  "op": "files.move_file",
+  "boot_s": 2.6801852819999965,
+  "boot_app_s": 0.9003212469999999,
+  "task": "f_files_move_file_0",
+  "n_steps": 5,
+  "fork_at": 2,
+  "exec_rtt_s": 0.1507716460000097,
+  "replay_s": 1.2015068970000016,
+  "pre_digests": 1,
+  "snapshot_s": 1.9143398240000238,
+  "single": {
+   "restore_s": 0.7335940969999797,
+   "digest_ok": true,
+   "files_ok": true
+  },
+  "fork_finish_s": 1.8467371159999857,
+  "fork_success": true,
+  "orig_success": null,
+  "fanout_wall_s": 2.5462415399999827,
+  "fanout": [
+   {
+    "restore_s": 0.7523329559999752,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.690242645000012,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.541139730999987,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.7713595860000169,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 0.7336755150000158,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.8000732709999738,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.671538585999997,
+    "digest_ok": true,
+    "files_ok": true
+   },
+   {
+    "restore_s": 1.731252773000051,
+    "digest_ok": true,
+    "files_ok": true
+   }
+  ],
+  "diverge": [
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   },
+   {
+    "finished": true,
+    "success": true
+   },
+   {
+    "finished": false,
+    "untouched": true
+   }
+  ]
+ }
+]

@@ -1,11 +1,13 @@
-"""Legato as an MCP server: give any agent (Claude Code, Cursor, your own) a cloud desktop with Legato's ready-wait.
+"""Legato as an MCP server: give any agent (Claude Code, Cursor, your own) a desktop with Legato's ready-wait.
 
     pip install "legatolabs[e2b,mcp]"
-    claude mcp add legato -e E2B_API_KEY=... -- legato mcp          # Claude Code
+    claude mcp add legato -e E2B_API_KEY=... -- legato mcp          # Claude Code, cloud desktops
+    claude mcp add legato -- legato mcp --local                      # this computer (pip install "legatolabs[local,mcp]")
+    claude mcp add legato -- legato mcp --sandbox my_desktop.py:desktop   # your own sandbox (docs/sandboxes.md)
     # Cursor and others: {"mcpServers": {"legato": {"command": "legato", "args": ["mcp"], "env": {"E2B_API_KEY": "..."}}}}
 
 Tools:
-- desktop_open: start an E2B desktop and return its first screenshot.
+- desktop_open: start an E2B desktop (with --local: this computer's screen) and return its first screenshot.
 - desktop_act: click, type, press keys, scroll or drag. The tool returns once the screen has stopped changing, with
   the new screenshot. Coordinates are pixels of the last screenshot.
 - desktop_screenshot: the current screen.
@@ -21,7 +23,7 @@ import uuid
 from typing import Any, Callable
 
 from legato.actions import ALIASES, KINDS, Action, norm_keys
-from legato.env import Env, attach
+from legato.env import Env
 
 try:                                   # mcp >= 2
     from mcp.server.mcpserver import Image
@@ -37,15 +39,14 @@ except ImportError:                    # mcp 1.x
 
 
 def e2b_factory(resolution: tuple[int, int]):
-    from e2b_desktop import Sandbox
-    sb = Sandbox.create(resolution=resolution, timeout=3600)
-    return sb, attach(sb)
+    from legato import providers
+    return providers.e2b(*resolution)
 
 
 def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_factory) -> _Server:
     """The MCP server. `factory(resolution)` returns (sandbox, env); the default starts an E2B desktop."""
     srv = _Server("legato", instructions=(
-        "Cloud desktops for computer use. Open one with desktop_open, act with desktop_act using pixel coordinates of "
+        "Desktops for computer use. Open one with desktop_open, act with desktop_act using pixel coordinates of "
         "the latest screenshot, and close it with desktop_close when done. desktop_act returns as soon as the screen "
         "has settled, so there is no need to wait or take extra screenshots."))
     desks: dict[str, dict] = {}
@@ -62,11 +63,14 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
 
     @srv.tool()
     def desktop_open(width: int = 1280, height: int = 800) -> list:
-        """Start a fresh Linux desktop (E2B) and return its id and first screenshot."""
+        """Open a desktop and return its id and first screenshot: a fresh cloud desktop (E2B), or this computer's
+        screen when the server runs with --local, or your own sandbox with --sandbox."""
         sb, env = factory((width, height))
         did = uuid.uuid4().hex[:12]
         desks[did] = {"sb": sb, "env": env, "wh": (width, height), "opened": time.time()}
-        return [f"desktop_id: {did} ({width}x{height})", shot(desks[did])]
+        img = shot(desks[did])
+        w, h = desks[did]["wh"]
+        return [f"desktop_id: {did} ({w}x{h})", img]
 
     @srv.tool()
     def desktop_act(desktop_id: str, action: str, x: int | None = None, y: int | None = None, text: str | None = None,
@@ -114,14 +118,23 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         d = desks.pop(desktop_id, None)
         if d is None:
             return f"no open desktop {desktop_id!r}"
-        kill = getattr(d["sb"], "kill", None)
-        if kill:
-            kill()
+        from legato import providers
+        providers.close(d["sb"])
         return f"closed {desktop_id} after {time.time() - d['opened']:.0f} s"
 
     return srv
 
 
 def main(argv=None) -> int:
-    build_server().run()
+    import argparse
+
+    from legato import providers
+    ap = argparse.ArgumentParser(prog="legato mcp", description="MCP server: a desktop for any agent")
+    ap.add_argument("--sandbox", default="e2b",
+                    help="e2b (default), local (this computer), or your own: path/to/file.py:function or "
+                         "module:function, a function (width, height) returning a legato Env (see docs/sandboxes.md)")
+    ap.add_argument("--local", action="store_true", help="the same as --sandbox local (moves your real mouse)")
+    a = ap.parse_args(argv)
+    make = providers.load("local" if a.local else a.sandbox)
+    build_server(lambda res: make(*res)).run()
     return 0

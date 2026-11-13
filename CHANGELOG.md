@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+- Bring your own computer. `legato.local()` drives this computer's screen on macOS, Windows or Linux (X11), with
+  `pip install "legatolabs[local]"`.
+- `legato.attach(shell=run)` drives any Linux sandbox you can run a command in (Docker, SSH, Daytona, your own VMs),
+  with one call per action.
+- `legato run` and `legato mcp` take `--sandbox e2b|local|path/to/file.py:function`, and `legato mcp --local`.
+- `legato run` on E2B now opens a 1280x800 desktop with a one-hour limit, and closes it at the end.
+
 ## 0.1.1
 
 - `legato run --json` prints one JSON result, for scripts and coding agents.

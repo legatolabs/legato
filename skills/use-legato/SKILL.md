@@ -1,6 +1,6 @@
 ---
 name: use-legato
-description: Run a computer-use task on a desktop with Legato (any OpenAI-compatible vision model, E2B or any sandbox). Use when an agent must click, type and read a GUI.
+description: Run a computer-use task on a desktop with Legato (any OpenAI-compatible vision model; this computer, any sandbox, or E2B). Use when an agent must click, type and read a GUI.
 ---
 
 # Use Legato
@@ -27,8 +27,9 @@ Or from a shell: `legato run "TASK" --model MODEL --base-url URL --json`. It pri
 
 ## Notes
 
-- **Other sandboxes:** `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)`.
+- **This computer:** `legato.local()` (`pip install "legatolabs[local]"`). It moves the real mouse; moving the mouse into a screen corner stops it.
+- **Other sandboxes:** `legato.attach(shell=fn_running_a_command_returning_stdout)` for any Linux sandbox with X, python3, xdotool and scrot; otherwise `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)`.
 - **Coordinates:** Claude models use pixels automatically. Other models use a 0–1000 grid. Pass `coords=` for a model you have not checked.
 - **Cut-off turns:** if `result.report()` shows them, raise `max_tokens`.
-- **MCP:** to let a coding agent drive a desktop itself, run `legato mcp` (`pip install "legatolabs[e2b,mcp]"`).
+- **MCP:** to let a coding agent drive a desktop itself, run `legato mcp --local`, `legato mcp --sandbox file.py:function`, or `legato mcp` for E2B (`pip install "legatolabs[mcp,local]"` or `[mcp,e2b]`).
 - **Docs:** https://legato.computer/llms.txt
