@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `Harness(tools=[...])`: tools beside `computer`. `legato.tools.bash(env)` runs commands in the desktop's own shell
+  (E2B, `attach(shell=...)`, `--sandbox docker`, `legato.local()`); `legato.Tool` wraps your own function. Calls run
+  in the order the model sent them, each result goes back as text, and a tool that raises is reported to the model.
+  Models without native tool calls are told the JSON form. Without `tools`, requests are unchanged.
+  `result.report()` shows tool time.
+
 ## 0.1.8
 
 - `triple_click` (selects a line or a whole field), on every desktop: Linux sandboxes, E2B, your own screen and

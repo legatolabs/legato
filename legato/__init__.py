@@ -3,6 +3,7 @@
     agent = legato.Harness(model, base_url, api_key)
     result = agent.run(task, legato.attach(sandbox))      # a cloud sandbox
     result = agent.run(task, legato.local())              # or this computer
+    agent = legato.Harness(model, base_url, api_key, tools=[legato.tools.bash(env)])   # a shell beside the screen
 
 The optional hosted API (legato.computer) lives in `legato.hosted`.
 """
