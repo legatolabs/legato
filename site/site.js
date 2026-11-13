@@ -49,6 +49,63 @@
     }
   }
 
+  /* ---------- the hero note: drawn extruded on a canvas, tilts toward the cursor ---------- */
+  const mark = $(".hero-mark");
+  if (mark && mark.offsetParent !== null && window.Path2D) {
+    fetch("/brand/mark.svg").then((r) => r.text()).then((svg) => {
+      const d = new DOMParser().parseFromString(svg, "image/svg+xml").querySelector("path").getAttribute("d");
+      const note = new Path2D(d);                      // in a 128 x 128 box, centred on (64, 64)
+      const c = document.createElement("canvas");
+      const g = c.getContext("2d");
+      mark.replaceChildren(c);
+      const LAYERS = 18, NEON = [215, 255, 58];
+      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const hover = window.matchMedia("(hover: hover)").matches;
+      let size = 0, dpr = 1;
+      const fit = () => {
+        dpr = Math.min(window.devicePixelRatio || 1, 2); size = mark.clientWidth;
+        c.width = c.height = Math.round(size * dpr);
+      };
+      const shade = (k) => `rgb(${NEON.map((v) => Math.round(v * k)).join(",")})`;
+      const draw = (x, y) => {
+        const s = (size * dpr) / 128;
+        g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height);
+        g.setTransform(s, 0, 0, s, 0, 0);
+        const dx = (0.4 - x * 0.75) * 0.62, dy = (0.5 - y * 0.75) * 0.62;   // depth runs away from the cursor
+        for (let i = LAYERS; i >= 1; i--) {             // the side, back to front, darker at the back
+          g.save(); g.translate(dx * i, dy * i);
+          g.fillStyle = shade(0.22 + 0.36 * (1 - i / LAYERS)); g.fill(note, "evenodd"); g.restore();
+        }
+        g.fillStyle = shade(1); g.fill(note, "evenodd"); // the face
+        const lx = 64 - x * 40 - 20, ly = 64 - y * 30 - 16;   // a soft highlight that follows the cursor
+        const hl = g.createRadialGradient(lx, ly, 0, lx, ly, 70);
+        hl.addColorStop(0, "rgba(255,255,255,0.45)"); hl.addColorStop(1, "rgba(255,255,255,0)");
+        g.save(); g.clip(note, "evenodd"); g.fillStyle = hl; g.fillRect(0, 0, 128, 128); g.restore();
+        c.style.transform = `translate3d(${(x * 10).toFixed(1)}px, ${(y * 8).toFixed(1)}px, 0) ` +
+          `rotateX(${(10 - y * 14).toFixed(2)}deg) rotateY(${(-16 + x * 22).toFixed(2)}deg)`;
+      };
+      let tx = 0, ty = 0, x = 0, y = 0, t = 0, on = true, raf = 0;
+      fit(); draw(0, 0);
+      window.addEventListener("resize", () => { fit(); draw(x, y); });
+      if (still) return;
+      if (hover) window.addEventListener("pointermove", (e) => {
+        tx = (e.clientX / window.innerWidth - 0.5) * 2;
+        ty = (e.clientY / window.innerHeight - 0.5) * 2;
+      }, { passive: true });
+      const tick = () => {
+        if (!on) return;
+        if (!hover) { t += 0.01; tx = Math.sin(t) * 0.6; ty = Math.sin(t * 0.7) * 0.4; }   // touch: a slow sway
+        if (Math.abs(tx - x) + Math.abs(ty - y) > 0.0005) { x += (tx - x) * 0.07; y += (ty - y) * 0.07; draw(x, y); }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+      new IntersectionObserver(([e]) => {
+        on = e.isIntersecting; cancelAnimationFrame(raf);
+        if (on) raf = requestAnimationFrame(tick);
+      }).observe(mark);
+    }).catch(() => {});                                // keep the flat image
+  }
+
   /* ---------- quickstart tabs ---------- */
   const tabs = [...document.querySelectorAll('[role="tab"]')];
   const select = (t) => {
