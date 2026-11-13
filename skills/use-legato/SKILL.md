@@ -1,6 +1,7 @@
 ---
 name: use-legato
 description: Run a computer-use task on a desktop with Legato (any OpenAI-compatible vision model; this computer, any sandbox, or E2B). Use when an agent must click, type and read a GUI.
+license: Apache-2.0
 ---
 
 # Use Legato

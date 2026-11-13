@@ -17,6 +17,7 @@ import importlib
 import importlib.util
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -43,8 +44,17 @@ DOCKER_IMAGE = "ghcr.io/legatolabs/desktop:latest"
 DOCKER_SOURCE = "https://github.com/legatolabs/legato.git#main:docker/desktop"
 
 
+_image_lock = threading.Lock()
+
+
 def ensure_image(image: str) -> None:
-    """Use the local image, else pull it; the default image is built from the repo if the pull fails."""
+    """Use the local image, else pull it; the default image is built from the repo if the pull fails. Concurrent calls
+    wait for the first one."""
+    with _image_lock:
+        _ensure_image(image)
+
+
+def _ensure_image(image: str) -> None:
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode == 0:
         return
     if subprocess.run(["docker", "pull", "-q", image], capture_output=True).returncode == 0:
@@ -120,6 +130,37 @@ def load(spec: str) -> Factory:
         handle, env = out
         return handle, env
     return factory
+
+
+# What an agent should know about each kind of desktop (the MCP server adds it to its instructions).
+ABOUT = {
+    "docker": "The desktop is a Linux container (Debian, fluxbox) with a terminal open; start apps from it, for example "
+              "`firefox http://host.docker.internal:3000 &`. host.docker.internal is the user's machine, so apps they "
+              "run locally are reachable at http://host.docker.internal:PORT. Right-click the desktop for a menu.",
+    "local": "The desktop is the user's own screen, with their real windows, files and accounts. Act carefully: do not "
+             "close their windows or change settings unless asked, and ask before anything destructive or irreversible.",
+    "e2b": "The desktop is a fresh E2B cloud desktop (Linux, XFCE); the dock at the bottom has a terminal, a file "
+           "manager and a web browser.",
+}
+
+
+def about(spec: str) -> str:
+    return ABOUT.get("docker" if spec.startswith("docker") else spec, "")
+
+
+def warm(spec: str) -> None:
+    """Start slow one-time setup in the background, so the first desktop opens sooner (docker: pull or build the
+    image)."""
+    if spec == "docker" or spec.startswith("docker:"):
+        image = spec[len("docker:"):] if spec.startswith("docker:") else (os.environ.get("LEGATO_DOCKER_IMAGE")
+                                                                           or DOCKER_IMAGE)
+
+        def go() -> None:
+            try:
+                ensure_image(image)
+            except Exception:  # noqa: BLE001 - desktop_open reports it
+                pass
+        threading.Thread(target=go, daemon=True).start()
 
 
 def close(handle: Any) -> None:

@@ -43,12 +43,13 @@ def e2b_factory(resolution: tuple[int, int]):
     return providers.e2b(*resolution)
 
 
-def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_factory) -> _Server:
-    """The MCP server. `factory(resolution)` returns (sandbox, env); the default starts an E2B desktop."""
+def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_factory, about: str = "") -> _Server:
+    """The MCP server. `factory(resolution)` returns (sandbox, env); the default starts an E2B desktop. `about` tells
+    the agent what kind of desktop it gets."""
     srv = _Server("legato", instructions=(
         "Desktops for computer use. Open one with desktop_open, act with desktop_act using pixel coordinates of "
         "the latest screenshot, and close it with desktop_close when done. desktop_act returns as soon as the screen "
-        "has settled, so there is no need to wait or take extra screenshots."))
+        "has settled, so there is no need to wait or take extra screenshots." + (" " + about if about else "")))
     desks: dict[str, dict] = {}
 
     def shot(d: dict) -> Image:
@@ -64,7 +65,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
     @srv.tool()
     def desktop_open(width: int = 1280, height: int = 800) -> list:
         """Open a desktop and return its id and first screenshot: a fresh cloud desktop (E2B), or this computer's
-        screen when the server runs with --local, or your own sandbox with --sandbox."""
+        screen when the server runs with --local, or your own sandbox with --sandbox. With --sandbox docker, the first
+        call can take a few minutes while the desktop image downloads."""
         sb, env = factory((width, height))
         did = uuid.uuid4().hex[:12]
         desks[did] = {"sb": sb, "env": env, "wh": (width, height), "opened": time.time()}
@@ -135,6 +137,8 @@ def main(argv=None) -> int:
                          "module:function, a function (width, height) returning a legato Env (see docs/sandboxes.md)")
     ap.add_argument("--local", action="store_true", help="the same as --sandbox local (moves your real mouse)")
     a = ap.parse_args(argv)
-    make = providers.load("local" if a.local else a.sandbox)
-    build_server(lambda res: make(*res)).run()
+    spec = "local" if a.local else a.sandbox
+    make = providers.load(spec)
+    providers.warm(spec)                       # e.g. pull the desktop image while the agent gets going
+    build_server(lambda res: make(*res), about=providers.about(spec)).run()
     return 0
