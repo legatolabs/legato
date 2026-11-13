@@ -13,6 +13,7 @@ const ROOT = join(SITE, "..");
 const DIST = join(SITE, "dist");
 const ORIGIN = "https://legato.computer";
 const REPO = "https://github.com/legatolabs/legato";
+const TODAY = new Date().toISOString().slice(0, 10);   // sitemap lastmod: the day of the build
 
 // sidebar order; anything else under docs/ is still built and linked from the sitemap
 const NAV = [
@@ -138,6 +139,8 @@ const FOOTER = shell.match(/<footer>[\s\S]*?<\/footer>/)[0];
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 for (const f of ["index.html", "styles.css", "site.js", "favicon.svg"]) cpSync(join(SITE, f), join(DIST, f));
+// IndexNow key (Bing and others): https://www.indexnow.org/documentation
+for (const f of readdirSync(SITE).filter((n) => /^[0-9a-f]{32}\.txt$/.test(n))) cpSync(join(SITE, f), join(DIST, f));
 cpSync(join(SITE, "brand"), join(DIST, "brand"), { recursive: true });
 mkdirSync(join(DIST, "media"), { recursive: true });
 if (existsSync(join(SITE, "media"))) cpSync(join(SITE, "media"), join(DIST, "media"), { recursive: true });
@@ -161,7 +164,7 @@ for (const rel of files) {
 cpSync(join(ROOT, "llms.txt"), join(DIST, "llms.txt"));
 writeFileSync(join(DIST, "llms-full.txt"), full.join("\n\n"));
 writeFileSync(join(DIST, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`
-  + urls.map((u) => `  <url><loc>${ORIGIN}${u}</loc></url>`).join("\n") + "\n</urlset>\n");
+  + urls.map((u) => `  <url><loc>${ORIGIN}${u}</loc><lastmod>${TODAY}</lastmod></url>`).join("\n") + "\n</urlset>\n");
 // robots.txt: allow everyone, say how the content may be used (Content Signals), and point at the agent catalog
 writeFileSync(join(DIST, "robots.txt"), `User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\nAllow: /\n\n`
   + `Sitemap: ${ORIGIN}/sitemap.xml\nAgentmap: ${ORIGIN}/.well-known/ai-catalog.json\n`);
