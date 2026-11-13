@@ -1,0 +1,14 @@
+{
+  "name": "legato-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "marked": "18.1.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

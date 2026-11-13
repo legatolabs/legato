@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legato · open-source computer use for any model</title>
+<meta name="description" content="Legato is an open-source computer-use harness for any OpenAI-compatible model: Qwen, DeepSeek, Claude or your own vLLM server. It waits for the screen instead of sleeping and bounds every model call. 1.48x faster than Anthropic's reference loop on the same model.">
+<link rel="canonical" href="https://legato.computer/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/styles.css">
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "Legato", "codeRepository": "https://github.com/legatolabs/legato",
+ "programmingLanguage": "Python", "license": "https://www.apache.org/licenses/LICENSE-2.0",
+ "description": "Open-source computer-use harness for any OpenAI-compatible model, with a ready-wait instead of fixed sleeps and bounded model calls."}
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Legato home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="currentColor"/><path d="M6 15.5c3-6 9-6 12 0" stroke="var(--bg)" stroke-width="2.2" fill="none" stroke-linecap="round"/><circle cx="6" cy="15.5" r="1.6" fill="var(--bg)"/><circle cx="18" cy="15.5" r="1.6" fill="var(--bg)"/></svg>
+      legato
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="/docs">Docs</a>
+      <a href="/docs/benchmarks" class="hide-sm">Benchmarks</a>
+      <a href="https://github.com/legatolabs/legato" rel="noopener">GitHub</a>
+      <a href="/#managed">Managed</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Open source · Apache-2.0</div>
+    <h1>Computer use for any model, <em>without the waiting</em>.</h1>
+    <p class="lead">Legato is an open-source computer-use harness for any OpenAI-compatible model: Qwen, DeepSeek, Claude, or your own vLLM server. It drives a desktop with a Claude-style <code>computer</code> tool, waits until the screen is ready instead of sleeping a fixed time, and bounds every model call.</p>
+    <div class="cta">
+      <button class="install" type="button" data-copy="pip install legato" aria-label="Copy the install command"><code>pip install legato</code><span class="copied" aria-hidden="true">copy</span></button>
+      <a class="btn primary" href="/docs">Read the docs</a>
+      <a class="btn" href="https://github.com/legatolabs/legato" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</div>
+
+<section id="replay" aria-labelledby="replay-h">
+  <div class="wrap">
+    <div class="eyebrow">Recorded, not simulated</div>
+    <h2 id="replay-h">Same model, same task, same desktop. Only the loop differs.</h2>
+    <p class="sub">Claude Sonnet 5.5 copying a chart from LibreOffice Calc into Impress. On the left is Anthropic's computer-use reference loop, with a 2 s sleep before every screenshot: 237.5 s. On the right is Legato: 91.8 s. Both passed the grader. These are the screenshots each agent saw at their real timestamps, played at 4x. This is one task; the averages are below.</p>
+    <video class="replay" src="/media/demo-claude.mp4" controls muted playsinline preload="metadata" aria-label="Side-by-side replay: reference loop vs Legato"></video>
+  </div>
+</section>
+
+<section id="numbers" aria-labelledby="num-h">
+  <div class="wrap">
+    <div class="eyebrow">Measured</div>
+    <h2 id="num-h">What we have measured</h2>
+    <p class="sub">Every comparison uses the same model, the same desktops and the same tasks, with all arms run at the same time. The bars were written down before each run, and the results are reported whichever way they fell.</p>
+    <div class="stats">
+      <div class="stat">
+        <div class="n">1.48×<sup>1</sup></div>
+        <div class="t">faster than Anthropic's reference loop, at the same success</div>
+        <div class="q">Claude Sonnet 5.5 on 24 Excel-to-PowerPoint tasks, 2 attempts each: 48/48 in both arms. 95% interval 1.32–1.66×. One run.</div>
+      </div>
+      <div class="stat">
+        <div class="n">+19 pts<sup>2</sup></div>
+        <div class="t">success over OSWorld's Qwen agent, at the same speed</div>
+        <div class="q">Qwen3.8-27B, two runs on independent task sets: 71/96 vs 53/96 solved. Time ratio 0.95 [0.80, 1.13].</div>
+      </div>
+      <div class="stat">
+        <div class="n">0.6 s<sup>3</sup></div>
+        <div class="t">to pause a managed desktop with its memory, 0.2–0.4 s to resume, 1.7 s to fork</div>
+        <div class="q">E2B desktops behind the managed API. A running process survives pause, resume and fork, and a fork is isolated from its parent.</div>
+      </div>
+    </div>
+    <p class="footnote">1, 2. Agent time from the first screenshot to the last model turn. The reference loop is our re-implementation of Anthropic's computer-use demo loop. See <a href="/docs/benchmarks">Benchmarks</a> for the method, the raw rollouts and what the results do not show. 3. Live check through the public API; managed service in beta.</p>
+  </div>
+</section>
+
+<section id="how" aria-labelledby="how-h">
+  <div class="wrap">
+    <div class="eyebrow">How it works</div>
+    <h2 id="how-h">Every step of the loop, tuned</h2>
+    <p class="sub">A computer-use agent spends its time in the loop between the model and the machine, hundreds of times per task. Legato shortens the parts the model provider and the sandbox provider each leave alone.</p>
+    <div class="steps">
+      <div><div class="i">01</div><h3>Screenshot</h3><p>Capture the screen.</p><p class="l">Taken once the screen has settled. On E2B, the check runs inside the sandbox in a single call.</p></div>
+      <div><div class="i">02</div><h3>Read history</h3><p>The model reads the task and recent screens.</p><p class="l">Old screenshots are dropped in chunks, so the provider's prompt cache keeps hitting.</p></div>
+      <div><div class="i">03</div><h3>Write action</h3><p>A click, keystroke or text.</p><p class="l">Any model, up to 3 actions per turn, short replies, and a token budget and wall-clock timeout on every call.</p></div>
+      <div><div class="i">04</div><h3>Act</h3><p>Send the action to the desktop.</p><p class="l">One remote call per action on E2B. Any other sandbox plugs in through two functions.</p></div>
+      <div><div class="i">05</div><h3>Settle</h3><p>The screen finishes updating.</p><p class="l">Waits exactly as long as the screen needs, never longer than the 2 s sleep it replaces.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart" aria-labelledby="qs-h">
+  <div class="wrap">
+    <div class="eyebrow">Quickstart</div>
+    <h2 id="qs-h">Three ways in</h2>
+    <p class="sub">Run the harness with your own model key, give your coding agent a desktop through MCP, or use the command line.</p>
+    <div class="tabs" role="tablist" aria-label="Quickstart">
+      <button role="tab" id="t-py" aria-controls="p-py" aria-selected="true">Python</button>
+      <button role="tab" id="t-mcp" aria-controls="p-mcp" aria-selected="false" tabindex="-1">MCP server</button>
+      <button role="tab" id="t-cli" aria-controls="p-cli" aria-selected="false" tabindex="-1">Command line</button>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="p-py" aria-labelledby="t-py">
+<pre class="code"><span class="c"># pip install "legato[e2b]"</span>
+<span class="k">import</span> os, legato
+<span class="k">from</span> e2b_desktop <span class="k">import</span> Sandbox
+
+agent = legato.Harness(model=<span class="s">"qwen/qwen3.8-27b"</span>, base_url=<span class="s">"https://openrouter.ai/api/v1"</span>,
+                       api_key=os.environ[<span class="s">"OPENROUTER_API_KEY"</span>])
+desk = Sandbox.create()
+result = agent.run(<span class="s">"Open the terminal and print the date"</span>, legato.attach(desk))
+print(result.report())   <span class="c"># where the time went: model, actions, waiting for the screen</span>
+desk.kill()</pre>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="p-mcp" aria-labelledby="t-mcp" hidden>
+<pre class="code"><span class="c"># a cloud desktop for Claude Code, Cursor or any MCP client</span>
+pip install <span class="s">"legato[e2b,mcp]"</span>
+claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp
+
+<span class="c"># every action returns once the screen has settled, with the new screenshot</span></pre>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="p-cli" aria-labelledby="t-cli" hidden>
+<pre class="code">pip install <span class="s">"legato[e2b]"</span>
+export OPENROUTER_API_KEY=... E2B_API_KEY=...
+legato run <span class="s">"Create a folder named reports on the desktop"</span> \
+    --model anthropic/claude-sonnet-5.5 --base-url https://openrouter.ai/api/v1</pre>
+    </div>
+  </div>
+</section>
+
+<section id="managed" aria-labelledby="managed-h">
+  <div class="wrap beta">
+    <div>
+      <div class="eyebrow">Managed · beta</div>
+      <h2 id="managed-h">Desktops and models, run for you</h2>
+      <p class="sub">The managed service runs the desktops and the model for you. Desktops pause, resume and fork with their memory intact. Open models are served with warm sessions, and graded RL rollouts run at scale. The open-source harness never requires it.</p>
+      <p class="sub">API keys are issued by hand during the beta. Questions: <a href="mailto:hello@legato.computer">hello@legato.computer</a></p>
+    </div>
+    <form class="wl" id="wl" novalidate>
+      <label class="f">Work email
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com">
+      </label>
+      <div class="row">
+        <label class="f">Name <input name="name" autocomplete="name"></label>
+        <label class="f">Company <input name="company" autocomplete="organization"></label>
+      </div>
+      <label class="f">What are you building?
+        <textarea name="use_case" maxlength="1000" placeholder="Agents in production, RL rollouts, evals…"></textarea>
+      </label>
+      <button class="btn primary" type="submit">Join the beta</button>
+      <p class="formmsg" id="wl-msg" role="status" aria-live="polite"></p>
+    </form>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© <span id="yr">2026</span> Legato</span>
+    <nav aria-label="Footer"><a href="/docs">Docs</a><a href="https://github.com/legatolabs/legato" rel="noopener">GitHub</a><a href="/llms.txt">llms.txt</a><a href="mailto:hello@legato.computer">hello@legato.computer</a></nav>
+  </div>
+</footer>
+<script src="/site.js" defer></script>
+</body>
+</html>

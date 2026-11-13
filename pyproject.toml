@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legato"
+version = "0.1.0"
+description = "Open computer-use harness for any OpenAI-compatible model (Qwen, DeepSeek, Claude, vLLM, OpenRouter): ready-wait instead of fixed sleeps, bounded calls, measured against the reference loops."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{name = "Legato authors"}]
+keywords = ["computer-use", "computer use agent", "gui agent", "desktop agent", "osworld", "qwen", "openrouter", "vllm",
+            "e2b", "llm agents", "reinforcement learning", "rollouts"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = ["httpx>=0.27", "Pillow>=10"]
+
+[project.optional-dependencies]
+e2b = ["e2b-desktop>=2.7"]
+office = ["python-pptx>=1.0", "openpyxl>=3.1"]
+mcp = ["mcp>=1.2"]
+video = ["imageio>=2.30", "imageio-ffmpeg>=0.5", "numpy"]
+dev = ["pytest>=8", "mcp>=1.2", "python-pptx>=1.0", "openpyxl>=3.1", "imageio>=2.30", "imageio-ffmpeg>=0.5", "numpy"]
+
+[project.scripts]
+legato = "legato.__main__:main"
+
+[project.urls]
+Homepage = "https://legato.computer"
+Documentation = "https://legato.computer/docs"
+Benchmarks = "https://legato.computer/docs/benchmarks"
+Source = "https://github.com/legatolabs/legato"
+Issues = "https://github.com/legatolabs/legato/issues"
+
+[tool.setuptools.packages.find]
+include = ["legato*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

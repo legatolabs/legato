@@ -1,0 +1,648 @@
+{
+ "ref": "claude-ref",
+ "arms": {
+  "claude-ref": {
+   "rollouts": 48,
+   "passed": 48,
+   "success": 1,
+   "mean_score": 1.0,
+   "agent_s": 96.87307832160427,
+   "median_agent_s": 88.99987053650023,
+   "total_s": 183.84490807537497,
+   "calls": 10.5625,
+   "actions": 23.270833333333332,
+   "actions_per_call": 2.203155818540434,
+   "model_s_per_call": 4.1733013424457654,
+   "model_share": 0.45503349530447135,
+   "wait_s_per_action": 1.9141362557896147,
+   "prompt_per_call": 18667.02761341223,
+   "completion_per_call": 338.8323471400395,
+   "cached_share": 0.8267431008043695,
+   "cost_per_task": 0.13747183958333334,
+   "errors": 0
+  },
+  "claude-legato": {
+   "rollouts": 48,
+   "passed": 48,
+   "success": 1,
+   "mean_score": 1.0,
+   "agent_s": 65.6530977199792,
+   "median_agent_s": 62.01557766250005,
+   "total_s": 92.82725161847918,
+   "calls": 14.020833333333334,
+   "actions": 19.604166666666668,
+   "actions_per_call": 1.3982169390787518,
+   "model_s_per_call": 3.0232464559702845,
+   "model_share": 0.6456425691525384,
+   "wait_s_per_action": 0.7129019728501619,
+   "prompt_per_call": 8603.306092124814,
+   "completion_per_call": 224.50520059435365,
+   "cached_share": 0.7148903502143773,
+   "cost_per_task": 0.12605161041666665,
+   "errors": 0,
+   "vs_ref": {
+    "time_ratio": 0.6777228395903828,
+    "ci": [
+     0.6040361900962459,
+     0.7573767459462332
+    ],
+    "tasks": 24,
+    "both_solved_ratio": 0.6777228395903828,
+    "both_solved_tasks": 24,
+    "success_diff": 0
+   }
+  },
+  "qwen-osworld": {
+   "rollouts": 48,
+   "passed": 26,
+   "success": 0.5416666666666666,
+   "mean_score": 0.5694444444444444,
+   "agent_s": 212.46189485808353,
+   "median_agent_s": 116.87120818850067,
+   "total_s": 300.00333975164585,
+   "calls": 23.1875,
+   "actions": 71.1875,
+   "actions_per_call": 3.070080862533693,
+   "model_s_per_call": 7.904753544518424,
+   "model_share": 0.8627028057711369,
+   "wait_s_per_action": 1.8746464735384662e-06,
+   "prompt_per_call": 25851.9469901168,
+   "completion_per_call": 548.5238095238095,
+   "cached_share": 0.7637860584028543,
+   "cost_per_task": 0.05770167302083334,
+   "errors": 0,
+   "vs_ref": {
+    "time_ratio": 2.193198549474618,
+    "ci": [
+     1.529689257178269,
+     3.163336362329304
+    ],
+    "tasks": 24,
+    "both_solved_ratio": 1.5012017037194387,
+    "both_solved_tasks": 10,
+    "success_diff": -0.45833333333333337
+   }
+  },
+  "qwen-legato": {
+   "rollouts": 48,
+   "passed": 36,
+   "success": 0.75,
+   "mean_score": 0.7743055555555556,
+   "agent_s": 89.9931223776041,
+   "median_agent_s": 76.67467937899968,
+   "total_s": 104.31645915766664,
+   "calls": 17.979166666666668,
+   "actions": 13.25,
+   "actions_per_call": 0.7369640787949016,
+   "model_s_per_call": 4.279419302222482,
+   "model_share": 0.8549585883727036,
+   "wait_s_per_action": 0.6727684901289323,
+   "prompt_per_call": 12267.093858632677,
+   "completion_per_call": 342.80417149478563,
+   "cached_share": 0.5392690616787301,
+   "cost_per_task": 0.03418844575,
+   "errors": 0,
+   "vs_ref": {
+    "time_ratio": 0.9289796911257456,
+    "ci": [
+     0.7585362787337288,
+     1.1673363211871128
+    ],
+    "tasks": 24,
+    "both_solved_ratio": 0.7429622129350217,
+    "both_solved_tasks": 15,
+    "success_diff": -0.25
+   }
+  }
+ },
+ "per_task": {
+  "office-00-copy_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 87.55953606950035
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 87.5206399345
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 73.38545820700074
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 53.77649630350015
+   }
+  },
+  "office-01-copy_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 105.98061456900047
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 64.96694978899995
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 584.6667631200023
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 50.11133120999958
+   }
+  },
+  "office-02-copy_title": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 80.59280716949982
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 45.77436355899988
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 110.18648888999886
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 60.01190703599994
+   }
+  },
+  "office-03-copy_title": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 57.928503061500095
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 66.89247469550023
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 102.06325765499878
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 59.38126154949984
+   }
+  },
+  "office-04-top_region": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 73.06027215050023
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 66.0073362914996
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 414.6313840330015
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 59.275549440000106
+   }
+  },
+  "office-05-top_region": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 72.41024751750007
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 67.47138807450006
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 112.60109596600086
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 154.2930581579998
+   }
+  },
+  "office-06-top3_list": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 65.01672216700035
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 47.30426617549995
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 170.79057653349986
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 225.51094280849998
+   }
+  },
+  "office-07-compute_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 99.88266288100016
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 47.499398456499875
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 179.80476675149998
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 64.38075511049982
+   }
+  },
+  "office-08-compute_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 100.762758012
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 82.07582040550017
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 96.68054803300072
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 78.06470915750015
+   }
+  },
+  "office-09-region_table": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 97.83776829350023
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 97.71523768850079
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 134.13874743849954
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 131.87453202349946
+   }
+  },
+  "office-10-next_steps": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 128.50665476799958
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 68.61200126249952
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 140.84045235049945
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 82.16432544850028
+   }
+  },
+  "office-11-paste_chart": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 153.42334422750076
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 81.43394987400069
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 229.74774424149882
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 95.50200553450009
+   }
+  },
+  "office-12-copy_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 78.50117993749956
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 61.577466833499955
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 106.62635251450104
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 49.913665895999884
+   }
+  },
+  "office-13-copy_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 89.81867624400087
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 65.92613309800004
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 90.33951794250027
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 68.4628912714997
+   }
+  },
+  "office-14-copy_title": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 70.5246845860006
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 38.473398277000115
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 108.92484626749979
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 76.83969381300022
+   }
+  },
+  "office-15-copy_title": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 124.03641405049984
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 39.287139691999585
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 71.77866625049978
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 46.81673766550011
+   }
+  },
+  "office-16-top_region": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 68.71521684149968
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 57.16002531199996
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 904.8337868220012
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 138.62404801399953
+   }
+  },
+  "office-17-top_region": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 87.6021099545004
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 51.22029568400018
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 112.55524512499937
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 94.31367353599967
+   }
+  },
+  "office-18-top3_list": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 89.00709011549975
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 55.445835630500426
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 168.58416626049973
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 52.46690539249954
+   }
+  },
+  "office-19-compute_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 91.46778962599956
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 45.53267399500004
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 202.07124531199895
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 76.18041305549991
+   }
+  },
+  "office-20-compute_total": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 90.18228373749957
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 54.71162222199962
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 193.9893937500011
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 102.03440955750062
+   }
+  },
+  "office-21-region_table": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 139.11702007250005
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 85.96891627200057
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 193.03058743950066
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 116.20814082649997
+   }
+  },
+  "office-22-next_steps": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 138.559717784
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 115.99454884600044
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 210.86275349050118
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 126.71549682350019
+   }
+  },
+  "office-23-paste_chart": {
+   "claude-ref": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 134.45980588250052
+   },
+   "claude-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 81.10246321099919
+   },
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 385.9516322000004
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 96.91198743099966
+   }
+  }
+ }
+}

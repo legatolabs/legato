@@ -1,0 +1,346 @@
+{
+ "ref": "qwen-osworld",
+ "arms": {
+  "qwen-osworld": {
+   "rollouts": 48,
+   "passed": 27,
+   "success": 0.5625,
+   "mean_score": 0.5694444444444444,
+   "agent_s": 121.2231035992707,
+   "median_agent_s": 112.7716006529999,
+   "total_s": 207.8926860086875,
+   "calls": 23.041666666666668,
+   "actions": 31.104166666666668,
+   "actions_per_call": 1.3499095840867992,
+   "model_s_per_call": 4.762820917345388,
+   "model_share": 0.9053004642850954,
+   "wait_s_per_action": 1.9453201614919042e-06,
+   "prompt_per_call": 24038.972875226038,
+   "completion_per_call": 169.499095840868,
+   "cached_share": 0.7686268876820883,
+   "cost_per_task": 0.02809159725,
+   "errors": 0
+  },
+  "qwen-legato": {
+   "rollouts": 48,
+   "passed": 35,
+   "success": 0.7291666666666666,
+   "mean_score": 0.7638888888888888,
+   "agent_s": 115.48907814695829,
+   "median_agent_s": 100.38010399999996,
+   "total_s": 129.3803035235625,
+   "calls": 19.666666666666668,
+   "actions": 17.1875,
+   "actions_per_call": 0.8739406779661016,
+   "model_s_per_call": 5.058849399240466,
+   "model_share": 0.8614728461606437,
+   "wait_s_per_action": 0.6345750761018213,
+   "prompt_per_call": 12694.871822033898,
+   "completion_per_call": 256.95974576271186,
+   "cached_share": 0.5481827833356239,
+   "cost_per_task": 0.0254031485,
+   "errors": 0,
+   "vs_ref": {
+    "time_ratio": 0.9526985757494919,
+    "ci": [
+     0.797786263163452,
+     1.1343083840375492
+    ],
+    "tasks": 24,
+    "both_solved_ratio": 0.760403459768598,
+    "both_solved_tasks": 5,
+    "success_diff": 0.16666666666666663
+   }
+  }
+ },
+ "per_task": {
+  "office-00-copy_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 88.70161004949983
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 79.98534411899999
+   }
+  },
+  "office-01-copy_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 105.90203615400026
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 72.22265204950025
+   }
+  },
+  "office-02-copy_title": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 120.18922835899969
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 69.9843707375
+   }
+  },
+  "office-03-copy_title": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 149.71011666350023
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 81.99083810049984
+   }
+  },
+  "office-04-top_region": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 122.55585988950054
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 100.58620645400049
+   }
+  },
+  "office-05-top_region": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 133.5292754349997
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 54.26647758499979
+   }
+  },
+  "office-06-top3_list": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 127.17231550050019
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 72.41957115649996
+   }
+  },
+  "office-07-compute_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 93.59597971300013
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 96.76412054049973
+   }
+  },
+  "office-08-compute_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 106.4016114994999
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 212.66740726449996
+   }
+  },
+  "office-09-region_table": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 142.84423762200095
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 249.12545270599912
+   }
+  },
+  "office-10-next_steps": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 110.43350012449957
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 112.83703191950002
+   }
+  },
+  "office-11-paste_chart": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 113.95469556349968
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 108.51382072099989
+   }
+  },
+  "office-12-copy_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 166.23341568150005
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 79.55438675950012
+   }
+  },
+  "office-13-copy_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 93.21312869199915
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 61.45598876600053
+   }
+  },
+  "office-14-copy_title": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 60.56215849900036
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 102.9918132970003
+   }
+  },
+  "office-15-copy_title": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 87.6206123185002
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 137.05320521500033
+   }
+  },
+  "office-16-top_region": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 146.54206145549983
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 169.96363464900008
+   }
+  },
+  "office-17-top_region": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 104.2417503309996
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 122.79772628699982
+   }
+  },
+  "office-18-top3_list": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 125.24584013000128
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 179.95849577399952
+   }
+  },
+  "office-19-compute_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 128.79995589399903
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 84.08395966000006
+   }
+  },
+  "office-20-compute_total": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 203.84918844349795
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 146.43481253200002
+   }
+  },
+  "office-21-region_table": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 106.65037255899927
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 110.11653459399986
+   }
+  },
+  "office-22-next_steps": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 139.9410645974998
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 1,
+    "agent_s": 104.49744113749983
+   }
+  },
+  "office-23-paste_chart": {
+   "qwen-osworld": {
+    "n": 2,
+    "passed": 2,
+    "agent_s": 131.46447120749974
+   },
+   "qwen-legato": {
+    "n": 2,
+    "passed": 0,
+    "agent_s": 161.46658350249947
+   }
+  }
+ }
+}

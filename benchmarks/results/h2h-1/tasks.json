@@ -1,0 +1,2242 @@
+[
+ {
+  "task_id": "office-00-copy_total",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-00-copy_total",
+   "instruction": "In ~/Desktop/sales_0.xlsx (open in LibreOffice Calc), cell B2 of the Summary sheet holds the total revenue. Replace the subtitle text on slide 1 of ~/Desktop/deck_0.pptx (open in LibreOffice Impress) with that number, then save deck_0.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_0.xlsx",
+        "path": "/home/user/Desktop/sales_0.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_0.pptx",
+        "path": "/home/user/Desktop/deck_0.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_0.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_0.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_0.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_0.pptx",
+     "dest": "deck_0.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_0.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "number": 294828
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-01-copy_total",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-01-copy_total",
+   "instruction": "In ~/Desktop/sales_1.xlsx (open in LibreOffice Calc), cell B2 of the Summary sheet holds the total revenue. Replace the subtitle text on slide 1 of ~/Desktop/deck_1.pptx (open in LibreOffice Impress) with that number, then save deck_1.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_1.xlsx",
+        "path": "/home/user/Desktop/sales_1.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_1.pptx",
+        "path": "/home/user/Desktop/deck_1.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_1.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_1.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_1.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_1.pptx",
+     "dest": "deck_1.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_1.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "number": 322408
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-02-copy_title",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-02-copy_title",
+   "instruction": "Use the text in cell A1 of the Summary sheet of ~/Desktop/sales_2.xlsx (open in LibreOffice Calc) as the title of slide 1 of ~/Desktop/deck_2.pptx (open in LibreOffice Impress), then save deck_2.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_2.xlsx",
+        "path": "/home/user/Desktop/sales_2.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_2.pptx",
+        "path": "/home/user/Desktop/deck_2.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_2.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_2.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_2.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_2.pptx",
+     "dest": "deck_2.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_title",
+    "files": {
+     "deck": "/home/user/Desktop/deck_2.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "title": "Tailspin Q4 2026 Revenue Review"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-03-copy_title",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-03-copy_title",
+   "instruction": "Use the text in cell A1 of the Summary sheet of ~/Desktop/sales_3.xlsx (open in LibreOffice Calc) as the title of slide 1 of ~/Desktop/deck_3.pptx (open in LibreOffice Impress), then save deck_3.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_3.xlsx",
+        "path": "/home/user/Desktop/sales_3.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_3.pptx",
+        "path": "/home/user/Desktop/deck_3.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_3.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_3.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_3.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_3.pptx",
+     "dest": "deck_3.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_title",
+    "files": {
+     "deck": "/home/user/Desktop/deck_3.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "title": "Fabrikam Q4 2026 Revenue Review"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-04-top_region",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-04-top_region",
+   "instruction": "Find the region with the highest total revenue in the Data sheet of ~/Desktop/sales_4.xlsx (open in LibreOffice Calc) (add up its months). Make that region's name the title of slide 2 of ~/Desktop/deck_4.pptx (open in LibreOffice Impress), then save deck_4.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_4.xlsx",
+        "path": "/home/user/Desktop/sales_4.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_4.pptx",
+        "path": "/home/user/Desktop/deck_4.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_4.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_4.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_4.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_4.pptx",
+     "dest": "deck_4.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "top_region",
+    "files": {
+     "deck": "/home/user/Desktop/deck_4.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "title": "Mountain"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-05-top_region",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-05-top_region",
+   "instruction": "Find the region with the highest total revenue in the Data sheet of ~/Desktop/sales_5.xlsx (open in LibreOffice Calc) (add up its months). Make that region's name the title of slide 2 of ~/Desktop/deck_5.pptx (open in LibreOffice Impress), then save deck_5.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_5.xlsx",
+        "path": "/home/user/Desktop/sales_5.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_5.pptx",
+        "path": "/home/user/Desktop/deck_5.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_5.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_5.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_5.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_5.pptx",
+     "dest": "deck_5.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "top_region",
+    "files": {
+     "deck": "/home/user/Desktop/deck_5.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "title": "South"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-06-top3_list",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-06-top3_list",
+   "instruction": "In the Data sheet of ~/Desktop/sales_6.xlsx (open in LibreOffice Calc), find the three regions with the highest total revenue. Replace the body text of slide 2 of ~/Desktop/deck_6.pptx (open in LibreOffice Impress) with their names, highest first, one per line, then save deck_6.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_6.xlsx",
+        "path": "/home/user/Desktop/sales_6.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_6.pptx",
+        "path": "/home/user/Desktop/deck_6.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_6.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_6.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_6.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_6.pptx",
+     "dest": "deck_6.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "top3_list",
+    "files": {
+     "deck": "/home/user/Desktop/deck_6.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "lines_in_order": [
+       "South",
+       "Pacific",
+       "Atlantic"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-07-compute_total",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-07-compute_total",
+   "instruction": "Add up the Revenue column of the Data sheet of ~/Desktop/sales_7.xlsx (open in LibreOffice Calc). Replace the body text of slide 2 of ~/Desktop/deck_7.pptx (open in LibreOffice Impress) with 'Total: ' followed by that number, then save deck_7.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_7.xlsx",
+        "path": "/home/user/Desktop/sales_7.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_7.pptx",
+        "path": "/home/user/Desktop/deck_7.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_7.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_7.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_7.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_7.pptx",
+     "dest": "deck_7.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "compute_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_7.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "text": "Total"
+     },
+     {
+      "slide": 2,
+      "number": 341771
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-08-compute_total",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-08-compute_total",
+   "instruction": "Add up the Revenue column of the Data sheet of ~/Desktop/sales_8.xlsx (open in LibreOffice Calc). Replace the body text of slide 2 of ~/Desktop/deck_8.pptx (open in LibreOffice Impress) with 'Total: ' followed by that number, then save deck_8.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_8.xlsx",
+        "path": "/home/user/Desktop/sales_8.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_8.pptx",
+        "path": "/home/user/Desktop/deck_8.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_8.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_8.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_8.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_8.pptx",
+     "dest": "deck_8.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "compute_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_8.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "text": "Total"
+     },
+     {
+      "slide": 2,
+      "number": 279329
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-09-region_table",
+  "domain": "office",
+  "difficulty": "hard",
+  "config": {
+   "id": "office-09-region_table",
+   "instruction": "On slide 2 of ~/Desktop/deck_9.pptx (open in LibreOffice Impress), add a table with two columns, Region and Total, with one row per region from the Data sheet of ~/Desktop/sales_9.xlsx (open in LibreOffice Calc) and each region's total revenue. Save deck_9.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_9.xlsx",
+        "path": "/home/user/Desktop/sales_9.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_9.pptx",
+        "path": "/home/user/Desktop/deck_9.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_9.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_9.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_9.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_9.pptx",
+     "dest": "deck_9.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "region_table",
+    "files": {
+     "deck": "/home/user/Desktop/deck_9.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "table_rows": [
+       [
+        "South",
+        74910
+       ],
+       [
+        "Coastal",
+        71118
+       ],
+       [
+        "East",
+        54020
+       ],
+       [
+        "Midwest",
+        86213
+       ],
+       [
+        "Pacific",
+        70690
+       ]
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-10-next_steps",
+  "domain": "office",
+  "difficulty": "hard",
+  "config": {
+   "id": "office-10-next_steps",
+   "instruction": "Add a new slide at the end of ~/Desktop/deck_10.pptx (open in LibreOffice Impress) titled 'Next Steps' whose body text says 'Grow ' followed by the name of the region with the lowest total revenue in ~/Desktop/sales_10.xlsx (open in LibreOffice Calc). Save deck_10.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_10.xlsx",
+        "path": "/home/user/Desktop/sales_10.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_10.pptx",
+        "path": "/home/user/Desktop/deck_10.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_10.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_10.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_10.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_10.pptx",
+     "dest": "deck_10.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "next_steps",
+    "files": {
+     "deck": "/home/user/Desktop/deck_10.pptx"
+    },
+    "checks": [
+     {
+      "slide": "last",
+      "title": "Next Steps"
+     },
+     {
+      "slide": "last",
+      "text": "South"
+     },
+     {
+      "slide_count": 4
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-11-paste_chart",
+  "domain": "office",
+  "difficulty": "hard",
+  "config": {
+   "id": "office-11-paste_chart",
+   "instruction": "In ~/Desktop/sales_11.xlsx (open in LibreOffice Calc), make a chart of revenue by month for the Central region and put it on slide 3 of ~/Desktop/deck_11.pptx (open in LibreOffice Impress). Save deck_11.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_11.xlsx",
+        "path": "/home/user/Desktop/sales_11.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_11.pptx",
+        "path": "/home/user/Desktop/deck_11.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_11.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_11.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_11.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_11.pptx",
+     "dest": "deck_11.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "paste_chart",
+    "files": {
+     "deck": "/home/user/Desktop/deck_11.pptx"
+    },
+    "checks": [
+     {
+      "slide": 3,
+      "chart_or_picture": true
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-12-copy_total",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-12-copy_total",
+   "instruction": "In ~/Desktop/sales_12.xlsx (open in LibreOffice Calc), cell B2 of the Summary sheet holds the total revenue. Replace the subtitle text on slide 1 of ~/Desktop/deck_12.pptx (open in LibreOffice Impress) with that number, then save deck_12.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_12.xlsx",
+        "path": "/home/user/Desktop/sales_12.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_12.pptx",
+        "path": "/home/user/Desktop/deck_12.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_12.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_12.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_12.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_12.pptx",
+     "dest": "deck_12.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_12.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "number": 315658
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-13-copy_total",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-13-copy_total",
+   "instruction": "In ~/Desktop/sales_13.xlsx (open in LibreOffice Calc), cell B2 of the Summary sheet holds the total revenue. Replace the subtitle text on slide 1 of ~/Desktop/deck_13.pptx (open in LibreOffice Impress) with that number, then save deck_13.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_13.xlsx",
+        "path": "/home/user/Desktop/sales_13.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_13.pptx",
+        "path": "/home/user/Desktop/deck_13.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_13.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_13.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_13.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_13.pptx",
+     "dest": "deck_13.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_13.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "number": 267008
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-14-copy_title",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-14-copy_title",
+   "instruction": "Use the text in cell A1 of the Summary sheet of ~/Desktop/sales_14.xlsx (open in LibreOffice Calc) as the title of slide 1 of ~/Desktop/deck_14.pptx (open in LibreOffice Impress), then save deck_14.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_14.xlsx",
+        "path": "/home/user/Desktop/sales_14.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_14.pptx",
+        "path": "/home/user/Desktop/deck_14.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_14.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_14.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_14.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_14.pptx",
+     "dest": "deck_14.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_title",
+    "files": {
+     "deck": "/home/user/Desktop/deck_14.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "title": "Northwind Q4 2026 Revenue Review"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-15-copy_title",
+  "domain": "office",
+  "difficulty": "easy",
+  "config": {
+   "id": "office-15-copy_title",
+   "instruction": "Use the text in cell A1 of the Summary sheet of ~/Desktop/sales_15.xlsx (open in LibreOffice Calc) as the title of slide 1 of ~/Desktop/deck_15.pptx (open in LibreOffice Impress), then save deck_15.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_15.xlsx",
+        "path": "/home/user/Desktop/sales_15.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_15.pptx",
+        "path": "/home/user/Desktop/deck_15.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_15.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_15.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_15.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_15.pptx",
+     "dest": "deck_15.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "copy_title",
+    "files": {
+     "deck": "/home/user/Desktop/deck_15.pptx"
+    },
+    "checks": [
+     {
+      "slide": 1,
+      "title": "Contoso Q1 2026 Revenue Review"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-16-top_region",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-16-top_region",
+   "instruction": "Find the region with the highest total revenue in the Data sheet of ~/Desktop/sales_16.xlsx (open in LibreOffice Calc) (add up its months). Make that region's name the title of slide 2 of ~/Desktop/deck_16.pptx (open in LibreOffice Impress), then save deck_16.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_16.xlsx",
+        "path": "/home/user/Desktop/sales_16.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_16.pptx",
+        "path": "/home/user/Desktop/deck_16.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_16.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_16.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_16.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_16.pptx",
+     "dest": "deck_16.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "top_region",
+    "files": {
+     "deck": "/home/user/Desktop/deck_16.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "title": "Midwest"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-17-top_region",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-17-top_region",
+   "instruction": "Find the region with the highest total revenue in the Data sheet of ~/Desktop/sales_17.xlsx (open in LibreOffice Calc) (add up its months). Make that region's name the title of slide 2 of ~/Desktop/deck_17.pptx (open in LibreOffice Impress), then save deck_17.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_17.xlsx",
+        "path": "/home/user/Desktop/sales_17.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_17.pptx",
+        "path": "/home/user/Desktop/deck_17.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_17.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_17.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_17.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_17.pptx",
+     "dest": "deck_17.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "top_region",
+    "files": {
+     "deck": "/home/user/Desktop/deck_17.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "title": "Coastal"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-18-top3_list",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-18-top3_list",
+   "instruction": "In the Data sheet of ~/Desktop/sales_18.xlsx (open in LibreOffice Calc), find the three regions with the highest total revenue. Replace the body text of slide 2 of ~/Desktop/deck_18.pptx (open in LibreOffice Impress) with their names, highest first, one per line, then save deck_18.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_18.xlsx",
+        "path": "/home/user/Desktop/sales_18.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_18.pptx",
+        "path": "/home/user/Desktop/deck_18.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_18.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_18.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_18.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_18.pptx",
+     "dest": "deck_18.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "top3_list",
+    "files": {
+     "deck": "/home/user/Desktop/deck_18.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "lines_in_order": [
+       "South",
+       "Coastal",
+       "North"
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-19-compute_total",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-19-compute_total",
+   "instruction": "Add up the Revenue column of the Data sheet of ~/Desktop/sales_19.xlsx (open in LibreOffice Calc). Replace the body text of slide 2 of ~/Desktop/deck_19.pptx (open in LibreOffice Impress) with 'Total: ' followed by that number, then save deck_19.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_19.xlsx",
+        "path": "/home/user/Desktop/sales_19.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_19.pptx",
+        "path": "/home/user/Desktop/deck_19.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_19.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_19.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_19.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_19.pptx",
+     "dest": "deck_19.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "compute_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_19.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "text": "Total"
+     },
+     {
+      "slide": 2,
+      "number": 355473
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-20-compute_total",
+  "domain": "office",
+  "difficulty": "medium",
+  "config": {
+   "id": "office-20-compute_total",
+   "instruction": "Add up the Revenue column of the Data sheet of ~/Desktop/sales_20.xlsx (open in LibreOffice Calc). Replace the body text of slide 2 of ~/Desktop/deck_20.pptx (open in LibreOffice Impress) with 'Total: ' followed by that number, then save deck_20.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_20.xlsx",
+        "path": "/home/user/Desktop/sales_20.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_20.pptx",
+        "path": "/home/user/Desktop/deck_20.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_20.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_20.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_20.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_20.pptx",
+     "dest": "deck_20.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "compute_total",
+    "files": {
+     "deck": "/home/user/Desktop/deck_20.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "text": "Total"
+     },
+     {
+      "slide": 2,
+      "number": 307452
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-21-region_table",
+  "domain": "office",
+  "difficulty": "hard",
+  "config": {
+   "id": "office-21-region_table",
+   "instruction": "On slide 2 of ~/Desktop/deck_21.pptx (open in LibreOffice Impress), add a table with two columns, Region and Total, with one row per region from the Data sheet of ~/Desktop/sales_21.xlsx (open in LibreOffice Calc) and each region's total revenue. Save deck_21.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_21.xlsx",
+        "path": "/home/user/Desktop/sales_21.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_21.pptx",
+        "path": "/home/user/Desktop/deck_21.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_21.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_21.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_21.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_21.pptx",
+     "dest": "deck_21.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "region_table",
+    "files": {
+     "deck": "/home/user/Desktop/deck_21.pptx"
+    },
+    "checks": [
+     {
+      "slide": 2,
+      "table_rows": [
+       [
+        "Coastal",
+        68044
+       ],
+       [
+        "Mountain",
+        41296
+       ],
+       [
+        "Pacific",
+        53441
+       ],
+       [
+        "Central",
+        65184
+       ],
+       [
+        "West",
+        57848
+       ]
+      ]
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-22-next_steps",
+  "domain": "office",
+  "difficulty": "hard",
+  "config": {
+   "id": "office-22-next_steps",
+   "instruction": "Add a new slide at the end of ~/Desktop/deck_22.pptx (open in LibreOffice Impress) titled 'Next Steps' whose body text says 'Grow ' followed by the name of the region with the lowest total revenue in ~/Desktop/sales_22.xlsx (open in LibreOffice Calc). Save deck_22.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_22.xlsx",
+        "path": "/home/user/Desktop/sales_22.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_22.pptx",
+        "path": "/home/user/Desktop/deck_22.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_22.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_22.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_22.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_22.pptx",
+     "dest": "deck_22.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "next_steps",
+    "files": {
+     "deck": "/home/user/Desktop/deck_22.pptx"
+    },
+    "checks": [
+     {
+      "slide": "last",
+      "title": "Next Steps"
+     },
+     {
+      "slide": "last",
+      "text": "South"
+     },
+     {
+      "slide_count": 4
+     }
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "office-23-paste_chart",
+  "domain": "office",
+  "difficulty": "hard",
+  "config": {
+   "id": "office-23-paste_chart",
+   "instruction": "In ~/Desktop/sales_23.xlsx (open in LibreOffice Calc), make a chart of revenue by month for the South region and put it on slide 3 of ~/Desktop/deck_23.pptx (open in LibreOffice Impress). Save deck_23.pptx.",
+   "snapshot": "libreoffice_impress",
+   "config": [
+    {
+     "type": "upload_file",
+     "parameters": {
+      "files": [
+       {
+        "local_path": "/home/ubuntu/bench/files/sales_23.xlsx",
+        "path": "/home/user/Desktop/sales_23.xlsx"
+       },
+       {
+        "local_path": "/home/ubuntu/bench/files/deck_23.pptx",
+        "path": "/home/user/Desktop/deck_23.pptx"
+       }
+      ]
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/sales_23.xlsx"
+     }
+    },
+    {
+     "type": "open",
+     "parameters": {
+      "path": "/home/user/Desktop/deck_23.pptx"
+     }
+    }
+   ],
+   "evaluator": {
+    "postconfig": [
+     {
+      "type": "activate_window",
+      "parameters": {
+       "window_name": "deck_23.pptx - LibreOffice Impress",
+       "strict": false
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 0.5
+      }
+     },
+     {
+      "type": "execute",
+      "parameters": {
+       "command": [
+        "python",
+        "-c",
+        "import pyautogui, time; pyautogui.hotkey('ctrl', 's'); time.sleep(1.0)"
+       ]
+      }
+     },
+     {
+      "type": "sleep",
+      "parameters": {
+       "seconds": 1.0
+      }
+     }
+    ],
+    "func": "compare_pptx_files",
+    "result": {
+     "type": "vm_file",
+     "path": "/home/user/Desktop/deck_23.pptx",
+     "dest": "deck_23.pptx"
+    }
+   },
+   "legato_grader": {
+    "kind": "paste_chart",
+    "files": {
+     "deck": "/home/user/Desktop/deck_23.pptx"
+    },
+    "checks": [
+     {
+      "slide": 3,
+      "chart_or_picture": true
+     }
+    ]
+   }
+  }
+ }
+]
