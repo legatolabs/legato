@@ -74,6 +74,22 @@ def test_parse_tolerates_model_shapes():
     assert A.parse({"action": "click"}, 1024, 768)[0] is None
 
 
+def test_triple_click_everywhere():
+    for name in ("triple_click", "tripleclick", "left_triple_click"):
+        a, why = A.parse({"action": name, "coordinate": [500, 500]}, 1024, 768)
+        assert (a.type, a.x, a.y) == ("triple_click", 512, 384), why
+    assert A.parse({"action": "triple_click"}, 1024, 768)[0] is None          # needs a point
+    cmds, extra = E.xdotool_cmds(A.Action("triple_click", x=5, y=6))
+    assert cmds == [["xdotool", "mousemove", "5", "6", "click", "--repeat", "3", "--delay", "60", "1"]] and extra == 0
+    sb = FakeSandbox()
+    env = legato.attach(sb)
+    env._sdk_execute(A.Action("triple_click", x=5, y=6))                    # the SDK path: one timed xdotool call
+    assert sb.log[-1] == "xdotool mousemove 5 6 click --repeat 3 --delay 60 1"
+    from legato.rl.collect import to_pyautogui
+    assert to_pyautogui(A.Action("triple_click", x=5, y=6)) == "pyautogui.tripleClick(5, 6)"
+    assert "triple_click" in legato.harness.CLAUDE_STYLE_ACTIONS
+
+
 def test_e2b_adapter_uses_one_call_per_action():
     sb = FakeSandbox()
     env = legato.attach(sb)

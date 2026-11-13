@@ -100,6 +100,8 @@ class LocalEnv(Env):
             g.click(a.x, a.y)
         elif t == "double_click":
             g.doubleClick(a.x, a.y)
+        elif t == "triple_click":
+            g.click(a.x, a.y, clicks=3, interval=0.06)
         elif t == "right_click":
             g.rightClick(a.x, a.y)
         elif t == "type":

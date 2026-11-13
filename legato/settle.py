@@ -32,7 +32,7 @@ REMOTE_RULES = {
     "key": {"floor": 0.25, "quiet": 0.6, "min_same": 2},
     "reset": {"floor": 1.0, "quiet": 3.0, "min_same": 3},
 }
-KIND_OF = {"double_click": "click", "right_click": "click", "drag": "click", "done": "default", "fail": "default"}
+KIND_OF = {"double_click": "click", "triple_click": "click", "right_click": "click", "drag": "click", "done": "default", "fail": "default"}
 
 
 def rule_kind(action_type: str) -> str:

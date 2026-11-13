@@ -11,9 +11,10 @@ import json
 import re
 from dataclasses import asdict, dataclass
 
-KINDS = ("click", "double_click", "right_click", "type", "key", "scroll", "drag", "wait", "done", "fail")
+KINDS = ("click", "double_click", "triple_click", "right_click", "type", "key", "scroll", "drag", "wait", "done", "fail")
 ALIASES = {"left_click": "click", "leftclick": "click", "tap": "click", "doubleclick": "double_click",
-           "left_double_click": "double_click", "rightclick": "right_click", "left_click_drag": "drag",
+           "left_double_click": "double_click", "tripleclick": "triple_click", "left_triple_click": "triple_click",
+           "triple-click": "triple_click", "rightclick": "right_click", "left_click_drag": "drag",
            "keypress": "key", "key_press": "key", "hotkey": "key", "press": "key", "keys": "key",
            "type_text": "type", "write": "type", "input": "type", "terminate": "done", "finished": "done",
            "answer": "done", "sleep": "wait"}
@@ -50,7 +51,7 @@ class Action:
 
     def describe(self) -> str:
         t = self.type
-        if t in ("click", "double_click", "right_click"):
+        if t in ("click", "double_click", "triple_click", "right_click"):
             return f"{t.replace('_', ' ')} ({self.x}, {self.y})"
         if t == "type":
             s = self.text or ""
@@ -135,7 +136,7 @@ def parse(args: dict | str | None, width: int, height: int, scale: float = 1000.
         return (max(0, min(width - 1, round(x * width / scale))), max(0, min(height - 1, round(y * height / scale))))
 
     a = Action(kind)
-    if kind in ("click", "double_click", "right_click", "drag"):
+    if kind in ("click", "double_click", "triple_click", "right_click", "drag"):
         p = _xy(args)
         if p is None:
             return None, f"{kind} without coordinates"

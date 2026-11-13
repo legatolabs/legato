@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `triple_click` (selects a line or a whole field), on every desktop: Linux sandboxes, E2B, your own screen and
+  OSWorld. Models trained on Claude's computer-use actions send it, and it used to be rejected.
+- A busy or starting model server is waited out: a 429 or 503 is retried after its Retry-After, for up to
+  `busy_wait_s` (120 s) in all, without using up `retries`. A cold GPU no longer ends a run.
+
 ## 0.1.7
 
 - `LEGATO_DOCKER_ARGS`: extra `docker run` arguments for `--sandbox docker`, such as a volume with your project.

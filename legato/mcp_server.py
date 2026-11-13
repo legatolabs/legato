@@ -98,14 +98,14 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
     def desktop_act(desktop_id: str, action: str, x: int | None = None, y: int | None = None, text: str | None = None,
                     keys: str | None = None, direction: str | None = None, amount: int | None = None,
                     end_x: int | None = None, end_y: int | None = None) -> list:
-        """Act on the desktop and return the settled screen. action: click, double_click, right_click (x, y); type
-        (text); key (keys, e.g. "ctrl+s", "Return"); scroll (direction up/down/left/right, amount, optional x, y);
-        drag (x, y to end_x, end_y); wait. Coordinates are pixels of the latest screenshot."""
+        """Act on the desktop and return the settled screen. action: click, double_click, triple_click, right_click
+        (x, y); type (text); key (keys, e.g. "ctrl+s", "Return"); scroll (direction up/down/left/right, amount,
+        optional x, y); drag (x, y to end_x, end_y); wait. Coordinates are pixels of the latest screenshot."""
         d = get(desktop_id)
         kind = ALIASES.get(action.strip().lower(), action.strip().lower())
         if kind not in KINDS or kind in ("done", "fail"):
             raise ToolError(f"unknown action {action!r}")
-        if kind in ("click", "double_click", "right_click", "drag") and (x is None or y is None):
+        if kind in ("click", "double_click", "triple_click", "right_click", "drag") and (x is None or y is None):
             raise ToolError(f"{kind} needs x and y")
         a = Action(kind, x=x, y=y, x2=end_x, y2=end_y, text=text, keys=norm_keys(keys) if keys else None,
                    direction=direction, amount=amount)

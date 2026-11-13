@@ -171,6 +171,8 @@ def to_pyautogui(a) -> str:
         return f"pyautogui.click({a.x}, {a.y})"
     if t == "double_click":
         return f"pyautogui.doubleClick({a.x}, {a.y})"
+    if t == "triple_click":
+        return f"pyautogui.tripleClick({a.x}, {a.y})"
     if t == "right_click":
         return f"pyautogui.rightClick({a.x}, {a.y})"
     if t == "type":
