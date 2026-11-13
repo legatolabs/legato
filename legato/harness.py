@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from legato.actions import Action, parse
 from legato.env import Env, png_size
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
+from legato.tools import Tool, ToolCall
 
 CLAUDE_STYLE_ACTIONS = ["left_click", "right_click", "double_click", "triple_click", "left_click_drag", "type", "key",
                         "scroll", "wait", "done", "fail"]
@@ -90,16 +91,24 @@ def computer_tool(actions: list[str] | None = None) -> dict:
 
 def _calls(rec: dict) -> list:
     """Tool-call argument dicts from a reply: native tool_calls first, else JSON objects in the text."""
+    return [a for _, a in _named_calls(rec)]
+
+
+def _named_calls(rec: dict, names: tuple = ()) -> list:
+    """(tool name, arguments) pairs from a reply: native tool_calls first, else JSON objects in the text. In the text,
+    an object with an "action" is a `computer` call, and {"name": n, "arguments": {...}} is a call to tool n in
+    `names`."""
     out = []
     for tc in rec.get("tool_calls") or []:
-        a = (tc.get("function") or {}).get("arguments")
+        fn = tc.get("function") or {}
+        a = fn.get("arguments")
         if isinstance(a, str):
             try:
                 a = json.loads(a)
             except json.JSONDecodeError:
                 continue
         if isinstance(a, dict):
-            out.append(a)
+            out.append((fn.get("name") or "computer", a))
     if out:
         return out
     text, depth, start = rec.get("content") or "", 0, None
@@ -114,9 +123,12 @@ def _calls(rec: dict) -> list:
                 except json.JSONDecodeError:
                     continue
                 if isinstance(a, dict):
+                    if "action" not in a and a.get("name") in names and isinstance(a.get("arguments"), dict):
+                        out.append((a["name"], a["arguments"]))
+                        continue
                     a = a.get("arguments", a) if "action" not in a else a
                     if isinstance(a, dict) and "action" in a:
-                        out.append(a)
+                        out.append(("computer", a))
     return out
 
 
@@ -157,7 +169,8 @@ class Episode:
 
 @dataclass
 class Plan:
-    """One model turn: what to run. An action of None means "take a screenshot" (the reference's screenshot action)."""
+    """One model turn: what to run, in order. Each action is an `Action`, a `ToolCall` (a tool given in `tools=`), or
+    None for "take a screenshot" (the reference's screenshot action)."""
     rec: dict
     messages: list
     actions: list
@@ -180,14 +193,16 @@ class RunResult:
     usage: dict = field(default_factory=lambda: {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0})
 
     def report(self) -> str:
-        tot = {k: sum(t.get(k, 0.0) for t in self.timings) for k in ("model_s", "act_s", "settle_s", "obs_s")}
+        tot = {k: sum(t.get(k, 0.0) for t in self.timings) for k in ("model_s", "act_s", "settle_s", "obs_s", "tool_s")}
         other = max(0.0, self.wall_s - sum(tot.values()))
         share = lambda v: f"{100 * v / self.wall_s:.0f}%" if self.wall_s else "-"  # noqa: E731
         status = "done" if self.done else "failed" if self.failed else self.error or "stopped"
         return (f"{status} in {self.wall_s:.1f} s, {self.steps} model turns, {len(self.actions)} actions\n"
                 f"model {tot['model_s']:.1f} s ({share(tot['model_s'])}) · actions {tot['act_s']:.1f} s "
                 f"({share(tot['act_s'])}) · waiting for the screen {tot['settle_s']:.1f} s ({share(tot['settle_s'])}) · "
-                f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])}) · other {other:.1f} s")
+                f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])}) · "
+                + (f"tools {tot['tool_s']:.1f} s ({share(tot['tool_s'])}) · " if tot["tool_s"] else "")
+                + f"other {other:.1f} s")
 
 
 class Harness:
@@ -198,12 +213,14 @@ class Harness:
                  retries: int = 1, temperature: float = 0.0, max_tokens: int = 4096, native_tools: bool = True,
                  system: str | None = None, screenshot_each_action: bool = False, end_on_text: bool = False,
                  screenshot_action: bool = False, model_size: str | tuple | None = "auto",
-                 cache_breakpoints: bool | None = None, extra_body: dict | None = None, profile: str = "legato"):
+                 cache_breakpoints: bool | None = None, extra_body: dict | None = None, profile: str = "legato",
+                 tools: list[Tool] | None = None):
         """coords: "norm1000" or "pixels" (default: pixels for Claude, norm1000 otherwise). image_max: screenshots kept
         in the prompt (None keeps all). max_batch: tool calls run per turn (None runs all). model_size: the size
         screenshots are sent at ("auto": Anthropic's recommended size for Claude, the screen size otherwise; None:
         the screen size; or (w, h)). cache_breakpoints: ask for prompt caching with a top-level cache_control (default: on for
-        Claude; OpenRouter and Anthropic-compatible APIs read it)."""
+        Claude; OpenRouter and Anthropic-compatible APIs read it). tools: more tools beside `computer`, such as
+        `legato.tools.bash(env)`; each result goes back to the model as text."""
         coords = coords or ("pixels" if is_claude(model) else "norm1000")
         if coords not in COORDS:
             raise ValueError(f"coords must be one of {list(COORDS)}")
@@ -218,6 +235,11 @@ class Harness:
                                                                                  screenshot_action)
         self.model_size = model_size
         self.cache = is_claude(model) if cache_breakpoints is None else cache_breakpoints
+        self.tools: dict[str, Tool] = {}
+        for t in tools or []:
+            if t.name == "computer" or t.name in self.tools:
+                raise ValueError(f"tool name {t.name!r} is taken")
+            self.tools[t.name] = t
 
     @classmethod
     def reference(cls, model: str, base_url: str, api_key: str = "", **kw) -> "Harness":
@@ -244,6 +266,8 @@ class Harness:
         """System + task, then one user turn per observation and one assistant turn per reply. Old screenshots are
         replaced by a placeholder `fold` at a time, so the prefix stays identical for several turns."""
         sys_text = (self.system or SYSTEM).format(w=w, h=h, coords=COORDS[self.coords], batch=self.max_batch or "several")
+        if self.tools:
+            sys_text += "\n" + self._tools_prompt()
         n_img = sum(len(t.get("pngs") or [t["png_b64"]]) for t in turns if t["role"] == "user")
         excess = max(0, n_img - self.image_max) if self.image_max is not None else 0
         drop = -(-excess // self.fold) * self.fold if excess else 0     # round up to a whole chunk
@@ -254,6 +278,8 @@ class Harness:
                 first = False
                 if t.get("note"):
                     parts.append({"type": "text", "text": t["note"]})
+                for text in t.get("results") or []:
+                    parts.append({"type": "text", "text": text})
                 pngs = t.get("pngs") or [t["png_b64"]]
                 for j, b64 in enumerate(pngs):
                     seen += 1
@@ -267,6 +293,16 @@ class Harness:
             else:
                 msgs.append({"role": "assistant", "content": t["text"]})
         return msgs
+
+    def _tools_prompt(self) -> str:
+        """The system-prompt lines for the extra tools. Without native tool calls the model gets no tool specs, so it
+        is told each tool's parameters and the JSON form to write, which `_named_calls` reads."""
+        if self.native_tools:
+            return "Besides `computer` you have: " + "; ".join(f"`{t.name}` ({t.description})"
+                                                               for t in self.tools.values())
+        lines = ['Besides `computer` you have these tools. Call one by writing {"name": "<tool>", "arguments": {...}}:']
+        lines += [f"- {t.name}: {t.description} Parameters: {json.dumps(t.parameters)}" for t in self.tools.values()]
+        return "\n".join(lines)
 
     # ------------------------------------------------------------ turn API (used by run() and by benchmark adapters)
     def begin(self, task: str, png: bytes) -> Episode:
@@ -293,18 +329,25 @@ class Harness:
         """One model call: the actions to run next. Raises PolicyError when the call fails."""
         msgs = self._messages(ep.task, ep.mw, ep.mh, ep.turns)
         names = CLAUDE_STYLE_ACTIONS + (["screenshot"] if self.screenshot_action else [])
-        tools = [computer_tool(names)] if self.native_tools else None
+        tools = [computer_tool(names)] + [t.spec() for t in self.tools.values()] if self.native_tools else None
         # Claude caches only where asked: OpenRouter's automatic caching (one top-level marker that follows the end of
         # the conversation) stands in for the reference implementation's per-turn breakpoints
         rec = self.client.chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,
                                tool_choice="auto" if tools else None,
                                extra={"cache_control": {"type": "ephemeral"}} if self.cache else None)
-        calls = _calls(rec)
+        calls = _named_calls(rec, tuple(self.tools))
         plan = Plan(rec, msgs, [], [])
         text = (rec.get("content") or "").strip()
         if text and rec.get("tool_calls"):
             plan.reply.append(text[:2000])
-        for args in calls[: self.max_batch] if self.max_batch else calls:
+        for name, args in calls[: self.max_batch] if self.max_batch else calls:
+            if name in self.tools:
+                plan.actions.append(ToolCall(name, args))
+                plan.reply.append(json.dumps({"tool": name, **args}, ensure_ascii=False))
+                continue
+            if self.tools and name != "computer":     # without tools, any name is read as `computer`, as before
+                plan.reply.append(f"(unknown tool: {name})")
+                break
             if self.screenshot_action and str(args.get("action", "")).lower() == "screenshot":
                 plan.actions.append(None)
                 plan.reply.append(json.dumps({"action": "screenshot"}))
@@ -325,16 +368,26 @@ class Harness:
                 plan.done = True
         return plan
 
-    def feed(self, ep: Episode, plan: Plan, pngs: list[bytes]) -> None:
-        """Record the turn: the model's reply, then the screenshot(s) taken after its actions."""
+    def feed(self, ep: Episode, plan: Plan, pngs: list[bytes], results: list[str] | None = None) -> None:
+        """Record the turn: the model's reply, then the tool results (text) and the screenshot(s) taken after its
+        actions."""
         ep.turns.append({"role": "assistant", "text": "\n".join(plan.reply) or "(no action)"})
         keep = pngs if self.screenshot_each_action else pngs[-1:]
         turn = {"role": "user", "pngs": [self._png(ep, p) for p in keep]}
+        if results:
+            turn["results"] = list(results)
         if plan.cut_off:            # a thinking model ran out of tokens mid-reasoning on 22% of turns (docs/benchmarks.md)
             turn["note"] = CUT_OFF_NOTE
         ep.turns.append(turn)
 
     # ------------------------------------------------------------ the loop
+    def call_tool(self, call: ToolCall) -> str:
+        """Run one tool call. A handler that raises is reported to the model, not raised."""
+        try:
+            return str(self.tools[call.name].handler(call.args))
+        except Exception as e:  # noqa: BLE001 - the model sees the error and can try something else
+            return f"error: {type(e).__name__}: {str(e)[:500]}"
+
     def run(self, task: str, env: Env, max_steps: int = 30, on_step=None) -> RunResult:
         """Run `task` on an attached desktop. on_step(turn, actions, timing) is called after each model turn."""
         res, t0 = RunResult(task), time.monotonic()
@@ -351,12 +404,23 @@ class Harness:
                 res.usage[k] += u.get(k) or 0
             res.usage["cost_usd"] += u.get("cost") or 0.0
             timing = {"model_s": plan.rec["s"], "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
-            pngs = []
+            pngs, results, stale = [], [], False
             for a in plan.actions:
+                if isinstance(a, ToolCall):
+                    t = time.monotonic()
+                    results.append(f"{a.name} result:\n{self.call_tool(a)}")
+                    timing["tool_s"] = timing.get("tool_s", 0.0) + time.monotonic() - t
+                    stale = True    # a tool may have changed the screen
+                    continue
                 obs = env.observe() if a is None else env.act(a)
                 pngs.append(obs.screenshot)
+                stale = False
                 for k in ("act_s", "settle_s", "obs_s"):
                     timing[k] += env.last.get(k, 0.0)
+            if stale:
+                obs = env.observe()
+                pngs.append(obs.screenshot)
+                timing["obs_s"] += env.last.get("obs_s", 0.0)
             res.steps += 1
             res.actions += [a.describe() if a else "screenshot" for a in plan.actions]
             res.timings.append(timing)
@@ -365,7 +429,7 @@ class Harness:
                 on_step(turn, plan.actions, timing)
             if plan.done or plan.failed:
                 break
-            self.feed(ep, plan, pngs or [obs.screenshot])
+            self.feed(ep, plan, pngs or [obs.screenshot], results)
         res.wall_s = time.monotonic() - t0
         return res
 
