@@ -3,6 +3,7 @@
 ## Unreleased
 
 - `legato mcp --record DIR`: every screenshot the agent got, with a log of its actions.
+- `--sandbox docker` hands over the desktop once its first window is up, so the first screenshot is not black.
 
 ## 0.1.5
 

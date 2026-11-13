@@ -101,6 +101,11 @@ def docker(width: int, height: int, image: str | None = None) -> tuple[Any, Env]
     else:
         stop()
         raise RuntimeError(f"no X display came up in {image}")
+    for _ in range(80):                           # and for the first window, so the first screenshot is not black
+        if run("xdotool search --onlyvisible --name . 2>/dev/null | head -1").strip():
+            time.sleep(0.5)
+            break
+        time.sleep(0.1)
     return stop, attach(shell=run)
 
 
