@@ -8,6 +8,7 @@ the desktop runs and how they see the screen. Checked against each project's own
 | [Legato](https://github.com/legatolabs/legato) | a Docker container on your machine, your own screen (macOS, Windows, Linux), any Linux sandbox you can run a command in, or E2B | screenshots and pixel coordinates | returns once the screen stops changing, with the screenshot | yes: `desktop_run_task` hands a task to any OpenAI-compatible model | Apache-2.0 |
 | [Claude Code computer use](https://code.claude.com/docs/en/computer-use) | your own screen (CLI: macOS) | screenshots | not stated | no | proprietary; Pro, Max or Ultra plan |
 | [Cua Driver](https://github.com/trycua/cua) | your own computer, in the background (macOS, Windows, Linux) | accessibility tree and screenshots | waits up to 300 ms for a new window, menu or dialog | no | MIT |
+| [Hybrid Computer Use (Microsoft Research)](https://github.com/microsoft/Hybrid-Computer-Use) | an already-running desktop (Linux, macOS, Windows), one desktop per server process | accessibility tree (AT-SPI2, AX, UI Automation) and screenshots | `AX` runs up to 64 actions with waits and returns a diff of the tree | no | MIT |
 | [Cua `cua mcp`](https://github.com/trycua/cua) | local containers and VMs, or your own cloud account | not stated | not stated | no | MIT |
 | [Open Computer Use (iFurySt)](https://github.com/iFurySt/open-computer-use) | your own computer (macOS; Windows and Linux experimental) | accessibility tree and screenshots | Linux: a fixed 120 ms, then a snapshot | no | MIT |
 | [Open Computer Use (Yambr)](https://github.com/Yambr/open-computer-use) | self-hosted Docker workspaces, one per chat, with Docker Compose | a browser through Playwright, a terminal | not stated | coding sub-agents (Claude Code, Codex or OpenCode) | FSL-1.1-Apache-2.0; its README calls it a proof of concept |
@@ -27,6 +28,7 @@ the desktop runs and how they see the screen. Checked against each project's own
 - **Work in your real Mac or Windows apps without taking over your pointer:** Cua Driver, munim, Open Computer Use
   or Peekaboo. They act through the accessibility tree and send input in the background. Legato's `--local` mode moves
   your real mouse.
+- **Accessibility-tree control on Linux as well as macOS and Windows:** Hybrid Computer Use.
 - **Native Windows automation:** Windows-MCP or Terminator.
 - **Hand a long GUI task to a cheaper model,** or measure and train agents: Legato (`desktop_run_task`,
   [benchmarks](../benchmarks.md), [RL rollouts](../rl.md)).
