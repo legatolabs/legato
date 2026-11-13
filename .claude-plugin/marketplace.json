@@ -1,0 +1,14 @@
+{
+  "name": "legatolabs",
+  "description": "Legato: a computer for coding agents, and an open-source computer-use harness for any model",
+  "owner": { "name": "Legato Labs", "url": "https://legato.computer" },
+  "plugins": [
+    {
+      "name": "legato",
+      "source": "./",
+      "description": "Give Claude Code a computer: a desktop container (or your screen, or your sandbox) it can see and click, through MCP",
+      "category": "computer-use",
+      "tags": ["computer-use", "mcp", "desktop", "gui", "docker"]
+    }
+  ]
+}

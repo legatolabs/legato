@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4
+
+- `legato doctor [--json]`: which sandboxes, extras and model keys are ready, with the fix for each.
+- A Claude Code plugin in the repo: `/plugin install legato --marketplace legatolabs/legato` adds the MCP server
+  (with `--sandbox docker`) and the use-legato skill. The repo also carries Agent Plugins files (`plugin.json`,
+  `mcp.json`) for other editors.
+- The MCP Registry entry now starts the server with `--sandbox docker`, so it needs no key.
+
 ## 0.1.3
 
 - `--sandbox docker`: a fresh desktop container on this machine (`ghcr.io/legatolabs/desktop`: a terminal and

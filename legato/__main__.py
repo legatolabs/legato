@@ -12,6 +12,7 @@ A local model server (`--base-url http://localhost:8000/v1`) needs no key.
   legato bench h2h --tasks ... --arm a=DIR --arm b=DIR --ref a --out DIR   compare harness runs
   legato rl probe|collect|export|profile ... graded rollouts for RL (see docs/rl.md)
   legato mcp [--local]                       an MCP server: a desktop for any agent (see docs/mcp.md)
+  legato doctor [--json]                     what is installed and configured, and how to fix what is missing
 """
 from __future__ import annotations
 
@@ -29,6 +30,9 @@ def main(argv=None) -> int:
     if argv[:1] == ["mcp"]:
         from legato.mcp_server import main as mcp_main
         return mcp_main(argv[1:])
+    if argv[:1] == ["doctor"]:
+        from legato.doctor import main as doctor_main
+        return doctor_main(argv[1:])
     if argv[:1] == ["bench"]:
         which = argv[1] if len(argv) > 1 else ""
         if which == "office":
@@ -40,7 +44,8 @@ def main(argv=None) -> int:
         print("usage: legato bench office|h2h ...", file=sys.stderr)
         return 2
     ap = argparse.ArgumentParser(prog="legato", epilog="also: legato bench office|h2h ... (benchmarks), "
-                                 "legato rl probe|collect|export|profile ... (RL rollouts), legato mcp (MCP server)")
+                                 "legato rl probe|collect|export|profile ... (RL rollouts), legato mcp (MCP server), "
+                                 "legato doctor [--json] (what is installed and configured)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run one task with the open harness on a fresh sandbox")
     r.add_argument("task")

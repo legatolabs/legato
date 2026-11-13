@@ -34,3 +34,4 @@ Or from a shell: `legato run "TASK" --model MODEL --base-url URL --json`. It pri
 - **MCP:** to let a coding agent drive a desktop itself: `legato mcp --sandbox docker` (a desktop container; needs only Docker; the safest choice), `legato mcp --local` (this computer), `legato mcp --sandbox file.py:function` (your sandbox), or `legato mcp` for E2B (`pip install "legatolabs[mcp,local]"` or `[mcp,e2b]`).
 - **No cloud account?** `--sandbox docker` runs a Linux desktop container locally; apps on the host are at `http://host.docker.internal:PORT` inside it.
 - **Docs:** https://legato.computer/llms.txt
+- **Setup problems:** `legato doctor --json` reports which sandboxes (docker, local, e2b), extras and model keys are ready, with the fix for each.

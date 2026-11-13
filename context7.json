@@ -1,0 +1,15 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Legato",
+  "description": "Open-source computer-use harness for OpenAI-compatible vision models: an agent loop (legato.Harness), desktops on this computer, a Docker container, any Linux sandbox or E2B (legato.local, legato.attach, --sandbox), an MCP server for coding agents, and RL rollouts. PyPI package legatolabs, import legato.",
+  "excludeFolders": ["site", "tests", "benchmarks", "archive", "old", "deprecated", "legacy"],
+  "excludeFiles": ["CHANGELOG.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "LICENSE.md", "NEWS.md"],
+  "rules": [
+    "The PyPI package is legatolabs and the import is `import legato`; there is no `pip install legato`.",
+    "Install the extra for the desktop you use: legatolabs[local] for this computer, legatolabs[e2b] for E2B, legatolabs[mcp] for the MCP server; --sandbox docker needs only Docker.",
+    "To give a coding agent a desktop, prefer `legato mcp --sandbox docker`: the agent then cannot touch the user's own screen.",
+    "Read model keys from the environment (for example OPENROUTER_API_KEY and E2B_API_KEY); a local model server needs no key.",
+    "Set coords= explicitly for a model you have not checked: Claude models use pixels, other models a 0-1000 grid (coords=\"norm1000\").",
+    "If setup fails, run `legato doctor --json` to see which sandboxes, extras and keys are ready."
+  ]
+}

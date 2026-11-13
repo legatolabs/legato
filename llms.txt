@@ -25,6 +25,7 @@ desk.kill()
 - To compare with Anthropic's reference loop: `legato.Harness.reference(...)` with `legato.attach(desk, fixed_wait_s=2.0)`.
 - MCP server for coding agents: `pip install "legatolabs[mcp,local]"`, then `claude mcp add legato -- legato mcp --sandbox docker` (a desktop container), `-- legato mcp --local` (this computer), `-- legato mcp --sandbox file.py:function` (your sandbox), or `-e E2B_API_KEY=... -- legato mcp` (E2B, needs the `e2b` extra).
 - A local model server (`--base-url http://localhost:8000/v1`) needs no API key.
+- If setup fails, run `legato doctor --json`: it reports which sandboxes, extras and keys are ready, with the fix for each.
 
 ## Docs (Markdown)
 

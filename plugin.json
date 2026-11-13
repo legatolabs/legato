@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "legato",
+  "description": "Give your coding agent a computer: an MCP server that opens a desktop (a Docker container by default), clicks and types, and returns the settled screenshot after each action.",
+  "homepage": "https://legato.computer/docs/guides/coding-agent-computer",
+  "repository": "https://github.com/legatolabs/legato",
+  "license": "Apache-2.0",
+  "keywords": ["computer-use", "mcp", "desktop", "gui", "docker", "testing"]
+}

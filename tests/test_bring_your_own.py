@@ -78,3 +78,11 @@ def test_sandbox_loader(tmp_path):
     assert providers.load("docker") is providers.docker
     with pytest.raises(ValueError):
         providers.load("not-a-spec")
+
+
+def test_doctor_json(capsys):
+    import json
+    from legato.doctor import main
+    assert main(["--json"]) == 0
+    d = json.loads(capsys.readouterr().out)
+    assert {"docker", "local", "e2b"} <= set(d["sandboxes"]) and "mcp" in d and d["legato"] == legato.__version__
