@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Legato · agents, in one motion</title>
-<meta name="description" content="Legato Labs builds the runtime between models and machines for computer-use agents and the RL that trains them. Open-source harness for any model: 1.48x faster than Anthropic's computer-use reference loop on the same model.">
+<title>Legato · open-source computer use for any model and any agent</title>
+<meta name="description" content="Open-source computer-use harness and MCP server: give Claude Code, Codex or Cursor a desktop (a Docker container, your own screen or the cloud), with any OpenAI-compatible model. 1.48x faster than Anthropic's reference loop on the same model.">
 <link rel="canonical" href="https://legato.computer/">
 <link rel="alternate" type="text/markdown" href="/docs/index.md">
 <link rel="ai-catalog" href="/.well-known/ai-catalog.json">
@@ -14,7 +14,7 @@
 <meta name="theme-color" content="#0a0a0a">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Legato">
-<meta property="og:title" content="Legato · agents, in one motion">
+<meta property="og:title" content="Legato · open-source computer use for any model and any agent">
 <meta property="og:description" content="Open-source computer-use harness for any model. 1.48x faster than Anthropic's reference loop on the same Claude model.">
 <meta property="og:url" content="https://legato.computer/">
 <meta property="og:image" content="https://legato.computer/brand/og.png">
@@ -164,7 +164,10 @@ print(result.report())   <span class="c"># model, actions, waiting for the scree
 pip install <span class="s">"legatolabs[mcp,local]"</span>
 claude mcp add legato -- legato mcp --sandbox docker         <span class="c"># a desktop container</span>
 claude mcp add legato -- legato mcp --local                  <span class="c"># your screen</span>
-claude mcp add legato -- legato mcp --sandbox my.py:desktop  <span class="c"># your sandbox</span></pre>
+claude mcp add legato -- legato mcp --sandbox my.py:desktop  <span class="c"># your sandbox</span>
+
+<span class="c"># or the Claude Code plugin (server + skills)</span>
+/plugin install legato --marketplace legatolabs/legato</pre>
         </div>
         <div class="tabpanel" role="tabpanel" id="p-cli" aria-labelledby="t-cli" hidden>
 <pre><span class="c"># your own screen and a model on your own GPU: nothing leaves the machine</span>
