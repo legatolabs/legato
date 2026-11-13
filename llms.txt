@@ -1,12 +1,20 @@
 # Legato
 
-> Open-source computer-use harness for any OpenAI-compatible vision model (Qwen, DeepSeek, Claude, vLLM, OpenRouter). It drives a desktop with a `computer` tool, waits for the screen instead of sleeping, and bounds every model call. Apache-2.0.
+> Open-source computer-use harness and MCP server for any OpenAI-compatible vision model (Qwen, DeepSeek, Claude, vLLM, OpenRouter). It gives coding agents a desktop (a Docker container, the user's screen, any sandbox or E2B), waits for the screen instead of sleeping, and bounds every model call. Apache-2.0.
 
 ## Instructions for coding agents
 
-- Install `pip install "legatolabs[e2b]"`. The PyPI name is `legatolabs`, but the import is `import legato`. There is no `pip install legato`.
-- Keys come from the environment: the model key (for example `OPENROUTER_API_KEY`) and `E2B_API_KEY` for E2B desktops.
-- Minimal loop:
+To give yourself (or your user's agent) a desktop to see and click, use the MCP server:
+
+- `pip install "legatolabs[mcp]"`, then `claude mcp add legato -- legato mcp --sandbox docker` (Codex: `codex mcp add legato -- legato mcp --sandbox docker`). `--sandbox docker` needs only Docker: a fresh Linux desktop container with a terminal and Firefox, and the safest choice because it cannot touch the user's screen. Apps on the user's machine are at `http://host.docker.internal:PORT` inside it.
+- Other desktops: `--local` (the user's own screen; macOS, Windows, Linux; needs the `local` extra), `--sandbox path/to/file.py:function` (any sandbox; the function gets (width, height) and returns a `legato.attach(...)` result), or plain `legato mcp` with `E2B_API_KEY` (E2B cloud desktops; needs the `e2b` extra).
+- Packaged installs: Claude Code plugin `/plugin install legato --marketplace legatolabs/legato`; Gemini CLI `gemini extensions install https://github.com/legatolabs/legato`; Claude Desktop `legato.mcpb` from the latest GitHub release.
+- Tools: `desktop_open`, `desktop_act` (returns the settled screenshot; no need for an extra screenshot), `desktop_screenshot`, `desktop_run_task` (hand a whole task to another model), `desktop_close`.
+
+To build a computer-use agent in Python:
+
+- Install `pip install "legatolabs[e2b]"` (or `[local]` for this computer). The PyPI name is `legatolabs`, but the import is `import legato`. There is no `pip install legato`.
+- Keys come from the environment: the model key (for example `OPENROUTER_API_KEY`) and `E2B_API_KEY` for E2B desktops. A local model server (`--base-url http://localhost:8000/v1`) needs no key.
 
 ```python
 import os, legato
@@ -18,13 +26,10 @@ print(result.done, result.report())
 desk.kill()
 ```
 
-- This computer: `legato.local()` (`pip install "legatolabs[local]"`); it moves the real mouse. Any Linux sandbox with a shell: `legato.attach(shell=fn_running_a_command_returning_stdout)` (needs X, python3, xdotool, scrot inside). Anything else: `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)`.
-- CLI and MCP take `--sandbox e2b|local|docker|docker:IMAGE|path/to/file.py:function`, where the function gets (width, height) and returns a `legato.attach(...)` result. `docker` needs only Docker: a fresh Linux desktop container (terminal, Firefox), the safest choice for a coding agent; apps on the host are at http://host.docker.internal:PORT inside it.
+- Desktops: `legato.local()` (this computer; moves the real mouse), `legato.providers.docker(width, height)` (returns `(stop, env)`), `legato.attach(shell=fn_running_a_command_returning_stdout)` (any Linux sandbox with X, python3, xdotool, scrot), `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)` (anything else).
 - Coordinates: Claude models use pixels automatically; other models use a 0–1000 grid (`coords="norm1000"`). Set `coords=` explicitly for a model you have not checked.
 - Thinking models: the default `max_tokens=4096` is usually enough; raise it if `result.report()` shows cut-off turns.
 - To compare with Anthropic's reference loop: `legato.Harness.reference(...)` with `legato.attach(desk, fixed_wait_s=2.0)`.
-- MCP server for coding agents: `pip install "legatolabs[mcp,local]"`, then `claude mcp add legato -- legato mcp --sandbox docker` (a desktop container), `-- legato mcp --local` (this computer), `-- legato mcp --sandbox file.py:function` (your sandbox), or `-e E2B_API_KEY=... -- legato mcp` (E2B, needs the `e2b` extra).
-- A local model server (`--base-url http://localhost:8000/v1`) needs no API key.
 - If setup fails, run `legato doctor --json`: it reports which sandboxes, extras and keys are ready, with the fix for each.
 
 ## Docs (Markdown)
@@ -48,7 +53,6 @@ desk.kill()
 ## Optional
 
 - [Computer-use MCP servers compared](https://legato.computer/docs/compare/computer-use-mcp-servers.md): Legato, Claude Code computer use, Cua, Open Computer Use, Windows-MCP, Peekaboo and others
-
 - [vs Anthropic's demo](https://legato.computer/docs/compare/anthropic-computer-use-demo.md)
 - [vs OSWorld's Qwen agent](https://legato.computer/docs/compare/osworld-qwen-agent.md)
 - [vs Agent S3](https://legato.computer/docs/compare/agent-s3.md)
