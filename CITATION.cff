@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use Legato or the Legato Office Bench, please cite it."
+title: "Legato: an open-source computer-use harness"
+type: software
+authors:
+  - name: "Legato Labs"
+repository-code: "https://github.com/legatolabs/legato"
+url: "https://legato.computer"
+license: Apache-2.0
+keywords:
+  - computer use
+  - GUI agents
+  - desktop automation
+  - MCP
+  - OSWorld
+  - reinforcement learning
+abstract: >-
+  Legato drives a desktop for any OpenAI-compatible vision model: your own computer, a desktop container, any sandbox,
+  or a cloud desktop. It waits for the screen to settle instead of sleeping, batches actions, keeps the prompt cache
+  warm and bounds every model call. With the same Claude model on 24 office tasks it was 1.48x faster than Anthropic's
+  reference loop at the same success rate.

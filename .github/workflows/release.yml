@@ -64,6 +64,13 @@ jobs:
       - run: |
           git tag "v${{ inputs.version }}"
           git push origin "v${{ inputs.version }}"
+      - name: GitHub release with the changelog section
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ inputs.version }}
+        run: |
+          awk -v v="## $V" '$0==v{on=1;next} /^## /{if(on)exit} on' CHANGELOG.md > notes.md
+          gh release create "v$V" --title "v$V" --notes-file notes.md
   mcp-registry:
     # Lists the MCP server (server.json) on registry.modelcontextprotocol.io as io.github.legatolabs/legato.
     # GitHub OIDC proves the repo owner; the registry checks the `mcp-name:` line in the README on PyPI.

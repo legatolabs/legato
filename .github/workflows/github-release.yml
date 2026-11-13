@@ -1,0 +1,24 @@
+# Create (or update) the GitHub release for an existing tag, from its CHANGELOG.md section. New versions get theirs
+# from release.yml; this is for tags made before that.
+name: github-release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v, e.g. 0.1.2"
+        required: true
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ inputs.version }}
+        run: |
+          awk -v v="## $V" '$0==v{on=1;next} /^## /{if(on)exit} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "no CHANGELOG section for $V"; exit 1; }
+          gh release view "v$V" >/dev/null 2>&1 && gh release edit "v$V" --notes-file notes.md \
+            || gh release create "v$V" --title "v$V" --notes-file notes.md --verify-tag

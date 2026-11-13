@@ -28,6 +28,16 @@ pip install "legatolabs[local]"
 legato run "Open the terminal and print the date" --sandbox local --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
 ```
 
+## Give your coding agent a computer
+
+Claude Code, Codex, Cursor or any MCP client gets a desktop to look at and click: a container on your machine (needs
+only Docker), your own screen, or a cloud desktop ([guide](https://legato.computer/docs/guides/coding-agent-computer)).
+
+```bash
+pip install "legatolabs[mcp]"
+claude mcp add legato -- legato mcp --sandbox docker
+```
+
 ## Results
 
 Same model, same desktops, 24 office tasks per run. [Method and raw data](https://legato.computer/docs/benchmarks).
