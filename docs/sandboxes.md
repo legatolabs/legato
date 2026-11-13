@@ -45,6 +45,10 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 - **Windows:** works as is.
 - **Linux:** an X11 session (not Wayland) and `python3-tk`, which `pyautogui` needs.
 - Only the primary screen is used.
+- **Tested** on every change to `legato/local.py`, on GitHub's macOS (Apple Silicon) and Windows Server runners:
+  screenshots, clicks, typing, and Ctrl shortcuts sent as Cmd on macOS
+  ([workflow](https://github.com/legatolabs/legato/blob/main/.github/workflows/local-desktop.yml)). Those screens are
+  not Retina, so the Retina scaling is covered only by unit tests.
 
 ## A desktop container on this machine
 
