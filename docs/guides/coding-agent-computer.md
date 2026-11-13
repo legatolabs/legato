@@ -36,10 +36,11 @@ For VS Code (`.vscode/mcp.json`): `{"servers": {"legato": {"type": "stdio", "com
 | `["mcp", "--sandbox", "my_desktop.py:desktop"]` | your sandbox: SSH, Daytona, a VM ([how](../sandboxes.md)) |
 | `["mcp"]` with `E2B_API_KEY` set | a cloud desktop on E2B |
 
-Then ask, for example: "Open http://host.docker.internal:3000 in Firefox on the Legato desktop and check that the login
-form works." ![Claude Code checks a signup form on a Legato desktop](https://legato.computer/media/claude-code-legato.gif)
+Then ask, for example: "A customer says the revenue chart looks wrong. The app is on port 8799. Look at it on the Legato
+desktop, fix the bug, then reload the page there to check your fix."
+![Claude Code sees a chart bug on a Legato desktop, fixes it and checks the fix](https://legato.computer/media/claude-code-legato.gif)
 
 From inside the container, `host.docker.internal` is your machine, so the agent can test the app you are
-running. We ran this flow with Claude Code end to end: it started Firefox from the desktop's terminal, filled in a
-signup form served from the host, and reported the page's validation message. The tools are listed on the
+running. We ran this flow with Claude Code end to end: it started Firefox from the desktop's terminal, saw the bars
+hanging from the top of the chart, changed one line, and reloaded to check the fix. The tools are listed on the
 [MCP page](../mcp.md).

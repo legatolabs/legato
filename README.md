@@ -14,11 +14,11 @@ pip install "legatolabs[mcp]"
 claude mcp add legato -- legato mcp --sandbox docker
 ```
 
-![Claude Code checks a signup form on a Legato desktop](https://legato.computer/media/claude-code-legato.gif)
+![Claude Code sees a chart bug on a Legato desktop, fixes it and checks the fix](https://legato.computer/media/claude-code-legato.gif)
 
-<sub>A real run in real time: Claude Code opens the app on the host in Firefox, tries an invalid and a valid email, and
-reports what the page said, including a bug (the success message is red). Each image is a screenshot the MCP server
-returned.</sub>
+<sub>A real run in real time: told that a revenue chart looks wrong, Claude Code opens the dashboard in a desktop
+container, sees the bars hanging from the top, changes one line and reloads to check the fix. Each image is a screenshot
+the MCP server returned.</sub>
 
 Or install the Claude Code plugin, which adds the server and a skill: `/plugin install legato --marketplace
 legatolabs/legato`. One click for other editors (these run the same server with `uvx`):
