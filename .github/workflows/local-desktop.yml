@@ -1,0 +1,26 @@
+# legato.local() on real macOS and Windows desktops (GitHub-hosted runners have a desktop session).
+name: local-desktop
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["legato/local.py", "tests/desktop/**", ".github/workflows/local-desktop.yml"]
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[local]"
+      - run: python tests/desktop/local_smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-shots-${{ matrix.os }}
+          path: local-shots/
