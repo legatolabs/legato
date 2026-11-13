@@ -101,6 +101,21 @@ runtime underneath changed: Legato's ready-wait and fast reset (`legato.rl`), ag
 - Dropping one screenshot per step cut the prefix-cache hit rate from 85% to 25%. Dropping them in chunks kept 58%.
 - This is not an official OSWorld-Verified submission.
 
+## Managed desktops: pause, resume and fork (live check)
+
+The managed service keeps desktops on E2B. It can pause one with its memory, resume it, and fork it into a copy that
+runs independently. Checked on 12 November 2026 against real sandboxes, both directly and through the deployed public
+API.
+
+| step | direct (E2B SDK) | through the API | checked |
+|---|---|---|---|
+| pause | 0.63–0.64 s | 0.87 s | E2B reports the sandbox `paused`, still paused 20 s later |
+| resume | 0.19–0.40 s | 0.48 s | a background process and a file both survive |
+| fork | 1.71 s | 2.04 s | the copy has the parent's files and running process; a file written in the copy does not appear in the parent |
+
+Times through the API include the round trip from the test machine to the gateway. These are single checks, not a
+benchmark.
+
 ## What these results do not show
 
 - **Tasks.** Office tasks only. Browser-heavy, terminal-heavy or long-horizon tasks may behave differently.

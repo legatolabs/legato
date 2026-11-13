@@ -34,7 +34,9 @@ function walk(dir) {
 // repository path (posix) -> site URL path
 const urlOf = (rel) => (rel === "README.md" ? "/docs" : "/" + rel.replace(/\.md$/, ""));
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const slug = (s) => s.toLowerCase().replace(/<[^>]+>/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+// GitHub's heading anchors: lowercase, apostrophes dropped, other punctuation and spaces to single hyphens
+const slug = (s) => s.toLowerCase().replace(/<[^>]+>/g, "").replace(/&#39;|&apos;|['\u2019]/g, "")
+  .replace(/&[a-z0-9#]+;/g, " ").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 function rewriteHref(href, fromRel) {
   if (/^([a-z]+:|#|\/)/i.test(href)) return href;                 // absolute, mailto, anchor, site path
@@ -83,6 +85,9 @@ function page({ title, description, body, rel, url }) {
 <link rel="canonical" href="${ORIGIN}${url}">
 <link rel="alternate" type="text/markdown" href="${url === "/docs" ? "/docs/index.md" : url + ".md"}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -107,8 +112,10 @@ const FOOTER = shell.match(/<footer>[\s\S]*?<\/footer>/)[0];
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 for (const f of ["index.html", "styles.css", "site.js", "favicon.svg"]) cpSync(join(SITE, f), join(DIST, f));
+mkdirSync(join(DIST, "media"), { recursive: true });
+if (existsSync(join(SITE, "media"))) cpSync(join(SITE, "media"), join(DIST, "media"), { recursive: true });
 const video = join(ROOT, "benchmarks/results/h2h-1/demo-claude.mp4");
-if (existsSync(video)) { mkdirSync(join(DIST, "media"), { recursive: true }); cpSync(video, join(DIST, "media/demo-claude.mp4")); }
+if (existsSync(video)) cpSync(video, join(DIST, "media/demo-claude.mp4"));
 
 const files = ["README.md", ...walk(join(ROOT, "docs")).map((p) => relative(ROOT, p).split("\\").join("/"))];
 const urls = ["/"], full = [];
