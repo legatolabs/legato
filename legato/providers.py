@@ -55,6 +55,13 @@ def ensure_image(image: str) -> None:
 
 
 def _ensure_image(image: str) -> None:
+    import shutil
+    if not shutil.which("docker"):
+        raise RuntimeError("--sandbox docker needs Docker: install Docker Desktop (macOS, Windows) or Docker Engine "
+                           "(Linux), or use --sandbox local or e2b")
+    if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
+        raise RuntimeError("Docker is installed but not running: start Docker Desktop (or the docker service), then "
+                           "try again")
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode == 0:
         return
     if subprocess.run(["docker", "pull", "-q", image], capture_output=True).returncode == 0:

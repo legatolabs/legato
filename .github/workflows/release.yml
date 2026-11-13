@@ -71,6 +71,15 @@ jobs:
         run: |
           awk -v v="## $V" '$0==v{on=1;next} /^## /{if(on)exit} on' CHANGELOG.md > notes.md
           gh release create "v$V" --title "v$V" --notes-file notes.md
+      - name: Claude Desktop extension (legato.mcpb) on the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ inputs.version }}
+        run: |
+          jq --arg v "$V" '.version = $v' mcpb/manifest.json > m.json && mv m.json mcpb/manifest.json
+          npx -y @anthropic-ai/mcpb validate mcpb/manifest.json
+          npx -y @anthropic-ai/mcpb pack mcpb legato.mcpb
+          gh release upload "v$V" legato.mcpb --clobber
   mcp-registry:
     # Lists the MCP server (server.json) on registry.modelcontextprotocol.io as io.github.legatolabs/legato.
     # GitHub OIDC proves the repo owner; the registry checks the `mcp-name:` line in the README on PyPI.

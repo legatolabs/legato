@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5
+
+- The MCP server tells the agent what kind of desktop it has (for docker: a terminal is open, and the user's apps are
+  at `host.docker.internal`; for local: these are the user's real windows).
+- `--sandbox docker` pulls or builds the image as the server starts, and says plainly when Docker is missing or not
+  running. The image is published for arm64 too, and opens Firefox without first-run tabs.
+- A Claude Desktop extension, `legato.mcpb`, attached to each release.
+- A second skill, `desktop`, on using the desktop tools well.
+
 ## 0.1.4
 
 - `legato doctor [--json]`: which sandboxes, extras and model keys are ready, with the fix for each.

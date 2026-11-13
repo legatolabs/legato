@@ -1,0 +1,52 @@
+{
+  "manifest_version": "0.4",
+  "name": "legato",
+  "display_name": "Legato",
+  "version": "0.1.5",
+  "description": "Give Claude a computer: a desktop container, this computer's screen, or a cloud desktop, that it can see and click.",
+  "long_description": "Legato opens a desktop and lets Claude click, type and read the screen. Each action returns the new screenshot as soon as the screen has stopped changing. Choose where the desktop runs: a Linux container on this machine (needs Docker; Claude cannot touch your own screen), this computer's own screen (macOS and Windows: give Claude Desktop Screen Recording and Accessibility permission), or an E2B cloud desktop (needs an E2B API key). Open source, Apache-2.0: https://github.com/legatolabs/legato",
+  "author": { "name": "Legato Labs", "url": "https://legato.computer" },
+  "homepage": "https://legato.computer/docs/mcp",
+  "documentation": "https://legato.computer/docs/guides/coding-agent-computer",
+  "support": "https://github.com/legatolabs/legato/issues",
+  "repository": { "type": "git", "url": "https://github.com/legatolabs/legato" },
+  "icon": "icon.png",
+  "server": {
+    "type": "uv",
+    "entry_point": "src/server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "src/server.py", "--sandbox", "${user_config.sandbox}"],
+      "env": { "E2B_API_KEY": "${user_config.e2b_api_key}" }
+    }
+  },
+  "tools": [
+    { "name": "desktop_open", "description": "Open a desktop and return its first screenshot" },
+    { "name": "desktop_act", "description": "Click, type, press keys, scroll or drag; returns the settled screenshot" },
+    { "name": "desktop_screenshot", "description": "The current screen" },
+    { "name": "desktop_run_task", "description": "Hand a whole task to another model (any OpenAI-compatible endpoint)" },
+    { "name": "desktop_close", "description": "Close the desktop" }
+  ],
+  "user_config": {
+    "sandbox": {
+      "type": "string",
+      "title": "Where the desktop runs",
+      "description": "docker: a Linux container on this machine (needs Docker). local: this computer's screen. e2b: a cloud desktop (needs an E2B API key).",
+      "default": "docker",
+      "required": false
+    },
+    "e2b_api_key": {
+      "type": "string",
+      "title": "E2B API key",
+      "description": "Only for e2b cloud desktops (e2b.dev).",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": { "python": ">=3.10" }
+  },
+  "keywords": ["computer-use", "desktop", "gui", "docker", "automation"],
+  "license": "Apache-2.0"
+}
