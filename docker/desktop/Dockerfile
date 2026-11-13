@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core ca-certificates dbus-x11 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -s /bin/bash user
+# no first-run tabs, onboarding or telemetry: the agent sees only the pages it opens
+COPY firefox-policies.json /usr/lib/firefox-esr/distribution/policies.json
 USER user
 WORKDIR /home/user
 RUN mkdir -p .fluxbox && echo "background: none" > .fluxbox/overlay
