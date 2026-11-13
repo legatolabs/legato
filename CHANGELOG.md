@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8
 
 - `triple_click` (selects a line or a whole field), on every desktop: Linux sandboxes, E2B, your own screen and
   OSWorld. Models trained on Claude's computer-use actions send it, and it used to be rejected.
