@@ -1,10 +1,17 @@
-# Publish to PyPI when a version tag (v*) is pushed. Uses PyPI Trusted Publishing: no token is stored anywhere.
+# Publish to PyPI when a version tag (v*) is pushed, or from Actions -> release -> Run workflow with the version
+# (then the workflow creates the v<version> tag itself after publishing). Uses PyPI Trusted Publishing: no token is
+# stored anywhere.
 # One-time setup on pypi.org -> Your account -> Publishing -> Add a new pending publisher:
 #   PyPI project name: legato · Owner: legatolabs · Repository: legato · Workflow: release.yml · Environment: pypi
 name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (must equal the version in pyproject.toml), e.g. 0.1.0"
+        required: true
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,10 +22,12 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: pytest -q
-      - name: The tag matches the package version
+      - name: The tag or requested version matches the package version
+        env:
+          WANT: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
         run: |
           v=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != version $v"; exit 1; }
+          test "v$v" = "$WANT" || { echo "requested $WANT != version $v in pyproject.toml"; exit 1; }
   build:
     needs: test
     runs-on: ubuntu-latest
@@ -44,3 +53,14 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+  tag:
+    needs: publish
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
