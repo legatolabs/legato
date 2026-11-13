@@ -26,6 +26,7 @@ const NAV = [
               ["docs/guides/faster-agents.md", "Why agents are slow"]]],
   ["Results", [["docs/benchmarks.md", "Benchmarks"]]],
   ["Compare", [["docs/compare/computer-use-mcp-servers.md", "Computer-use MCP servers"],
+               ["docs/compare/playwright-mcp.md", "Playwright MCP or a desktop"],
                ["docs/compare/anthropic-computer-use-demo.md", "vs Anthropic's demo"],
                ["docs/compare/osworld-qwen-agent.md", "vs OSWorld's Qwen agent"],
                ["docs/compare/agent-s3.md", "vs Agent S3"], ["docs/compare/ui-tars-desktop.md", "vs UI-TARS-desktop"]]],

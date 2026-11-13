@@ -54,6 +54,7 @@ desk.kill()
 ## Optional
 
 - [Computer-use MCP servers compared](https://legato.computer/docs/compare/computer-use-mcp-servers.md): Legato, Claude Code computer use, Cua, Open Computer Use, Windows-MCP, Peekaboo and others
+- [Playwright MCP or a desktop](https://legato.computer/docs/compare/playwright-mcp.md): which one a coding agent should use to test an app
 - [vs Anthropic's demo](https://legato.computer/docs/compare/anthropic-computer-use-demo.md)
 - [vs OSWorld's Qwen agent](https://legato.computer/docs/compare/osworld-qwen-agent.md)
 - [vs Agent S3](https://legato.computer/docs/compare/agent-s3.md)
