@@ -12,6 +12,7 @@ pip install "legatolabs[mcp,local]"
 
 claude mcp add legato -- legato mcp --sandbox docker        # Claude Code
 codex mcp add legato -- legato mcp --sandbox docker         # Codex CLI
+gemini extensions install https://github.com/legatolabs/legato   # Gemini CLI (server and skills)
 ```
 
 In Claude Code you can install the plugin instead, which adds the same server and a skill: `/plugin install legato
