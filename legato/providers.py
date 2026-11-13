@@ -78,12 +78,15 @@ def _ensure_image(image: str) -> None:
 def docker(width: int, height: int, image: str | None = None) -> tuple[Any, Env]:
     """A fresh desktop container on this machine (needs Docker). The image needs an X display on :0 with python3,
     xdotool and scrot; ghcr.io/legatolabs/desktop has them, plus a terminal and Firefox. Apps running on your machine
-    are reachable from inside at http://host.docker.internal:PORT."""
+    are reachable from inside at http://host.docker.internal:PORT. LEGATO_DOCKER_ARGS adds `docker run` arguments,
+    for example a volume with your project."""
     image = image or os.environ.get("LEGATO_DOCKER_IMAGE") or DOCKER_IMAGE
     ensure_image(image)
+    import shlex
+    extra = shlex.split(os.environ.get("LEGATO_DOCKER_ARGS", ""))   # e.g. -v "$PWD:/home/user/project"
     out = subprocess.run(["docker", "run", "-d", "--rm", "--shm-size", "512m", "-e", f"RESOLUTION={width}x{height}x24",
                           "--add-host", "host.docker.internal:host-gateway",   # reach apps on your machine
-                          image], capture_output=True, text=True)
+                          *extra, image], capture_output=True, text=True)
     if out.returncode != 0:
         raise RuntimeError(f"docker run {image} failed: {out.stderr.strip()[-300:]}")
     cid = out.stdout.strip()

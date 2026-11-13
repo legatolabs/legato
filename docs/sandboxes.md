@@ -52,7 +52,8 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 Firefox ([Dockerfile](https://github.com/legatolabs/legato/blob/main/docker/desktop/Dockerfile)). It needs only
 Docker: no key, no cloud, and the agent can't touch your own screen. The first use pulls the image, or builds it from
 the repo. `--sandbox docker:IMAGE` uses your own image: one built `FROM ghcr.io/legatolabs/desktop` with your apps, or
-any image with an X display on `:0`, `python3`, `xdotool` and `scrot`.
+any image with an X display on `:0`, `python3`, `xdotool` and `scrot`. `LEGATO_DOCKER_ARGS` adds `docker run`
+arguments, such as `-v "$PWD:/home/user/project"` ([testing a desktop app](guides/desktop-apps.md)).
 
 ## Any Linux sandbox
 

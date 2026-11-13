@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `LEGATO_DOCKER_ARGS`: extra `docker run` arguments for `--sandbox docker`, such as a volume with your project.
+
 ## 0.1.6
 
 - `legato mcp --record DIR`: every screenshot the agent got, with a log of its actions.

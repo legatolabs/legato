@@ -46,6 +46,7 @@ desk.kill()
 ## Guides
 
 - [Give Claude Code, Cursor or Codex a computer](https://legato.computer/docs/guides/coding-agent-computer.md): MCP setup for each client
+- [Test a desktop app with your coding agent](https://legato.computer/docs/guides/desktop-apps.md): your app in a desktop container, project mounted (LEGATO_DOCKER_ARGS)
 - [Run a computer-use agent with a local model](https://legato.computer/docs/guides/local-model.md): vLLM, your own screen or a container
 - [Automate spreadsheets and office apps](https://legato.computer/docs/guides/office-tasks.md): with results on the Legato Office Bench
 - [Why computer-use agents are slow](https://legato.computer/docs/guides/faster-agents.md): fixed sleeps, model calls, cache misses

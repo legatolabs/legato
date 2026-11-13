@@ -20,6 +20,7 @@ const NAV = [
   ["Start", [["README.md", "Overview and quickstart"], ["docs/models.md", "Models"], ["docs/sandboxes.md", "Sandboxes"],
              ["docs/mcp.md", "MCP server"], ["docs/rl.md", "RL rollouts"], ["docs/faq.md", "FAQ"]]],
   ["Guides", [["docs/guides/coding-agent-computer.md", "A computer for your coding agent"],
+              ["docs/guides/desktop-apps.md", "Test a desktop app"],
               ["docs/guides/local-model.md", "With a local model"],
               ["docs/guides/office-tasks.md", "Spreadsheets and office apps"],
               ["docs/guides/faster-agents.md", "Why agents are slow"]]],
