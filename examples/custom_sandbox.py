@@ -1,5 +1,6 @@
 """Drive any desktop you can screenshot and send input to: here a local X display through xdotool and ImageMagick.
-Swap the two functions for your VM, VNC, or cloud sandbox.
+Swap the two functions for your VM, VNC, or cloud sandbox. If the sandbox can run a shell command and has python3,
+xdotool and scrot, `legato.attach(shell=run)` is simpler and faster: one call per action (docs/sandboxes.md).
 
     DISPLAY=:1 OPENROUTER_API_KEY=... python examples/custom_sandbox.py
 """

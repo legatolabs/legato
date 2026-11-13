@@ -17,6 +17,18 @@ Legato covers the agent loop for both: [cua-agent](migrate/from-cua-agent.md), [
 **Does it include a model, or need a GPU?**
 No. Bring any model: Qwen through OpenRouter, Claude, or your own vLLM server, which can run on the same machine.
 
+**Can Claude Code, Cursor or Codex use it?**
+Yes, through the MCP server: `claude mcp add legato -- legato mcp --sandbox docker` gives the agent a desktop container
+to look at and click ([guide](guides/coding-agent-computer.md)).
+
+**Does it work on macOS and Windows?**
+Yes, on your own computer: `legato.local()` drives the screen of a Mac, a Windows PC or a Linux desktop. Cloud
+desktops are Linux today; managed Windows and macOS desktops are planned for Legato Cloud.
+
+**Is it safe to let an agent use my computer?**
+Use a desktop container (`--sandbox docker`) or a cloud desktop when you can: the agent then never touches your own
+screen or files. On your own screen, move the mouse into a corner to stop it.
+
 **Which desktops?**
 Your own computer (macOS, Windows, Linux), any Linux sandbox you can run a command in (Docker, SSH, Daytona, your own
 VMs), E2B, anything you can screenshot and send input to, and OSWorld's VMs ([sandboxes](sandboxes.md)). Managed

@@ -20,8 +20,8 @@ print(result.report())                                # where the time went
 desk.kill()
 ```
 
-`legato.local()` drives your own screen instead, and `legato.attach(shell=run)` any Linux sandbox you can run a command
-in, such as Docker or a VM ([sandboxes](https://legato.computer/docs/sandboxes)). With a model on your own GPU, nothing leaves your machine:
+`legato.local()` drives your own screen instead, `--sandbox docker` a desktop container on your machine, and
+`legato.attach(shell=run)` any Linux sandbox you can run a command in, such as a VM ([sandboxes](https://legato.computer/docs/sandboxes)). With a model on your own GPU, nothing leaves your machine:
 
 ```bash
 pip install "legatolabs[local]"
@@ -46,6 +46,7 @@ Same model, same desktops, 24 office tasks per run. [Method and raw data](https:
 
 ## More
 
+- Guides: [a computer for your coding agent](https://legato.computer/docs/guides/coding-agent-computer) · [local model](https://legato.computer/docs/guides/local-model) · [office apps](https://legato.computer/docs/guides/office-tasks) · [why agents are slow](https://legato.computer/docs/guides/faster-agents)
 - [Models](https://legato.computer/docs/models) · [Sandboxes](https://legato.computer/docs/sandboxes) · [MCP server](https://legato.computer/docs/mcp) · [RL rollouts](https://legato.computer/docs/rl) · [FAQ](https://legato.computer/docs/faq)
 - Compare: [Anthropic's demo](https://legato.computer/docs/compare/anthropic-computer-use-demo) · [OSWorld's Qwen agent](https://legato.computer/docs/compare/osworld-qwen-agent) · [Agent S3](https://legato.computer/docs/compare/agent-s3) · [UI-TARS-desktop](https://legato.computer/docs/compare/ui-tars-desktop)
 - Migrate: [from cua-agent](https://legato.computer/docs/migrate/from-cua-agent) · [from Bytebot](https://legato.computer/docs/migrate/from-bytebot)

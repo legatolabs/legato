@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+- `--sandbox docker`: a fresh desktop container on this machine (`ghcr.io/legatolabs/desktop`: a terminal and
+  Firefox), with apps on the host reachable at `http://host.docker.internal:PORT`. `--sandbox docker:IMAGE` for your
+  own image. Also `legato.providers.docker(width, height)` from Python.
+- `legato.providers` is importable from `legato`.
+
 ## 0.1.2
 
 - Bring your own computer. `legato.local()` drives this computer's screen on macOS, Windows or Linux (X11), with

@@ -1,30 +1,31 @@
 # Which computers Legato can drive
 
-Bring your own. Legato drives your own computer (macOS, Windows or Linux), any Linux sandbox you can run a command in
-(Docker, SSH, Daytona, Modal, your own VMs), E2B cloud desktops, or anything you can screenshot and send input to.
-Managed Windows and macOS cloud desktops are planned for Legato Cloud.
+Bring your own. Legato drives your own computer (macOS, Windows or Linux), a desktop container on your machine, any
+Linux sandbox you can run a command in (SSH, Daytona, Modal, your own VMs), E2B cloud desktops, or anything you can
+screenshot and send input to. Managed Windows and macOS cloud desktops are planned for Legato Cloud.
 
 ```python
 import legato
 
 env = legato.local()                                          # this computer: pip install "legatolabs[local]"
+stop, env = legato.providers.docker(1280, 800)                # a desktop container on this machine
 env = legato.attach(shell=run)                                # any Linux sandbox: run(cmd) returns stdout
 env = legato.attach(Sandbox.create())                         # E2B: from e2b_desktop import Sandbox
 env = legato.attach(screenshot=grab_png, execute=run_action)  # anything else
 ```
 
-From the shell and for coding agents, `--sandbox` takes the same choices: `e2b` (the default), `local`, or your own
-function as `path/to/file.py:function` or `module:function`. The function gets `(width, height)` and returns a
+From the shell and for coding agents, `--sandbox` takes the same choices: `e2b` (the default), `local`, `docker` (or
+`docker:IMAGE`), or your own function as `path/to/file.py:function` or `module:function`. The function gets `(width, height)` and returns a
 `legato.attach(...)` result, or `(handle, env)` so Legato can call `handle.kill()` (or `close`, `stop`, `delete`) at
-the end. For example, a Docker container with a desktop:
+the end. For example, a container on another machine over SSH works the same way as this one:
 
 ```python
 # my_desktop.py
 import subprocess, legato
 
 def desktop(width, height):
-    cid = subprocess.run(["docker", "run", "-d", "your-desktop-image"], capture_output=True, text=True).stdout.strip()
-    run = lambda cmd: subprocess.run(["docker", "exec", cid, "bash", "-lc", cmd], capture_output=True, text=True).stdout
+    cid = subprocess.run(["docker", "run", "-d", "ghcr.io/legatolabs/desktop"], capture_output=True, text=True).stdout.strip()
+    run = lambda cmd: subprocess.run(["docker", "exec", cid, "sh", "-c", cmd], capture_output=True, text=True).stdout
     return (lambda: subprocess.run(["docker", "rm", "-f", cid])), legato.attach(shell=run)
 ```
 
@@ -44,6 +45,14 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 - **Windows:** works as is.
 - **Linux:** an X11 session (not Wayland) and `python3-tk`, which `pyautogui` needs.
 - Only the primary screen is used.
+
+## A desktop container on this machine
+
+`--sandbox docker` starts a fresh container from `ghcr.io/legatolabs/desktop`: a small Linux desktop with a terminal and
+Firefox ([Dockerfile](https://github.com/legatolabs/legato/blob/main/docker/desktop/Dockerfile)). It needs only
+Docker: no key, no cloud, and the agent can't touch your own screen. The first use pulls the image, or builds it from
+the repo. `--sandbox docker:IMAGE` uses your own image: one built `FROM ghcr.io/legatolabs/desktop` with your apps, or
+any image with an X display on `:0`, `python3`, `xdotool` and `scrot`.
 
 ## Any Linux sandbox
 

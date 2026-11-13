@@ -1,0 +1,35 @@
+# Give Claude Code, Cursor or Codex a computer
+
+Coding agents can read and write files, but they can't see or click a GUI. Legato's MCP server gives them a desktop:
+the agent opens it, clicks and types, and gets a screenshot back after every action, as soon as the screen settles.
+Use it to check the app you are building, fill in a web form, or hand a whole GUI task to a cheaper open model.
+
+Pick the desktop, then add the server to your client. The safest default is a container on your own machine, which
+needs only Docker and keeps the agent off your real screen.
+
+```bash
+pip install "legatolabs[mcp,local]"
+
+claude mcp add legato -- legato mcp --sandbox docker        # Claude Code
+codex mcp add legato -- legato mcp --sandbox docker         # Codex CLI
+```
+
+For Cursor (`~/.cursor/mcp.json`), Claude Desktop, Windsurf or Gemini CLI (`settings.json`), add:
+
+```json
+{"mcpServers": {"legato": {"command": "legato", "args": ["mcp", "--sandbox", "docker"]}}}
+```
+
+For VS Code (`.vscode/mcp.json`): `{"servers": {"legato": {"type": "stdio", "command": "legato", "args": ["mcp",
+"--sandbox", "docker"]}}}`.
+
+| `args` | the agent gets |
+|---|---|
+| `["mcp", "--sandbox", "docker"]` | a fresh Linux desktop container with a terminal and Firefox |
+| `["mcp", "--local"]` | your own screen (macOS, Windows, Linux): it moves your real mouse |
+| `["mcp", "--sandbox", "my_desktop.py:desktop"]` | your sandbox: SSH, Daytona, a VM ([how](../sandboxes.md)) |
+| `["mcp"]` with `E2B_API_KEY` set | a cloud desktop on E2B |
+
+Then ask, for example: "Open http://host.docker.internal:3000 in Firefox on the Legato desktop and check that the login
+form works." From inside the container, `host.docker.internal` is your machine, so the agent can test the app you are
+running. The tools are listed on the [MCP page](../mcp.md).

@@ -36,6 +36,25 @@ def test_shell_sandbox_on_a_real_display(tmp_path):
         x.terminate()
 
 
+def _docker_image():
+    import os
+    img = os.environ.get("LEGATO_TEST_DOCKER_IMAGE", "")
+    if not img or not shutil.which("docker"):
+        return None
+    ok = subprocess.run(["docker", "image", "inspect", img], capture_output=True).returncode == 0
+    return img if ok else None
+
+
+@pytest.mark.skipif(_docker_image() is None, reason="set LEGATO_TEST_DOCKER_IMAGE to a built desktop image")
+def test_docker_sandbox():
+    stop, env = providers.load("docker:" + _docker_image())(800, 600)
+    try:
+        assert png_size(env.observe().screenshot) == (800, 600)
+        assert png_size(env.act(Action("click", x=10, y=10)).screenshot) == (800, 600)
+    finally:
+        providers.close(stop)
+
+
 def test_sandbox_loader(tmp_path):
     f = tmp_path / "my_desktop.py"
     f.write_text(
@@ -56,5 +75,6 @@ def test_sandbox_loader(tmp_path):
     providers.close(lambda: called.append(True))
     assert called == [True]
     assert providers.load("e2b") is providers.e2b and providers.load("local") is providers.local
+    assert providers.load("docker") is providers.docker
     with pytest.raises(ValueError):
         providers.load("not-a-spec")

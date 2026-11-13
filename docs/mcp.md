@@ -1,7 +1,7 @@
 # Legato MCP server: give your coding agent its own computer
 
-Add Legato to Claude Code, Cursor or any other MCP client, and your agent gets a computer to use: your own screen, a
-sandbox you already run, or a fresh desktop in the cloud. It can open apps, click, type and see the screen. Use it to
+Add Legato to Claude Code, Cursor or any other MCP client, and your agent gets a computer to use: a desktop container on
+your machine, your own screen, a sandbox you already run, or a fresh desktop in the cloud. It can open apps, click, type and see the screen. Use it to
 test a GUI you are building, check a page in a real browser, or hand a whole desktop task to a cheaper open model.
 Each action comes back with a screenshot as soon as the screen stops changing, so your agent never waits longer than
 it has to.
@@ -9,12 +9,15 @@ it has to.
 ```bash
 pip install "legatolabs[mcp,local]"   # [mcp,e2b] for E2B desktops
 
-claude mcp add legato -- legato mcp --local                          # your own computer
-claude mcp add legato -- legato mcp --sandbox my_desktop.py:desktop  # your sandbox: Docker, SSH, Daytona, a VM
+claude mcp add legato -- legato mcp --sandbox docker                 # a desktop container on your machine
+claude mcp add legato -- legato mcp --local                          # your own screen
+claude mcp add legato -- legato mcp --sandbox my_desktop.py:desktop  # your sandbox: SSH, Daytona, a VM
 claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud desktop on E2B
 ```
 
-- **Your own computer:** macOS, Windows, or Linux on X11. The agent moves your real mouse and keyboard; move the mouse
+- **A desktop container:** needs only Docker. The agent gets its own Linux desktop with a terminal and Firefox, and
+  can't touch your screen.
+- **Your own screen:** macOS, Windows, or Linux on X11. The agent moves your real mouse and keyboard; move the mouse
   into a corner of the screen to stop it.
 - **Your sandbox:** a few lines of Python that start it and run a command in it ([how](sandboxes.md)).
 - **Other clients** (Cursor, Windsurf, Claude Desktop): `{"mcpServers": {"legato": {"command": "legato", "args":

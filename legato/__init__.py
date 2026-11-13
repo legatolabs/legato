@@ -6,7 +6,7 @@
 
 The optional hosted API (legato.computer) lives in `legato.hosted`.
 """
-from legato import hosted
+from legato import hosted, providers
 from legato.actions import Action, parse
 from legato.env import Env, Obs, attach
 from legato.harness import Harness, RunResult, computer_tool
@@ -14,5 +14,5 @@ from legato.local import local
 from legato.settle import Waiter, wrap
 
 __all__ = ["Action", "Env", "Harness", "Obs", "RunResult", "Waiter", "attach", "computer_tool", "hosted", "local",
-           "parse", "wrap"]
-__version__ = "0.1.2"
+           "parse", "providers", "wrap"]
+__version__ = "0.1.3"

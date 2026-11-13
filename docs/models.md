@@ -17,7 +17,7 @@ Other models are untested; please open an issue with what you find.
 Serve an open vision model with vLLM (or SGLang) and point Legato at it. A local server needs no API key.
 
 ```bash
-vllm serve Qwen/Qwen3.5-9B --port 8000
+vllm serve Qwen/Qwen3.5-9B --enable-auto-tool-choice --tool-call-parser hermes --max-model-len 32768
 legato run "Rename the screenshots on the desktop by date" --sandbox local \
     --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
 ```

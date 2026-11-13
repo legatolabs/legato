@@ -18,6 +18,10 @@ const REPO = "https://github.com/legatolabs/legato";
 const NAV = [
   ["Start", [["README.md", "Overview and quickstart"], ["docs/models.md", "Models"], ["docs/sandboxes.md", "Sandboxes"],
              ["docs/mcp.md", "MCP server"], ["docs/rl.md", "RL rollouts"], ["docs/faq.md", "FAQ"]]],
+  ["Guides", [["docs/guides/coding-agent-computer.md", "A computer for your coding agent"],
+              ["docs/guides/local-model.md", "With a local model"],
+              ["docs/guides/office-tasks.md", "Spreadsheets and office apps"],
+              ["docs/guides/faster-agents.md", "Why agents are slow"]]],
   ["Results", [["docs/benchmarks.md", "Benchmarks"]]],
   ["Compare", [["docs/compare/anthropic-computer-use-demo.md", "vs Anthropic's demo"],
                ["docs/compare/osworld-qwen-agent.md", "vs OSWorld's Qwen agent"],
@@ -73,7 +77,7 @@ function describe(md) {
   return text.length > 158 ? text.slice(0, 155).replace(/\s+\S*$/, "") + "..." : text;
 }
 
-function page({ title, description, body, rel, url }) {
+function page({ title, description, body, rel, url, ld = "" }) {
   const side = NAV.map(([group, items]) => `<div class="g">${group}</div>` + items.map(([r, label]) =>
     `<a href="${urlOf(r)}"${r === rel ? ' aria-current="page"' : ""}>${label}</a>`).join("")).join("");
   return `<!doctype html>
@@ -98,7 +102,7 @@ function page({ title, description, body, rel, url }) {
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap">
 <link rel="stylesheet" href="/styles.css">
-</head>
+${ld}</head>
 <body>
 ${HEADER}
 <main class="docs wrap">
@@ -112,6 +116,19 @@ ${FOOTER}
 </body>
 </html>
 `;
+}
+
+
+// schema.org FAQPage from "**Question?**\nAnswer" pairs, for search engines and AI answer engines
+function faqLd(md) {
+  const items = [];
+  for (const block of md.split(/\n\s*\n/)) {
+    const m = block.match(/^\*\*(.+\?)\*\*\s*\n([\s\S]+)$/);
+    if (m) items.push({ "@type": "Question", name: m[1].trim(),
+      acceptedAnswer: { "@type": "Answer", text: m[2].replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\s+/g, " ").trim() } });
+  }
+  if (!items.length) return "";
+  return `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: items })}</script>\n`;
 }
 
 const shell = readFileSync(join(SITE, "index.html"), "utf8");
@@ -135,7 +152,8 @@ for (const rel of files) {
   const title = (md.match(/^#\s+(.+)$/m) || [, "Legato"])[1].replace(/[*`]/g, "");
   const out = url === "/docs" ? join(DIST, "docs/index") : join(DIST, url);
   mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out + ".html", page({ title, description: describe(md), body: render(md, rel), rel, url }));
+  const ld = rel === "docs/faq.md" ? faqLd(md) : "";
+  writeFileSync(out + ".html", page({ title, description: describe(md), body: render(md, rel), rel, url, ld }));
   writeFileSync(out + ".md", md);
   urls.push(url);
   full.push(`<!-- ${ORIGIN}${url} -->\n${md}`);
