@@ -22,7 +22,7 @@
       for (let i = 0; i < LINES; i++) {
         const f = i / (LINES - 1);                       // 0..1 across the ribbon
         const alpha = 0.06 + 0.16 * Math.sin(Math.PI * f);
-        ctx.strokeStyle = `rgba(236, 232, 223, ${alpha.toFixed(3)})`;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
         ctx.lineWidth = 0.7;
         ctx.beginPath();
         for (let x = -20; x <= w + 20; x += step) {

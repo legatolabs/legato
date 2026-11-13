@@ -87,6 +87,13 @@ function page({ title, description, body, rel, url }) {
 <link rel="alternate" type="text/markdown" href="${url === "/docs" ? "/docs/index.md" : url + ".md"}">
 <link rel="ai-catalog" href="/.well-known/ai-catalog.json">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+<meta name="theme-color" content="#0a0a0a">
+<meta property="og:title" content="${esc(title)} · Legato">
+<meta property="og:description" content="${esc(description)}">
+<meta property="og:image" content="${ORIGIN}/brand/og.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap">
@@ -114,6 +121,7 @@ const FOOTER = shell.match(/<footer>[\s\S]*?<\/footer>/)[0];
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 for (const f of ["index.html", "styles.css", "site.js", "favicon.svg"]) cpSync(join(SITE, f), join(DIST, f));
+cpSync(join(SITE, "brand"), join(DIST, "brand"), { recursive: true });
 mkdirSync(join(DIST, "media"), { recursive: true });
 if (existsSync(join(SITE, "media"))) cpSync(join(SITE, "media"), join(DIST, "media"), { recursive: true });
 const video = join(ROOT, "benchmarks/results/h2h-1/demo-claude.mp4");

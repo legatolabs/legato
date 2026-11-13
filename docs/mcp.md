@@ -11,6 +11,8 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp
 Cursor, Windsurf, Claude Desktop and other clients:
 `{"mcpServers": {"legato": {"command": "legato", "args": ["mcp"], "env": {"E2B_API_KEY": "your_key"}}}}`
 
+Without installing anything: use `uvx --from "legatolabs[e2b,mcp]" legato mcp` as the command.
+
 | tool | what it does |
 |---|---|
 | `desktop_open(width=1280, height=800)` | starts a fresh desktop; returns its id and first screenshot |
