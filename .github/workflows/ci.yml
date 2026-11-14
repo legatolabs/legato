@@ -31,6 +31,6 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: docker build -t legato-desktop:ci docker/desktop
-      - run: pytest -q tests/test_bring_your_own.py
+      - run: pytest -q tests/test_bring_your_own.py tests/test_loop_perf.py
         env:
           LEGATO_TEST_DOCKER_IMAGE: legato-desktop:ci

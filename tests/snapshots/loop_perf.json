@@ -1,0 +1,32 @@
+{
+ "desktop": {
+  "max wait s": 0.735,
+  "mean wait per action s": 0.55
+ },
+ "loop": {
+  "max images per request": 8,
+  "mean prefix reuse": 0.889,
+  "mean prompt KB": 5.7,
+  "min prefix reuse": 0.116,
+  "model calls": 9,
+  "screenshots": 25
+ },
+ "settle": {
+  "click busy 0.0s": 0.63,
+  "click busy 0.3s": 0.8,
+  "click busy 1.0s": 1.48,
+  "click busy 9.0s": 2.16,
+  "default busy 0.0s": 0.63,
+  "default busy 0.3s": 0.8,
+  "default busy 1.0s": 1.48,
+  "default busy 9.0s": 2.16,
+  "key busy 0.0s": 0.8,
+  "key busy 0.3s": 0.97,
+  "key busy 1.0s": 1.65,
+  "key busy 9.0s": 2.16,
+  "type busy 0.0s": 0.63,
+  "type busy 0.3s": 0.8,
+  "type busy 1.0s": 1.48,
+  "type busy 9.0s": 2.16
+ }
+}

@@ -21,6 +21,13 @@ rollouts), `legato mcp` (MCP server). PyPI name `legatolabs`, import name `legat
     registries install the MCP server. Keep their versions in step with `pyproject.toml` (`tests/test_versions.py`).
   - `docs/`: user docs.
   - `site/`: legato.computer.
+- Guards (in `pytest -q`, and in CI):
+  - `tests/test_surface.py`: the Python API, CLI flags and MCP tools against `tests/snapshots/surface.json`.
+  - `tests/test_docs.py`: every command, flag, extra and Python snippet in the docs exists in the code.
+  - `tests/test_loop_perf.py`: settle time, model calls, screenshots and prompt-cache reuse against
+    `tests/snapshots/loop_perf.json`; the Docker part runs with `LEGATO_TEST_DOCKER_IMAGE`.
+  - After an intended change: `LEGATO_UPDATE_SNAPSHOTS=1 pytest -q tests/test_surface.py tests/test_loop_perf.py`,
+    and commit the snapshots with the change. Never update them to make a failure go away.
 - Rules:
   - Keep public APIs typed.
   - Keep docs short.

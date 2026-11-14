@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["legato/local.py", "tests/desktop/**", ".github/workflows/local-desktop.yml"]
+    paths: ["legato/local.py", "legato/settle.py", "legato/actions.py", "tests/desktop/**", ".github/workflows/local-desktop.yml"]
+  pull_request:
+    paths: ["legato/local.py", "legato/settle.py", "legato/actions.py", "tests/desktop/**", ".github/workflows/local-desktop.yml"]
 jobs:
   smoke:
     strategy:

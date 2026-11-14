@@ -1,0 +1,351 @@
+{
+ "cli": {
+  "bench h2h": [
+   "--arm",
+   "--meta",
+   "--out",
+   "--ref",
+   "--tasks"
+  ],
+  "bench office generate": [
+   "--out",
+   "--repeat",
+   "--seed"
+  ],
+  "bench office report": [
+   "--baseline",
+   "--legato",
+   "--model",
+   "--out",
+   "--speed",
+   "--tasks",
+   "--video"
+  ],
+  "doctor": [
+   "--json"
+  ],
+  "mcp": [
+   "--local",
+   "--record",
+   "--sandbox"
+  ],
+  "rl collect": [
+   "--api-key-env",
+   "--backend",
+   "--desktops",
+   "--env-retries",
+   "--eval-only",
+   "--extra-body",
+   "--fixed-wait",
+   "--group",
+   "--harness",
+   "--harness-opts",
+   "--image-max",
+   "--max-inflight",
+   "--max-steps",
+   "--model",
+   "--no-fast-reset",
+   "--no-ready-signal",
+   "--osworld",
+   "--out",
+   "--oversample",
+   "--policy-url",
+   "--retries",
+   "--rollout-timeout",
+   "--step-timeout",
+   "--tasks",
+   "--version"
+  ],
+  "rl export": [
+   "--inline-images",
+   "--out"
+  ],
+  "rl probe": [
+   "--api-key-env",
+   "--model",
+   "--policy-url",
+   "--retries",
+   "--step-timeout"
+  ],
+  "rl profile": [],
+  "run": [
+   "--api-key-env",
+   "--base-url",
+   "--coords",
+   "--json",
+   "--max-steps",
+   "--model",
+   "--sandbox"
+  ]
+ },
+ "mcp": {
+  "desktop_act": {
+   "params": [
+    "action",
+    "amount",
+    "desktop_id",
+    "direction",
+    "end_x",
+    "end_y",
+    "keys",
+    "text",
+    "x",
+    "y"
+   ],
+   "required": [
+    "action",
+    "desktop_id"
+   ]
+  },
+  "desktop_close": {
+   "params": [
+    "desktop_id"
+   ],
+   "required": [
+    "desktop_id"
+   ]
+  },
+  "desktop_open": {
+   "params": [
+    "height",
+    "width"
+   ],
+   "required": []
+  },
+  "desktop_run_task": {
+   "params": [
+    "api_key_env",
+    "base_url",
+    "desktop_id",
+    "max_steps",
+    "model",
+    "task"
+   ],
+   "required": [
+    "desktop_id",
+    "task"
+   ]
+  },
+  "desktop_screenshot": {
+   "params": [
+    "desktop_id"
+   ],
+   "required": [
+    "desktop_id"
+   ]
+  }
+ },
+ "python": {
+  "Action": {
+   "describe": [],
+   "done": "property",
+   "fields": [
+    "type",
+    "x",
+    "y",
+    "x2",
+    "y2",
+    "text",
+    "keys",
+    "direction",
+    "amount"
+   ],
+   "from_dict": [
+    "positional_or_keyword d"
+   ],
+   "init": [
+    "positional_or_keyword type",
+    "positional_or_keyword x=None",
+    "positional_or_keyword y=None",
+    "positional_or_keyword x2=None",
+    "positional_or_keyword y2=None",
+    "positional_or_keyword text=None",
+    "positional_or_keyword keys=None",
+    "positional_or_keyword direction=None",
+    "positional_or_keyword amount=None"
+   ],
+   "to_dict": []
+  },
+  "Env": {
+   "act": [
+    "positional_or_keyword action"
+   ],
+   "init": [
+    "positional_or_keyword screenshot",
+    "positional_or_keyword execute=None",
+    "positional_or_keyword step=None",
+    "positional_or_keyword fixed_wait_s=None"
+   ],
+   "observe": []
+  },
+  "Harness": {
+   "begin": [
+    "positional_or_keyword task",
+    "positional_or_keyword png"
+   ],
+   "decide": [
+    "positional_or_keyword ep"
+   ],
+   "feed": [
+    "positional_or_keyword ep",
+    "positional_or_keyword plan",
+    "positional_or_keyword pngs"
+   ],
+   "init": [
+    "positional_or_keyword model",
+    "positional_or_keyword base_url",
+    "positional_or_keyword api_key=''",
+    "keyword_only coords=None",
+    "keyword_only image_max=8",
+    "keyword_only fold=4",
+    "keyword_only max_batch=3",
+    "keyword_only step_timeout_s=60.0",
+    "keyword_only retries=1",
+    "keyword_only temperature=0.0",
+    "keyword_only max_tokens=4096",
+    "keyword_only native_tools=True",
+    "keyword_only system=None",
+    "keyword_only screenshot_each_action=False",
+    "keyword_only end_on_text=False",
+    "keyword_only screenshot_action=False",
+    "keyword_only model_size='auto'",
+    "keyword_only cache_breakpoints=None",
+    "keyword_only extra_body=None",
+    "keyword_only profile='legato'"
+   ],
+   "reference": [
+    "positional_or_keyword model",
+    "positional_or_keyword base_url",
+    "positional_or_keyword api_key=''",
+    "var_keyword kw"
+   ],
+   "run": [
+    "positional_or_keyword task",
+    "positional_or_keyword env",
+    "positional_or_keyword max_steps=30",
+    "positional_or_keyword on_step=None"
+   ]
+  },
+  "Obs": {
+   "fields": [
+    "screenshot",
+    "width",
+    "height",
+    "t"
+   ],
+   "init": [
+    "positional_or_keyword screenshot",
+    "positional_or_keyword width",
+    "positional_or_keyword height",
+    "positional_or_keyword t=<factory>"
+   ]
+  },
+  "RunResult": {
+   "fields": [
+    "task",
+    "done",
+    "failed",
+    "steps",
+    "actions",
+    "timings",
+    "wall_s",
+    "error",
+    "usage"
+   ],
+   "init": [
+    "positional_or_keyword task",
+    "positional_or_keyword done=False",
+    "positional_or_keyword failed=False",
+    "positional_or_keyword steps=0",
+    "positional_or_keyword actions=<factory>",
+    "positional_or_keyword timings=<factory>",
+    "positional_or_keyword wall_s=0.0",
+    "positional_or_keyword error=None",
+    "positional_or_keyword usage=<factory>"
+   ],
+   "report": []
+  },
+  "Waiter": {
+   "init": [
+    "positional_or_keyword screenshot",
+    "positional_or_keyword rules=None",
+    "positional_or_keyword replaced_sleep_s=2.0",
+    "positional_or_keyword clock=<builtin_function_or_method>",
+    "positional_or_keyword sleep=<builtin_function_or_method>"
+   ],
+   "report": [],
+   "settle": [
+    "positional_or_keyword kind='default'",
+    "positional_or_keyword cap_s=None",
+    "positional_or_keyword poll_s=0.05"
+   ]
+  },
+  "attach": [
+   "positional_or_keyword sandbox=None",
+   "keyword_only shell=None",
+   "keyword_only screenshot=None",
+   "keyword_only execute=None",
+   "keyword_only blink_off=True",
+   "keyword_only fixed_wait_s=None"
+  ],
+  "computer_tool": [
+   "positional_or_keyword actions=None"
+  ],
+  "hosted": {
+   "run": [
+    "positional_or_keyword task",
+    "positional_or_keyword sandbox=None",
+    "keyword_only env=None",
+    "keyword_only api_key=None",
+    "keyword_only base_url=None",
+    "keyword_only max_steps=30",
+    "keyword_only on_step=None"
+   ]
+  },
+  "local": [
+   "positional_or_keyword mac_cmd=True",
+   "positional_or_keyword fixed_wait_s=None"
+  ],
+  "parse": [
+   "positional_or_keyword args",
+   "positional_or_keyword width",
+   "positional_or_keyword height",
+   "positional_or_keyword scale=1000.0"
+  ],
+  "providers": {
+   "about": [
+    "positional_or_keyword spec"
+   ],
+   "close": [
+    "positional_or_keyword handle"
+   ],
+   "docker": [
+    "positional_or_keyword width",
+    "positional_or_keyword height",
+    "positional_or_keyword image=None"
+   ],
+   "e2b": [
+    "positional_or_keyword width",
+    "positional_or_keyword height"
+   ],
+   "ensure_image": [
+    "positional_or_keyword image"
+   ],
+   "load": [
+    "positional_or_keyword spec"
+   ],
+   "local": [
+    "positional_or_keyword width",
+    "positional_or_keyword height"
+   ],
+   "warm": [
+    "positional_or_keyword spec"
+   ]
+  },
+  "wrap": [
+   "positional_or_keyword screenshot",
+   "positional_or_keyword replaced_sleep_s=2.0",
+   "positional_or_keyword rules=None"
+  ]
+ }
+}
