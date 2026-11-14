@@ -96,6 +96,12 @@ class LocalEnv(Env):
 
     def _exec(self, a: Action) -> None:
         g, t = self.gui, a.type
+        w, h = self.size                          # keep the agent's own pointer out of the corners: a corner is the
+        for kx, ky in (("x", "y"), ("x2", "y2")):  # person's stop signal (pyautogui's fail-safe), not the model's
+            x, y = getattr(a, kx, None), getattr(a, ky, None)
+            if x is not None and y is not None and x in (0, w - 1) and y in (0, h - 1):
+                setattr(a, kx, min(max(x, 1), w - 2))
+                setattr(a, ky, min(max(y, 1), h - 2))
         if t == "click":
             g.click(a.x, a.y)
         elif t == "double_click":
