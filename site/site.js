@@ -170,7 +170,7 @@
       clearTimeout(timer); ok = r.ok;
     } catch { ok = false; }
     btn.disabled = false;
-    if (ok) { msg.className = "formmsg ok"; msg.textContent = "Thank you. We will be in touch."; f.reset(); }
+    if (ok) { if (window.va) window.va("event", { name: "early_access" }); msg.className = "formmsg ok"; msg.textContent = "Thank you. We will be in touch."; f.reset(); }
     else { msg.className = "formmsg err"; msg.textContent = "That did not go through. Please try again, or email hello@legato.computer."; }
   });
 

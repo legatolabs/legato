@@ -7,6 +7,10 @@
   "trailingSlash": false,
   "rewrites": [
     {
+      "source": "/api/waitlist",
+      "destination": "/api/waitlist"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/proxy?path=:path*"
     }
