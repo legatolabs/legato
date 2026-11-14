@@ -35,15 +35,16 @@ from legato.actions import Action, parse
 from legato.env import Env, png_size
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
 
-CLAUDE_STYLE_ACTIONS = ["left_click", "right_click", "double_click", "left_click_drag", "type", "key", "scroll",
-                        "wait", "done", "fail"]
+CLAUDE_STYLE_ACTIONS = ["left_click", "right_click", "double_click", "triple_click", "left_click_drag", "type", "key",
+                        "scroll", "wait", "done", "fail"]
 
 SYSTEM = """You control a computer desktop ({w}x{h} pixels) to complete the user's task. Each turn you see the \
 current screenshot. Act by calling the `computer` tool.
 {coords}
-Actions: left_click, right_click, double_click (coordinate); left_click_drag (coordinate to end_coordinate); \
-type (text, into the focused field); key (keys, e.g. "ctrl+s", "Return", "Tab"); scroll (coordinate, direction \
-up/down/left/right, amount); wait; done (the task is complete and saved); fail (the task cannot be done).
+Actions: left_click, right_click, double_click, triple_click (coordinate; triple_click selects a line or field); \
+left_click_drag (coordinate to end_coordinate); type (text, into the focused field); key (keys, e.g. "ctrl+s", \
+"Return", "Tab"); scroll (coordinate, direction up/down/left/right, amount); wait; done (the task is complete and \
+saved); fail (the task cannot be done).
 You may call the tool up to {batch} times in one turn when you are sure of the sequence without seeing the screen \
 in between (for example: click a field, type, press Return). Otherwise call it once.
 Keep any text before your tool calls to one short sentence.

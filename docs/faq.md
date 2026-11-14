@@ -34,6 +34,11 @@ desktops are Linux today; managed Windows and macOS desktops are planned for Leg
 Use a desktop container (`--sandbox docker`) or a cloud desktop when you can: the agent then never touches your own
 screen or files. On your own screen, move the mouse into a corner to stop it.
 
+**Should my coding agent test my app with Playwright MCP or Legato?**
+Playwright MCP, when the app is a web page and the accessibility tree describes what you are checking. Legato, when
+the check is visual (a canvas, a layout), the app is not a web page, or the flow leaves the browser
+([which to use](compare/playwright-mcp.md)).
+
 **How does it compare with other computer-use MCP servers?**
 Legato can give the agent a desktop container, any sandbox or a cloud desktop instead of your own screen, and each
 action returns once the screen has settled. Several others act through the accessibility tree on your own screen

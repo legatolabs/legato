@@ -5,6 +5,8 @@ What it adds over a plain client:
   `return_token_ids`), so the trainer gets exactly what was sampled.
 - A per-step timeout and a bounded retry. In our OSWorld study, OSWorld's default client let a single hung request stall a
   rollout for 34 minutes; here a step costs at most `timeout * (retries + 1)` plus a short backoff.
+- Patience with a busy or starting server: a 429 or 503 is retried after its Retry-After (at most 60 s at a time) for up
+  to `busy_wait_s` in all, without using up `retries`. A cold GPU behind a gateway answers 503 for a minute or two.
 - An optional cross-process semaphore that caps how many requests reach the model server at once (admission
   control). Our OSWorld study measured one H100 serving Qwen3.5-9B: latency doubled at ~32 agents, throughput peaked at ~48 and
   collapsed past 64 when the KV cache filled.
@@ -19,6 +21,7 @@ from typing import Any
 import httpx
 
 RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+BUSY_STATUS = {429, 503}               # "come back later": waited out for up to busy_wait_s, honouring Retry-After
 
 
 @dataclass
@@ -29,6 +32,7 @@ class PolicyConfig:
     api_key: str = ""
     timeout_s: float = 60.0            # per attempt, wall clock (keep-alive bytes from the server do not extend it)
     retries: int = 1
+    busy_wait_s: float = 120.0         # total time to wait out 429/503 replies (Retry-After), on top of `retries`
     logprobs: bool = True
     token_ids: bool = True             # vLLM extra; turned off automatically if the server refuses it
     extra_body: dict = field(default_factory=dict)
@@ -45,8 +49,15 @@ class _Deadline(Exception):
 class _Resp:
     """Status and body of a response read under a wall-clock deadline."""
 
-    def __init__(self, status_code: int, content: bytes):
-        self.status_code, self.content = status_code, content
+    def __init__(self, status_code: int, content: bytes, headers: dict | None = None):
+        self.status_code, self.content, self.headers = status_code, content, headers or {}
+
+    def retry_after(self) -> float | None:
+        v = next((v for k, v in self.headers.items() if k.lower() == "retry-after"), None)
+        try:
+            return max(0.0, float(v)) if v is not None else None
+        except ValueError:                             # an HTTP date: not worth parsing here
+            return None
 
     @property
     def text(self) -> str:
@@ -90,7 +101,11 @@ class PolicyClient:
         usage, wall seconds, attempts. Raises PolicyError when every attempt fails."""
         last = ""
         t0 = time.perf_counter()
-        for attempt in range(1, self.cfg.retries + 2):
+        attempt = failures = 0
+        busy_waited = 0.0
+        while True:
+            attempt += 1
+            wait = None                                    # set when the server asked us to come back later
             acquired = self.sem.acquire(timeout=max(600.0, 10 * self.cfg.timeout_s)) if self.sem is not None else True
             ta = time.perf_counter()
             try:
@@ -100,6 +115,10 @@ class PolicyClient:
                     r = self._post(self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra), ta)
                 if r.status_code in RETRY_STATUS:
                     last = f"HTTP {r.status_code}: {r.text[:200]}"
+                    if r.status_code in BUSY_STATUS and busy_waited < self.cfg.busy_wait_s:
+                        ra = r.retry_after()
+                        wait = min(60.0, ra if ra is not None else 2.0 * min(attempt, 5),
+                                   self.cfg.busy_wait_s - busy_waited)
                 elif r.status_code != 200:
                     raise PolicyError(f"HTTP {r.status_code}: {r.text[:300]}")
                 else:
@@ -111,9 +130,15 @@ class PolicyClient:
             finally:
                 if self.sem is not None and acquired:
                     self.sem.release()
-            if attempt <= self.cfg.retries:
-                time.sleep(min(2.0, 0.5 * attempt))
-        raise PolicyError(f"policy call failed after {self.cfg.retries + 1} attempts: {last}")
+            if wait is not None:                           # busy or starting: wait it out, not counted as a failure
+                time.sleep(wait)
+                busy_waited += wait
+                continue
+            failures += 1
+            if failures > self.cfg.retries:
+                break
+            time.sleep(min(2.0, 0.5 * failures))
+        raise PolicyError(f"policy call failed after {attempt} attempts: {last}")
 
     def _post(self, body: dict, t_start: float) -> _Resp:
         """POST and read the response, giving up `timeout_s` after t_start. httpx's own timeouts bound each wait for
@@ -125,7 +150,7 @@ class PolicyClient:
                 buf += chunk
                 if time.perf_counter() - t_start > self.cfg.timeout_s:
                     raise _Deadline()
-            return _Resp(r.status_code, bytes(buf))
+            return _Resp(r.status_code, bytes(buf), dict(r.headers))
 
     def _record(self, j: dict, total_s: float, last_s: float, attempts: int) -> dict:
         ch = (j.get("choices") or [{}])[0]

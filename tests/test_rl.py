@@ -17,10 +17,12 @@ from legato.rl import (DesktopConfig, HarnessConfig, PolicyClient, PolicyConfig,
 
 
 class Stub:
-    """Behaviour knobs, set per test: delay_s, fail_first (HTTP 500 count), reject_token_ids, reply."""
+    """Behaviour knobs, set per test: delay_s, fail_first (HTTP 500 count), busy_first (HTTP 503 with Retry-After),
+    reject_token_ids, reply."""
 
     def __init__(self):
         self.delay_s, self.fail_first, self.reject_token_ids, self.reply = 0.0, 0, False, "click it"
+        self.busy_first, self.retry_after = 0, "0.2"
         self.lock = threading.Lock()
         self.inflight = self.max_inflight = self.calls = 0
         self.bodies = []
@@ -46,6 +48,8 @@ def server():
                 time.sleep(stub.delay_s)
                 if n <= stub.fail_first:
                     return self._send(500, {"error": "boom"})
+                if n <= stub.fail_first + stub.busy_first:
+                    return self._send(503, {"error": "starting"}, {"Retry-After": stub.retry_after})
                 if stub.reject_token_ids and body.get("return_token_ids"):
                     return self._send(400, {"error": "unknown field return_token_ids"})
                 reply = stub.reply(body) if callable(stub.reply) else stub.reply
@@ -61,9 +65,11 @@ def server():
                 with stub.lock:
                     stub.inflight -= 1
 
-        def _send(self, code, obj):
+        def _send(self, code, obj, headers=None):
             b = json.dumps(obj).encode()
             self.send_response(code)
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(b)))
             self.end_headers()
@@ -86,6 +92,16 @@ def test_policy_records_logprobs_and_token_ids(server):
     assert [x["lp"] for x in rec["logprobs"]] == [-0.5, -0.5] and rec["token_ids"] == [0, 1]
     assert rec["usage"] == {"prompt": 100, "completion": 2, "cached": 80, "cost": None} and rec["version"] == "v7"
     assert server.bodies[-1]["logprobs"] is True
+
+
+def test_policy_waits_out_a_starting_server(server):
+    server.busy_first = 3                          # three 503s with Retry-After 0.2 s, then a reply
+    t = time.perf_counter()
+    rec = PolicyClient(PolicyConfig(server.url, "m", retries=0)).chat([{"role": "user", "content": "x"}])
+    assert rec["attempts"] == 4 and 0.5 < time.perf_counter() - t < 3.0   # waited, and retries=0 was not used up
+    server.calls, server.busy_first = 0, 50
+    with pytest.raises(PolicyError, match="503"):  # but only for busy_wait_s in all
+        PolicyClient(PolicyConfig(server.url, "m", retries=0, busy_wait_s=0.5)).chat([{"role": "user", "content": "x"}])
 
 
 def test_policy_retries_then_gives_up(server):

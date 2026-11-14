@@ -2,7 +2,9 @@
 
 Coding agents can read and write files, but they can't see or click a GUI. Legato's MCP server gives them a desktop:
 the agent opens it, clicks and types, and gets a screenshot back after every action, as soon as the screen settles.
-Use it to check the app you are building, fill in a web form, or hand a whole GUI task to a cheaper open model.
+Use it to check the app you are building, fill in a web form, or hand a whole GUI task to a cheaper open model. For a
+web page whose accessibility tree describes what you are checking, Playwright's MCP server may be enough
+([which to use](../compare/playwright-mcp.md)).
 
 Pick the desktop, then add the server to your client. The safest default is a container on your own machine, which
 needs only Docker and keeps the agent off your real screen.

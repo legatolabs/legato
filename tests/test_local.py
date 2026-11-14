@@ -27,7 +27,7 @@ class Gui:
         return (100, 50)
 
     def __getattr__(self, name):
-        return lambda *a, **k: self.calls.append((name, a))
+        return lambda *a, **k: self.calls.append((name, a, k) if k else (name, a))
 
 
 def env(mac=False):
@@ -53,7 +53,13 @@ def test_actions_map_to_pyautogui():
     e.act(Action("type", text="hi"))
     assert e.gui.calls == [("click", (10, 20)), ("hotkey", ("ctrl", "s")), ("press", ("enter",)),
                            ("press", ("pageup",)), ("moveTo", (5, 6)), ("scroll", (-2,)), ("moveTo", (1, 2)),
-                           ("dragTo", (3, 4)), ("write", ("hi",))]
+                           ("dragTo", (3, 4), {"duration": 0.3, "button": "left"}), ("write", ("hi",), {"interval": 0.005})]
+
+
+def test_triple_click_is_three_quick_clicks():
+    e = env()
+    e.act(Action("triple_click", x=10, y=20))
+    assert e.gui.calls == [("click", (10, 20), {"clicks": 3, "interval": 0.06})]
 
 
 def test_ctrl_is_cmd_on_mac():

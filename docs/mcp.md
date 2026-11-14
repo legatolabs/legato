@@ -30,7 +30,7 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
 | tool | what it does |
 |---|---|
 | `desktop_open(width=1280, height=800)` | opens a desktop (your screen with `--local`, else a fresh sandbox); returns its id and first screenshot |
-| `desktop_act(desktop_id, action, x, y, text, keys, direction, amount, end_x, end_y)` | click, double_click, right_click, type, key, scroll, drag or wait, in pixels of the latest screenshot; returns the settled screenshot and how long the screen took |
+| `desktop_act(desktop_id, action, x, y, text, keys, direction, amount, end_x, end_y)` | click, double_click, triple_click, right_click, type, key, scroll, drag or wait, in pixels of the latest screenshot; returns the settled screenshot and how long the screen took |
 | `desktop_screenshot(desktop_id)` | the current screen |
 | `desktop_run_task(desktop_id, task, model, base_url, api_key_env, max_steps)` | hands a whole task to `legato.Harness` with any OpenAI-compatible model (default: Qwen3.8-27B on OpenRouter, key from `OPENROUTER_API_KEY`); returns the run report and the final screen |
 | `desktop_close(desktop_id)` | stops the desktop |

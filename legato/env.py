@@ -132,6 +132,8 @@ def xdotool_cmds(a: Action) -> tuple[list[list[str]], float]:
         return [["xdotool", "mousemove", x, y, "click", "1"]], 0.0
     if t == "double_click":
         return [["xdotool", "mousemove", x, y, "click", "--repeat", "2", "--delay", "60", "1"]], 0.0
+    if t == "triple_click":                                   # selects a line or a whole field
+        return [["xdotool", "mousemove", x, y, "click", "--repeat", "3", "--delay", "60", "1"]], 0.0
     if t == "right_click":
         return [["xdotool", "mousemove", x, y, "click", "3"]], 0.0
     if t == "type":
@@ -239,7 +241,9 @@ class E2BEnv(Env):
 
     def _sdk_execute(self, a: Action) -> None:
         sb, t = self.sb, a.type
-        if t in ("click", "double_click", "right_click"):
+        if t == "triple_click":                       # the SDK has no triple click: one xdotool call keeps the timing
+            sb.commands.run(f"xdotool mousemove {a.x} {a.y} click --repeat 3 --delay 60 1")
+        elif t in ("click", "double_click", "right_click"):
             sb.commands.run(f"xdotool mousemove {a.x} {a.y}")   # no --sync: never stalls on an unmoved pointer
             {"click": sb.left_click, "double_click": sb.double_click, "right_click": sb.right_click}[t]()
         elif t == "type":   # Tab/Return as separate keys with a pause, as in type_cmds: apps drop keys during a focus move
