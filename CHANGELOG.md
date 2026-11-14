@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Requests to OpenRouter name Legato as the app (`HTTP-Referer`, `X-Title`); `LEGATO_NO_ATTRIBUTION=1` turns it off.
+
 ## 0.1.8
 
 - `triple_click` (selects a line or a whole field), on every desktop: Linux sandboxes, E2B, your own screen and

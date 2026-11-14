@@ -68,12 +68,23 @@ class _Resp:
         return json.loads(self.content)
 
 
+def attribution_headers(base_url: str) -> dict[str, str]:
+    """OpenRouter's app attribution: names Legato (not you or your task) on OpenRouter's public app rankings.
+    Sent only to openrouter.ai; set LEGATO_NO_ATTRIBUTION=1 to turn it off."""
+    import os
+    if "openrouter.ai" not in base_url or os.environ.get("LEGATO_NO_ATTRIBUTION"):
+        return {}
+    return {"HTTP-Referer": "https://legato.computer", "X-Title": "Legato"}
+
+
 class PolicyClient:
     def __init__(self, cfg: PolicyConfig, semaphore: Any = None):
         self.cfg = cfg
         self.sem = semaphore
+        headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}
+        headers.update(attribution_headers(cfg.base_url))
         self.http = httpx.Client(timeout=httpx.Timeout(cfg.timeout_s, connect=min(10.0, cfg.timeout_s)),
-                                 headers={"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {})
+                                 headers=headers)
         self.url = cfg.base_url.rstrip("/") + "/chat/completions"
 
     def _body(self, messages: list, max_tokens: int | None, temperature: float | None, top_p: float | None,

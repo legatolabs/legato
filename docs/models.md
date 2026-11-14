@@ -24,6 +24,10 @@ legato run "Rename the screenshots on the desktop by date" --sandbox local \
 
 ## Settings
 
+- **OpenRouter attribution.** Requests to openrouter.ai carry `HTTP-Referer: https://legato.computer` and
+  `X-Title: Legato`, so OpenRouter counts them toward Legato on its app rankings. Nothing about you or your task is
+  sent. `LEGATO_NO_ATTRIBUTION=1` turns it off.
+
 - **Coordinates.** `coords="norm1000"` (default for non-Claude models) is `[x, y]` on a 0–1000 grid, the Qwen-VL
   convention. `coords="pixels"` (default for Claude) sends screenshots at Anthropic's recommended size (1024x768,
   1280x800 or 1366x768) and reads clicks in that image's pixels. For other models, check where "click the File menu"
