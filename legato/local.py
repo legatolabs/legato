@@ -47,12 +47,27 @@ class MacKeys:
             "alt": "kCGEventFlagMaskAlternate", "option": "kCGEventFlagMaskAlternate",
             "ctrl": "kCGEventFlagMaskControl", "control": "kCGEventFlagMaskControl"}
 
+    CODES = {"kCGEventFlagMaskCommand": 55, "kCGEventFlagMaskShift": 56, "kCGEventFlagMaskAlternate": 58,
+             "kCGEventFlagMaskControl": 59}               # the left-hand modifier keys
+
     def __init__(self, quartz: Any = None, mapping: dict | None = None):
         if quartz is None:
             import Quartz as quartz                       # pyautogui's own dependency on macOS
             from pyautogui import _pyautogui_osx as osx
             mapping = osx.keyboardMapping
         self.q, self.map = quartz, mapping or {}
+
+    def hold(self, names: list[str], down: bool) -> None:
+        """Press (or release) modifier keys themselves, for a click made while they are down. A mouse event that
+        only carries the flag left the modifier on for later clicks; a key event for the modifier does not."""
+        flags = 0
+        for n in names:
+            flags |= getattr(self.q, self.MODS[n])
+        for n in names:
+            ev = self.q.CGEventCreateKeyboardEvent(None, self.CODES[self.MODS[n]], down)
+            self.q.CGEventSetFlags(ev, flags if down else 0)
+            self.q.CGEventPost(self.q.kCGHIDEventTap, ev)
+            time.sleep(0.05)
 
     def chord(self, names: list[str]) -> bool:
         """Press the keys in `names` with its modifiers held. False if a key has no code here (the caller falls
@@ -87,18 +102,12 @@ class MacMouse:
             import Quartz as quartz
         self.q = quartz
 
-    def click(self, x: float, y: float, count: int, held: list[str] | None = None) -> None:
-        """`held`: modifier names (as in MacKeys.MODS) down during the click, e.g. ["shift"]."""
+    def click(self, x: float, y: float, count: int) -> None:
         q = self.q
-        flags = 0
-        for m in held or []:
-            flags |= getattr(q, MacKeys.MODS[m])
         for n in range(1, count + 1):
             for kind in (q.kCGEventLeftMouseDown, q.kCGEventLeftMouseUp):
                 ev = q.CGEventCreateMouseEvent(None, kind, (x, y), q.kCGMouseButtonLeft)
                 q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, n)
-                if flags:
-                    q.CGEventSetFlags(ev, flags)
                 q.CGEventPost(q.kCGHIDEventTap, ev)
                 time.sleep(0.03)
 
@@ -243,9 +252,10 @@ class LocalEnv(Env):
                 setattr(a, ky, min(max(y, 1), h - 2))
         if t == "click" and a.keys:               # a click with keys held (shift or cmd adds to a selection)
             held = [self.key(k) for k in a.keys.split("+") if k]
-            if self.macmouse is not None and all(k in MacKeys.MODS for k in held):
-                g.moveTo(a.x, a.y)
-                self.macmouse.click(a.x, a.y, 1, held)
+            if self.mackeys is not None and all(k in MacKeys.MODS for k in held):
+                self.mackeys.hold(held, True)
+                g.click(a.x, a.y)
+                self.mackeys.hold(held, False)
             else:
                 for k in held:
                     g.keyDown(k)
