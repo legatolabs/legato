@@ -119,3 +119,35 @@ def test_mac_keys_carry_their_own_modifier_flags():
     e.mackeys = k
     e.act(Action("key", keys="ctrl+End"))                                    # ctrl is cmd on a Mac
     assert q.posted[-1] == (119, False, 1) and e.gui.calls == []
+
+
+def test_mac_double_click_carries_its_click_count():
+    from legato.local import MacMouse
+
+    class Q:
+        kCGEventLeftMouseDown, kCGEventLeftMouseUp, kCGMouseButtonLeft, kCGMouseEventClickState = 1, 2, 0, 1
+        kCGHIDEventTap = 0
+
+        def __init__(self):
+            self.posted = []
+
+        def CGEventCreateMouseEvent(self, src, kind, pos, button):
+            return {"kind": kind, "pos": pos}
+
+        def CGEventSetIntegerValueField(self, ev, field, n):
+            ev["n"] = n
+
+        def CGEventPost(self, tap, ev):
+            self.posted.append((ev["kind"], ev["pos"], ev["n"]))
+
+    q = Q()
+    e = env(mac=True)
+    e.macmouse = MacMouse(q)
+    e.act(Action("double_click", x=30, y=40))
+    assert q.posted == [(1, (30, 40), 1), (2, (30, 40), 1), (1, (30, 40), 2), (2, (30, 40), 2)]
+    assert [c[0] for c in e.gui.calls] == ["moveTo"]
+    e.act(Action("triple_click", x=5, y=6))
+    assert q.posted[-1] == (2, (5, 6), 3) and len(q.posted) == 10
+    e2 = env(mac=True)                                                       # without Quartz: pyautogui's own
+    e2.act(Action("double_click", x=1, y=2))
+    assert e2.gui.calls[0][0] == "doubleClick"
