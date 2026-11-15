@@ -74,3 +74,16 @@ def test_waits_for_a_still_screen_then_returns():
     obs = e.act(Action("click", x=1, y=1))
     assert png_size(obs.screenshot) == (100, 50)
     assert e.last["settle_s"] < 1.0                # a still screen settles well before the 2 s cap
+
+
+def test_text_is_pasted_line_by_line_on_mac():
+    pasted = []
+    e = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Screen(), paste=pasted.append)
+    e.mac = True
+    e.act(Action("type", text="Groceries\neggs\n"))
+    assert pasted == ["Groceries", "eggs"]                       # exactly as given: no autocorrect, no lost letters
+    assert e.gui.calls == [("press", ("enter",)), ("press", ("enter",))]
+    e2 = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Screen(), paste=None)
+    e2.mac = True
+    e2.act(Action("type", text="hi"))
+    assert e2.gui.calls == [("write", ("hi",), {"interval": 0.005})]
