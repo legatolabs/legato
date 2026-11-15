@@ -22,7 +22,8 @@ KEYMAP = {"enter": "Return", "return": "Return", "esc": "Escape", "escape": "Esc
           "backspace": "BackSpace", "delete": "Delete", "del": "Delete", "space": "space", "up": "Up", "down": "Down",
           "left": "Left", "right": "Right", "pageup": "Prior", "page_up": "Prior", "pagedown": "Next",
           "page_down": "Next", "home": "Home", "end": "End", "ctrl": "ctrl", "control": "ctrl", "alt": "alt",
-          "shift": "shift", "cmd": "super", "super": "super", "win": "super", "meta": "super"}
+          "shift": "shift", "cmd": "super", "command": "super", "super": "super", "win": "super", "meta": "super",
+          "option": "alt", "opt": "alt"}
 _NUM = re.compile(r"-?\d+(?:\.\d+)?")
 
 
@@ -52,7 +53,7 @@ class Action:
     def describe(self) -> str:
         t = self.type
         if t in ("click", "double_click", "triple_click", "right_click"):
-            return f"{t.replace('_', ' ')} ({self.x}, {self.y})"
+            return f"{self.keys + '+' if self.keys else ''}{t.replace('_', ' ')} ({self.x}, {self.y})"
         if t == "type":
             s = self.text or ""
             return f'type "{s[:40]}{"…" if len(s) > 40 else ""}"'
@@ -141,6 +142,11 @@ def parse(args: dict | str | None, width: int, height: int, scale: float = 1000.
         if p is None:
             return None, f"{kind} without coordinates"
         a.x, a.y = px(p)
+        if kind == "click":                       # a key held while clicking: "shift" or "cmd" adds to a selection
+            held = [KEYMAP.get(m, m) for m in re.split(r"[+\s,]+", str(args.get("keys") or args.get("modifiers") or
+                                                                      args.get("text") or "").lower()) if m]
+            if held and all(m in ("ctrl", "shift", "alt", "super") for m in held):
+                a.keys = "+".join(held)
         if kind == "drag":
             q = _xy(args, end=True)
             if q is None:
