@@ -32,6 +32,45 @@ KEYS = {"Return": "enter", "Escape": "esc", "Tab": "tab", "BackSpace": "backspac
         "shift": "shift"}
 
 
+class MacKeys:
+    """Key presses on macOS as events that carry their own modifier flags.
+
+    pyautogui holds a modifier down with one event and presses the key with another, trusting the system to
+    combine them. On macOS that state can go wrong for the rest of the session (after cmd+End, no later cmd
+    shortcut arrived: cmd+v typed nothing or a plain "v"). An event with explicit flags depends on no earlier
+    event, and a plain key press clears whatever was left over."""
+    MODS = {"command": "kCGEventFlagMaskCommand", "cmd": "kCGEventFlagMaskCommand", "shift": "kCGEventFlagMaskShift",
+            "alt": "kCGEventFlagMaskAlternate", "option": "kCGEventFlagMaskAlternate",
+            "ctrl": "kCGEventFlagMaskControl", "control": "kCGEventFlagMaskControl"}
+
+    def __init__(self, quartz: Any = None, mapping: dict | None = None):
+        if quartz is None:
+            import Quartz as quartz                       # pyautogui's own dependency on macOS
+            from pyautogui import _pyautogui_osx as osx
+            mapping = osx.keyboardMapping
+        self.q, self.map = quartz, mapping or {}
+
+    def chord(self, names: list[str]) -> bool:
+        """Press the keys in `names` with its modifiers held. False if a key has no code here (the caller falls
+        back to pyautogui)."""
+        flags, keys = 0, []
+        for n in names:
+            if n in self.MODS:
+                flags |= getattr(self.q, self.MODS[n])
+            else:
+                keys.append(n)
+        if not keys or any(self.map.get(k) is None for k in keys):
+            return False
+        for k in keys:
+            extra = self.q.kCGEventFlagMaskShift if len(k) == 1 and (k.isupper() or k in '~!@#$%^&*()_+{}|:"<>?') else 0
+            for down in (True, False):
+                ev = self.q.CGEventCreateKeyboardEvent(None, self.map[k], down)
+                self.q.CGEventSetFlags(ev, flags | extra)
+                self.q.CGEventPost(self.q.kCGHIDEventTap, ev)
+                time.sleep(0.01)
+        return True
+
+
 def _need(name: str):
     try:
         return __import__(name)
@@ -56,6 +95,12 @@ class LocalEnv(Env):
         self.mac_cmd = mac_cmd
         # how text is typed on macOS: pasted (the default), or key by key with paste=None
         self.paste = self._paste_mac if paste == "auto" else paste
+        self.mackeys: Any = None                  # explicit-flag key events: only with the real pyautogui on a Mac
+        if self.mac and gui is None:
+            try:
+                self.mackeys = MacKeys()
+            except Exception:                     # no Quartz: pyautogui's own key handling
+                self.mackeys = None
         super().__init__(self._png, self._exec, fixed_wait_s=fixed_wait_s)
         self.waiter = Waiter(self._digest, rules=LOCAL_RULES)
 
@@ -93,7 +138,7 @@ class LocalEnv(Env):
             # pasted and Return is pressed between lines, so "query\n" still submits a field.
             for i, line in enumerate(text.split("\n")):
                 if i:
-                    self.gui.press("enter")
+                    self._chord(["enter"])
                 if line:
                     self.paste(line)
             return
@@ -108,6 +153,14 @@ class LocalEnv(Env):
         pyperclip.copy(text)
         self.gui.hotkey("command" if self.mac else "ctrl", "v")
 
+    def _chord(self, names: list[str]) -> None:
+        if not names or (self.mackeys is not None and self.mackeys.chord(names)):
+            return
+        if len(names) > 1:
+            self.gui.hotkey(*names)
+        else:
+            self.gui.press(names[0])
+
     def _paste_mac(self, text: str) -> None:
         """Put `text` on the clipboard, paste it, and put back the text that was there (other clipboard kinds, such
         as an image, are not restored)."""
@@ -117,8 +170,8 @@ class LocalEnv(Env):
         except (OSError, subprocess.SubprocessError):
             self.gui.write(text, interval=0.005)      # no clipboard tools: type it
             return
-        self.gui.hotkey("command", "v")
-        time.sleep(0.15)                              # the app reads the clipboard after the keys arrive
+        self._chord(["command", "v"])
+        time.sleep(0.4)                               # the app reads the clipboard after the keys arrive
         try:
             subprocess.run(["pbcopy"], input=before, timeout=5)
         except (OSError, subprocess.SubprocessError):
@@ -144,11 +197,7 @@ class LocalEnv(Env):
             self._type(a.text or "")
         elif t == "key":
             for combo in (a.keys or "").split():
-                names = [self.key(k) for k in combo.split("+") if k]
-                if len(names) > 1:
-                    g.hotkey(*names)
-                elif names:
-                    g.press(names[0])
+                self._chord([self.key(k) for k in combo.split("+") if k])
         elif t == "scroll":
             n, d = a.amount or 3, a.direction or "down"
             if a.x is not None and a.y is not None:

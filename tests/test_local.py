@@ -87,3 +87,35 @@ def test_text_is_pasted_line_by_line_on_mac():
     e2.mac = True
     e2.act(Action("type", text="hi"))
     assert e2.gui.calls == [("write", ("hi",), {"interval": 0.005})]
+
+
+def test_mac_keys_carry_their_own_modifier_flags():
+    from legato.local import MacKeys
+
+    class Q:
+        kCGEventFlagMaskCommand, kCGEventFlagMaskShift, kCGEventFlagMaskAlternate, kCGEventFlagMaskControl = 1, 2, 4, 8
+        kCGHIDEventTap = 0
+
+        def __init__(self):
+            self.posted = []
+
+        def CGEventCreateKeyboardEvent(self, src, code, down):
+            return {"code": code, "down": down}
+
+        def CGEventSetFlags(self, ev, flags):
+            ev["flags"] = flags
+
+        def CGEventPost(self, tap, ev):
+            self.posted.append((ev["code"], ev["down"], ev["flags"]))
+
+    q = Q()
+    k = MacKeys(q, {"v": 9, "end": 119, "enter": 36, "?": 44})
+    assert k.chord(["command", "v"]) and q.posted == [(9, True, 1), (9, False, 1)]
+    assert k.chord(["enter"]) and q.posted[-1] == (36, False, 0)             # a plain key clears leftover modifiers
+    assert k.chord(["command", "shift", "end"]) and q.posted[-1] == (119, False, 3)
+    assert k.chord(["?"]) and q.posted[-1] == (44, False, 2)                 # a shifted character
+    assert not k.chord(["command"]) and not k.chord(["command", "nokey"])    # the caller falls back to pyautogui
+    e = env(mac=True)
+    e.mackeys = k
+    e.act(Action("key", keys="ctrl+End"))                                    # ctrl is cmd on a Mac
+    assert q.posted[-1] == (119, False, 1) and e.gui.calls == []
