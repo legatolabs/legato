@@ -41,7 +41,8 @@ CLAUDE_STYLE_ACTIONS = ["left_click", "right_click", "double_click", "triple_cli
 SYSTEM = """You control a computer desktop ({w}x{h} pixels) to complete the user's task. Each turn you see the \
 current screenshot. Act by calling the `computer` tool.
 {coords}
-Actions: left_click, right_click, double_click, triple_click (coordinate; triple_click selects a line or field); \
+Actions: left_click, right_click, double_click, triple_click (coordinate; triple_click selects a line or field; \
+left_click with keys "shift" or "cmd" holds that key, to select several items); \
 left_click_drag (coordinate to end_coordinate); type (text, into the focused field); key (keys, e.g. "ctrl+s", \
 "Return", "Tab"); scroll (coordinate, direction up/down/left/right, amount); wait; done (the task is complete and \
 saved); fail (the task cannot be done).

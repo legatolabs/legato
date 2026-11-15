@@ -164,3 +164,44 @@ def test_mac_types_numbers_and_single_letters_as_keys():
     e.act(Action("type", text="eggs"))
     assert pasted == ["Call Maria", "eggs"]
     assert [c[1][0] for c in e.gui.calls if c[0] == "write"] == ["3", "12/12/2026", "PM"]
+
+
+def test_click_with_a_held_key():
+    from legato.actions import parse
+    from legato.env import xdotool_cmds
+    from legato.local import MacMouse
+    a, why = parse({"action": "left_click", "coordinate": [500, 500], "keys": "cmd"}, 1000, 1000)
+    assert (a.type, a.x, a.keys) == ("click", 500, "super") and a.describe() == "super+click (500, 500)"
+    assert parse({"action": "left_click", "coordinate": [1, 1], "text": "Shift"}, 1000, 1000)[0].keys == "shift"
+    assert parse({"action": "left_click", "coordinate": [1, 1], "text": "hello"}, 1000, 1000)[0].keys is None
+    assert parse({"action": "double_click", "coordinate": [1, 1], "keys": "shift"}, 1000, 1000)[0].keys is None
+    assert xdotool_cmds(a)[0] == [["xdotool", "keydown", "super", "mousemove", "500", "500", "click", "1",
+                                   "keyup", "super"]]
+
+    class Q:
+        kCGEventLeftMouseDown, kCGEventLeftMouseUp, kCGMouseButtonLeft, kCGMouseEventClickState = 1, 2, 0, 1
+        kCGHIDEventTap, kCGEventFlagMaskCommand, kCGEventFlagMaskShift = 0, 16, 32
+
+        def __init__(self):
+            self.posted = []
+
+        def CGEventCreateMouseEvent(self, src, kind, pos, button):
+            return {"kind": kind, "flags": 0}
+
+        def CGEventSetIntegerValueField(self, ev, field, n):
+            pass
+
+        def CGEventSetFlags(self, ev, flags):
+            ev["flags"] = flags
+
+        def CGEventPost(self, tap, ev):
+            self.posted.append((ev["kind"], ev["flags"]))
+
+    q = Q()
+    e = env(mac=True)
+    e.macmouse = MacMouse(q)
+    e.act(a)
+    assert q.posted == [(1, 16), (2, 16)]
+    e2 = env(mac=True)                                   # without Quartz: the key is held around pyautogui's click
+    e2.act(a)
+    assert [c[0] for c in e2.gui.calls] == ["keyDown", "click", "keyUp"] and e2.gui.calls[0][1] == ("command",)

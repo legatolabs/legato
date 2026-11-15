@@ -87,12 +87,18 @@ class MacMouse:
             import Quartz as quartz
         self.q = quartz
 
-    def click(self, x: float, y: float, count: int) -> None:
+    def click(self, x: float, y: float, count: int, held: list[str] | None = None) -> None:
+        """`held`: modifier names (as in MacKeys.MODS) down during the click, e.g. ["shift"]."""
         q = self.q
+        flags = 0
+        for m in held or []:
+            flags |= getattr(q, MacKeys.MODS[m])
         for n in range(1, count + 1):
             for kind in (q.kCGEventLeftMouseDown, q.kCGEventLeftMouseUp):
                 ev = q.CGEventCreateMouseEvent(None, kind, (x, y), q.kCGMouseButtonLeft)
                 q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, n)
+                if flags:
+                    q.CGEventSetFlags(ev, flags)
                 q.CGEventPost(q.kCGHIDEventTap, ev)
                 time.sleep(0.03)
 
@@ -224,7 +230,18 @@ class LocalEnv(Env):
             if x is not None and y is not None and x in (0, w - 1) and y in (0, h - 1):
                 setattr(a, kx, min(max(x, 1), w - 2))
                 setattr(a, ky, min(max(y, 1), h - 2))
-        if t == "click":
+        if t == "click" and a.keys:               # a click with keys held (shift or cmd adds to a selection)
+            held = [self.key(k) for k in a.keys.split("+") if k]
+            if self.macmouse is not None and all(k in MacKeys.MODS for k in held):
+                g.moveTo(a.x, a.y)
+                self.macmouse.click(a.x, a.y, 1, held)
+            else:
+                for k in held:
+                    g.keyDown(k)
+                g.click(a.x, a.y)
+                for k in reversed(held):
+                    g.keyUp(k)
+        elif t == "click":
             g.click(a.x, a.y)
         elif t in ("double_click", "triple_click"):
             n = 2 if t == "double_click" else 3
