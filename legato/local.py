@@ -71,6 +71,28 @@ class MacKeys:
         return True
 
 
+class MacMouse:
+    """Double and triple clicks on macOS as events that carry their click count.
+
+    pyautogui's multi-click sends plain clicks and trusts the system to count them. In practice Finder then sees
+    separate single clicks (a folder is selected, never opened). An event with kCGMouseEventClickState set is a
+    double click whatever the timing."""
+
+    def __init__(self, quartz: Any = None):
+        if quartz is None:
+            import Quartz as quartz
+        self.q = quartz
+
+    def click(self, x: float, y: float, count: int) -> None:
+        q = self.q
+        for n in range(1, count + 1):
+            for kind in (q.kCGEventLeftMouseDown, q.kCGEventLeftMouseUp):
+                ev = q.CGEventCreateMouseEvent(None, kind, (x, y), q.kCGMouseButtonLeft)
+                q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, n)
+                q.CGEventPost(q.kCGHIDEventTap, ev)
+                time.sleep(0.03)
+
+
 def _need(name: str):
     try:
         return __import__(name)
@@ -96,11 +118,12 @@ class LocalEnv(Env):
         # how text is typed on macOS: pasted (the default), or key by key with paste=None
         self.paste = self._paste_mac if paste == "auto" else paste
         self.mackeys: Any = None                  # explicit-flag key events: only with the real pyautogui on a Mac
+        self.macmouse: Any = None                 # explicit-count double and triple clicks, likewise
         if self.mac and gui is None:
             try:
-                self.mackeys = MacKeys()
-            except Exception:                     # no Quartz: pyautogui's own key handling
-                self.mackeys = None
+                self.mackeys, self.macmouse = MacKeys(), MacMouse()
+            except Exception:                     # no Quartz: pyautogui's own handling
+                self.mackeys = self.macmouse = None
         super().__init__(self._png, self._exec, fixed_wait_s=fixed_wait_s)
         self.waiter = Waiter(self._digest, rules=LOCAL_RULES)
 
@@ -187,10 +210,15 @@ class LocalEnv(Env):
                 setattr(a, ky, min(max(y, 1), h - 2))
         if t == "click":
             g.click(a.x, a.y)
-        elif t == "double_click":
-            g.doubleClick(a.x, a.y)
-        elif t == "triple_click":
-            g.click(a.x, a.y, clicks=3, interval=0.06)
+        elif t in ("double_click", "triple_click"):
+            n = 2 if t == "double_click" else 3
+            if self.macmouse is not None:
+                g.moveTo(a.x, a.y)
+                self.macmouse.click(a.x, a.y, n)
+            elif n == 2:
+                g.doubleClick(a.x, a.y)
+            else:
+                g.click(a.x, a.y, clicks=3, interval=0.06)
         elif t == "right_click":
             g.rightClick(a.x, a.y)
         elif t == "type":
