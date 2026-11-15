@@ -8,3 +8,5 @@ __pycache__/
 site/node_modules/
 site/dist/
 site/.vercel/
+legato/bin/
+native/legato-step/target/

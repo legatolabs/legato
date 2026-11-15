@@ -64,7 +64,9 @@ arguments, such as `-v "$PWD:/home/user/project"` ([testing a desktop app](guide
 `legato.attach(shell=run)` needs `run(cmd)`, which runs a shell command in the sandbox and returns its stdout, and an
 X display there with `python3`, `xdotool` and `scrot`. Legato installs a small helper in the sandbox. Each action is
 then one call: the helper acts with xdotool, polls the framebuffer until the screen stops changing, and returns the
-settled screenshot. E2B Desktop works the same way.
+settled screenshot. E2B Desktop works the same way. On x86_64 and arm64 the helper is a small static binary
+([native/legato-step](https://github.com/legatolabs/legato/tree/main/native/legato-step)), copied to `/tmp` once per
+sandbox, and `python3` and `scrot` are not needed. Elsewhere, or with `LEGATO_HELPER=python`, it is a Python script.
 
 ## Anything else
 

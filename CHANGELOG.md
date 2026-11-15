@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A native in-sandbox helper (Rust, `native/legato-step`) for Linux sandboxes and E2B, on x86_64 and arm64. Each
+  action is faster: it reads the screen through shared memory instead of running `xwd`, and encodes the screenshot
+  while the wait sits out its quiet time. The stop rule and the JSON it answers are unchanged. Sandboxes it can't run
+  in keep the Python helper; `LEGATO_HELPER=python` chooses it.
 - Requests to OpenRouter name Legato as the app (`HTTP-Referer`, `X-Title`); `LEGATO_NO_ATTRIBUTION=1` turns it off.
 
 ## 0.1.8

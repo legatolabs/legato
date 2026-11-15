@@ -36,7 +36,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: The native helper for both sandbox CPUs, into legato/bin
+        run: rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl && native/build.sh
       - run: pip install build && python -m build
+      - name: The wheel carries it
+        run: |
+          python -c "import glob, sys, zipfile; n = zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); \
+            sys.exit(0 if all(f'legato/bin/legato-step-{a}' in n for a in ('x86_64', 'aarch64')) else 1)"
       - uses: actions/upload-artifact@v4
         with:
           name: dist
