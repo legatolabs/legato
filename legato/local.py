@@ -127,6 +127,7 @@ class LocalEnv(Env):
         self.mac_cmd = mac_cmd
         # how text is typed on macOS: pasted (the default), or key by key with paste=None
         self.paste = self._paste_mac if paste == "auto" else paste
+        self._clip: bytes | None = None           # clipboard contents to put back before the next action
         self.mackeys: Any = None                  # explicit-flag key events: only with the real pyautogui on a Mac
         self.macmouse: Any = None                 # explicit-count double and triple clicks, likewise
         if self.mac and gui is None:
@@ -167,17 +168,18 @@ class LocalEnv(Env):
     def _type(self, text: str) -> None:
         if self.mac and self.paste is not None:
             # On macOS, text typed key by key is rewritten by autocorrect ("eggs" becomes "Eggs", "- " a dash), can
-            # lose letters, and leaves a correction bubble open. Pasted text arrives exactly as given. Each line is
-            # pasted and Return is pressed between lines, so "query\n" still submits a field.
+            # lose letters, and leaves a correction bubble open. Pasted text arrives exactly as given. The text is
+            # pasted in one piece (one paste per line let an app read the clipboard after the next line was already
+            # on it), and Return is pressed for each newline it ends with, so "query\n" still submits a field.
             # A date or time field (Calendar's hour, AM/PM) takes key presses and ignores a paste, and autocorrect
             # leaves a number or a letter or two alone: those are typed.
-            for i, line in enumerate(text.split("\n")):
-                if i:
-                    self._chord(["enter"])
-                if line and KEYED.fullmatch(line):
-                    self._keys(line)
-                elif line:
-                    self.paste(line)
+            body = text.rstrip("\n")
+            if body and KEYED.fullmatch(body):
+                self._keys(body)
+            elif body:
+                self.paste(body)
+            for _ in range(len(text) - len(body)):
+                self._chord(["enter"])
             return
         if text.isascii():
             self.gui.write(text, interval=0.005)
@@ -207,23 +209,32 @@ class LocalEnv(Env):
             self.gui.press(names[0])
 
     def _paste_mac(self, text: str) -> None:
-        """Put `text` on the clipboard, paste it, and put back the text that was there (other clipboard kinds, such
-        as an image, are not restored)."""
+        """Put `text` on the clipboard and paste it. The text that was on the clipboard is put back before the next
+        action, not now: the app reads the clipboard when it gets to the keys, which can be later than any wait
+        here (other clipboard kinds, such as an image, are not restored)."""
         try:
             before = subprocess.run(["pbpaste"], capture_output=True, timeout=5).stdout
             subprocess.run(["pbcopy"], input=text.encode(), timeout=5, check=True)
         except (OSError, subprocess.SubprocessError):
             self.gui.write(text, interval=0.005)      # no clipboard tools: type it
             return
+        if self._clip is None:                        # several pastes in a row: keep the oldest contents
+            self._clip = before
         self._chord(["command", "v"])
-        time.sleep(0.4)                               # the app reads the clipboard after the keys arrive
-        try:
-            subprocess.run(["pbcopy"], input=before, timeout=5)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        time.sleep(0.4)
+
+    def _restore_clipboard(self) -> None:
+        if self._clip is not None:
+            try:
+                subprocess.run(["pbcopy"], input=self._clip, timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            self._clip = None
 
     def _exec(self, a: Action) -> None:
         g, t = self.gui, a.type
+        if t != "type":
+            self._restore_clipboard()
         w, h = self.size                          # keep the agent's own pointer out of the corners: a corner is the
         for kx, ky in (("x", "y"), ("x2", "y2")):  # person's stop signal (pyautogui's fail-safe), not the model's
             x, y = getattr(a, kx, None), getattr(a, ky, None)
