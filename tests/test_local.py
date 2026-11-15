@@ -202,3 +202,15 @@ def test_click_with_a_held_key():
     e2 = env(mac=True)                                   # without Quartz: the key is held around pyautogui's click
     e2.act(a)
     assert [c[0] for c in e2.gui.calls] == ["keyDown", "click", "keyUp"] and e2.gui.calls[0][1] == ("command",)
+
+
+def test_actions_written_in_the_text_run_before_the_native_call():
+    from legato.harness import _calls
+    call = {"function": {"name": "computer", "arguments": '{"action": "type", "text": "3:00PM"}'}}
+    rec = {"content": 'I will type the date.\n{"action": "type", "text": "12/12/2026"}\n{"action": "key", "keys": "Tab"}',
+           "tool_calls": [call]}
+    assert [a.get("text") or a.get("keys") for a in _calls(rec)] == ["12/12/2026", "Tab", "3:00PM"]
+    same = {"content": '{"action": "type", "text": "3:00PM"}', "tool_calls": [call]}
+    assert _calls(same) == [{"action": "type", "text": "3:00PM"}]            # said and called: run once
+    assert _calls({"content": "Clicking save.", "tool_calls": [call]}) == [{"action": "type", "text": "3:00PM"}]
+    assert _calls({"content": '{"action": "wait"}'}) == [{"action": "wait"}]

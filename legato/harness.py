@@ -89,22 +89,10 @@ def computer_tool(actions: list[str] | None = None) -> dict:
             "amount": {"type": "integer"}}}}}
 
 
-def _calls(rec: dict) -> list:
-    """Tool-call argument dicts from a reply: native tool_calls first, else JSON objects in the text."""
-    out = []
-    for tc in rec.get("tool_calls") or []:
-        a = (tc.get("function") or {}).get("arguments")
-        if isinstance(a, str):
-            try:
-                a = json.loads(a)
-            except json.JSONDecodeError:
-                continue
-        if isinstance(a, dict):
-            out.append(a)
-    if out:
-        return out
-    text, depth, start = rec.get("content") or "", 0, None
-    for i, ch in enumerate(text):                # top-level {...} objects in the text, in order
+def _text_calls(text: str) -> list:
+    """Top-level {...} objects in a reply's text that are actions, in order."""
+    out, depth, start = [], 0, None
+    for i, ch in enumerate(text):
         if ch == "{":
             depth, start = depth + 1, (i if depth == 0 else start)
         elif ch == "}" and depth:
@@ -119,6 +107,26 @@ def _calls(rec: dict) -> list:
                     if isinstance(a, dict) and "action" in a:
                         out.append(a)
     return out
+
+
+def _calls(rec: dict) -> list:
+    """Tool-call argument dicts from a reply, in the order the model gave them: actions written as JSON in the text,
+    then the native tool_calls. A model that writes two steps and calls the tool for the third means all three."""
+    native = []
+    for tc in rec.get("tool_calls") or []:
+        a = (tc.get("function") or {}).get("arguments")
+        if isinstance(a, str):
+            try:
+                a = json.loads(a)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(a, dict):
+            native.append(a)
+    content = rec.get("content") or ""
+    if isinstance(content, list):
+        content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+    written = [a for a in _text_calls(content) if a not in native]      # the same action said and called: once
+    return written + native
 
 
 def is_claude(model: str) -> bool:
