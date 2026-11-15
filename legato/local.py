@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import subprocess
 import sys
 import time
 from typing import Any
@@ -44,7 +45,8 @@ class LocalEnv(Env):
     """This computer's primary screen. `mac_cmd` sends Ctrl shortcuts as Cmd on macOS, since models learn Linux and
     Windows shortcuts (ctrl+c, ctrl+s)."""
 
-    def __init__(self, mac_cmd: bool = True, fixed_wait_s: float | None = None, *, gui: Any = None, grabber: Any = None):
+    def __init__(self, mac_cmd: bool = True, fixed_wait_s: float | None = None, *, gui: Any = None, grabber: Any = None,
+                 paste: Any = "auto"):
         self.gui = gui or _need("pyautogui")
         self.gui.PAUSE = 0.02                     # pyautogui sleeps 0.1 s after every call by default
         self.sct = grabber or _need("mss").mss()
@@ -52,6 +54,8 @@ class LocalEnv(Env):
         self.size = tuple(self.gui.size())        # logical size: what pyautogui clicks in
         self.mac = sys.platform == "darwin"
         self.mac_cmd = mac_cmd
+        # how text is typed on macOS: pasted (the default), or key by key with paste=None
+        self.paste = self._paste_mac if paste == "auto" else paste
         super().__init__(self._png, self._exec, fixed_wait_s=fixed_wait_s)
         self.waiter = Waiter(self._digest, rules=LOCAL_RULES)
 
@@ -83,6 +87,16 @@ class LocalEnv(Env):
         return name if len(name) == 1 else name.lower()
 
     def _type(self, text: str) -> None:
+        if self.mac and self.paste is not None:
+            # On macOS, text typed key by key is rewritten by autocorrect ("eggs" becomes "Eggs", "- " a dash), can
+            # lose letters, and leaves a correction bubble open. Pasted text arrives exactly as given. Each line is
+            # pasted and Return is pressed between lines, so "query\n" still submits a field.
+            for i, line in enumerate(text.split("\n")):
+                if i:
+                    self.gui.press("enter")
+                if line:
+                    self.paste(line)
+            return
         if text.isascii():
             self.gui.write(text, interval=0.005)
             return
@@ -93,6 +107,22 @@ class LocalEnv(Env):
             return
         pyperclip.copy(text)
         self.gui.hotkey("command" if self.mac else "ctrl", "v")
+
+    def _paste_mac(self, text: str) -> None:
+        """Put `text` on the clipboard, paste it, and put back the text that was there (other clipboard kinds, such
+        as an image, are not restored)."""
+        try:
+            before = subprocess.run(["pbpaste"], capture_output=True, timeout=5).stdout
+            subprocess.run(["pbcopy"], input=text.encode(), timeout=5, check=True)
+        except (OSError, subprocess.SubprocessError):
+            self.gui.write(text, interval=0.005)      # no clipboard tools: type it
+            return
+        self.gui.hotkey("command", "v")
+        time.sleep(0.15)                              # the app reads the clipboard after the keys arrive
+        try:
+            subprocess.run(["pbcopy"], input=before, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
     def _exec(self, a: Action) -> None:
         g, t = self.gui, a.type
