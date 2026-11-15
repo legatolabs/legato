@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 import subprocess
 import sys
 import time
@@ -30,6 +31,9 @@ KEYS = {"Return": "enter", "Escape": "esc", "Tab": "tab", "BackSpace": "backspac
         "space": "space", "Up": "up", "Down": "down", "Left": "left", "Right": "right", "Prior": "pageup",
         "Next": "pagedown", "Home": "home", "End": "end", "Insert": "insert", "ctrl": "ctrl", "alt": "alt",
         "shift": "shift"}
+
+
+KEYED = re.compile(r"[0-9:./]{1,10}|[A-Za-z]{1,2}")     # on macOS: text typed key by key instead of pasted
 
 
 class MacKeys:
@@ -159,10 +163,14 @@ class LocalEnv(Env):
             # On macOS, text typed key by key is rewritten by autocorrect ("eggs" becomes "Eggs", "- " a dash), can
             # lose letters, and leaves a correction bubble open. Pasted text arrives exactly as given. Each line is
             # pasted and Return is pressed between lines, so "query\n" still submits a field.
+            # A date or time field (Calendar's hour, AM/PM) takes key presses and ignores a paste, and autocorrect
+            # leaves a number or a letter or two alone: those are typed.
             for i, line in enumerate(text.split("\n")):
                 if i:
                     self._chord(["enter"])
-                if line:
+                if line and KEYED.fullmatch(line):
+                    self._keys(line)
+                elif line:
                     self.paste(line)
             return
         if text.isascii():
@@ -175,6 +183,14 @@ class LocalEnv(Env):
             return
         pyperclip.copy(text)
         self.gui.hotkey("command" if self.mac else "ctrl", "v")
+
+    def _keys(self, text: str) -> None:
+        """Type `text` one key press at a time."""
+        if self.mackeys is None or any(self.mackeys.map.get(c) is None for c in text):
+            self.gui.write(text, interval=0.005)
+            return
+        for c in text:
+            self.mackeys.chord([c])
 
     def _chord(self, names: list[str]) -> None:
         if not names or (self.mackeys is not None and self.mackeys.chord(names)):

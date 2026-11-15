@@ -151,3 +151,16 @@ def test_mac_double_click_carries_its_click_count():
     e2 = env(mac=True)                                                       # without Quartz: pyautogui's own
     e2.act(Action("double_click", x=1, y=2))
     assert e2.gui.calls[0][0] == "doubleClick"
+
+
+def test_mac_types_numbers_and_single_letters_as_keys():
+    e = env(mac=True)
+    pasted = []
+    e.paste = pasted.append
+    e.act(Action("type", text="3"))
+    e.act(Action("type", text="12/12/2026"))
+    e.act(Action("type", text="PM"))
+    e.act(Action("type", text="Call Maria"))
+    e.act(Action("type", text="eggs"))
+    assert pasted == ["Call Maria", "eggs"]
+    assert [c[1][0] for c in e.gui.calls if c[0] == "write"] == ["3", "12/12/2026", "PM"]
