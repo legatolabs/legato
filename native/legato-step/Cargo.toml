@@ -1,0 +1,24 @@
+[package]
+name = "legato-step"
+version = "0.1.0"
+rust-version = "1.82"
+edition = "2021"
+license = "Apache-2.0"
+description = "Legato's in-sandbox helper: run an action, wait until the screen is quiet, return the settled frame."
+publish = false
+
+[dependencies]
+x11rb = { version = "0.13", default-features = false, features = ["shm"] }
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+png = "0.17"
+base64 = "0.22"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

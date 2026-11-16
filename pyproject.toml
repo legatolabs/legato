@@ -55,7 +55,7 @@ Changelog = "https://github.com/legatolabs/legato/blob/main/CHANGELOG.md"
 include = ["legato*"]
 
 [tool.setuptools.package-data]
-legato = ["py.typed"]
+legato = ["py.typed", "bin/legato-step-*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

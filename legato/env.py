@@ -20,11 +20,16 @@ client-side from the screenshot function.
 from __future__ import annotations
 
 import base64
+import functools
+import gzip
+import hashlib
 import json
+import os
 import shlex
 import struct
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from legato.actions import Action
@@ -76,6 +81,83 @@ if spec.get("shot"):   # return the settled frame in the same call: one round tr
         pass
 print(json.dumps(res))
 '''
+
+
+# The native helper (native/legato-step, Rust): the same JSON in and out as HELPER, ~200 ms faster per action. Release
+# wheels carry it for x86_64 and aarch64 in legato/bin. LEGATO_HELPER_BIN names another build; LEGATO_HELPER=python
+# keeps the Python helper. A sandbox where it can't run (no binary for its CPU, /tmp mounted noexec) uses HELPER.
+NATIVE_DIR = Path(__file__).parent / "bin"
+ELF_MACHINE = {0x3E: "x86_64", 0xB7: "aarch64"}
+UPLOAD_CHUNK = 64_000      # base64 characters per shell call: well under Linux's 128 KiB limit on one argument
+PROBE = {"cmds": [], "rule": {**LOCAL_RULES["default"], "cap": 0.2, "floor": 0, "quiet": 0}}
+
+
+@functools.lru_cache(maxsize=None)
+def _read_native(path: str) -> bytes | None:
+    try:
+        return Path(path).read_bytes()
+    except OSError:
+        return None
+
+
+def native_helper(arch: str) -> bytes | None:
+    """The legato-step binary for a sandbox whose `uname -m` is `arch`, or None to use the Python helper."""
+    if os.environ.get("LEGATO_HELPER", "").lower() == "python":
+        return None
+    arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(arch.strip(), arch.strip())
+    paths = [os.environ["LEGATO_HELPER_BIN"]] if os.environ.get("LEGATO_HELPER_BIN") else []
+    for p in paths + [str(NATIVE_DIR / f"legato-step-{arch}")]:
+        b = _read_native(p)
+        if b and b[:4] == b"\x7fELF" and ELF_MACHINE.get(int.from_bytes(b[18:20], "little")) == arch:
+            return b
+    return None
+
+
+def native_available() -> bool:
+    """Whether any native helper could be used, so sandboxes without one skip the extra round trip."""
+    if os.environ.get("LEGATO_HELPER", "").lower() == "python":
+        return False
+    return bool(os.environ.get("LEGATO_HELPER_BIN")) or any(NATIVE_DIR.glob("legato-step-*"))
+
+
+def native_path(b: bytes) -> str:
+    return f"/tmp/legato-step-{hashlib.sha256(b).hexdigest()[:12]}"
+
+
+def _stdout(out: Any) -> str:
+    out = getattr(out, "stdout", out)
+    return out.decode(errors="replace") if isinstance(out, (bytes, bytearray)) else str(out or "")
+
+
+def install_native(run: Callable[[str], Any], put: Callable[[str, bytes], Any] | None = None) -> str | None:
+    """Put the native helper in a sandbox and check that it runs there. `run(cmd)` runs a shell command and returns
+    its stdout; `put(path, data)` writes a file, if the sandbox can (else the binary goes up in base64 chunks).
+    Returns the helper's path, or None when the Python helper should be used. Never raises."""
+    if not native_available():
+        return None
+    try:
+        lines = _stdout(run("uname -m; for p in /tmp/legato-step-*; do [ -x \"$p\" ] && echo \"$p\"; done; true"))
+        lines = lines.split()
+        b = native_helper(lines[0]) if lines else None
+        if b is None:
+            return None
+        path = native_path(b)
+        probe = f"{path} {shlex.quote(json.dumps(PROBE))}"
+        if path not in lines[1:]:
+            tmp = f"{path}.{os.getpid()}"
+            if put is not None:
+                put(tmp, b)
+                fin = f"chmod +x {tmp}"
+            else:
+                z = base64.b64encode(gzip.compress(b, 6)).decode()
+                for i in range(0, len(z), UPLOAD_CHUNK):
+                    run(f"printf %s '{z[i:i + UPLOAD_CHUNK]}' {'>' if i == 0 else '>>'} {tmp}.b64")
+                fin = f"base64 -d {tmp}.b64 | gunzip > {tmp} && rm -f {tmp}.b64 && chmod +x {tmp}"
+            probe = f"{fin} && mv -f {tmp} {path} && {probe}; rm -f {tmp} {tmp}.b64"
+        out = _stdout(run(probe + "; true"))
+        return path if '"impl":"rust"' in out.replace(" ", "") and '"settle_s"' in out else None
+    except Exception:  # noqa: BLE001 - any failure means the Python helper
+        return None
 
 
 @dataclass
@@ -207,15 +289,20 @@ class E2BEnv(Env):
     def __init__(self, sb, blink_off: bool = True, fixed_wait_s: float | None = None):
         self.sb = sb
         self.helper = False
+        self.helper_cmd = f"python3 {HELPER_PATH}"
         try:
             if blink_off:   # a blinking caret makes every frame differ: no settle could ever finish
                 sb.commands.run("xfconf-query -c xsettings -p /Net/CursorBlink -n -t bool -s false || true; "
                                 "gsettings set org.gnome.desktop.interface cursor-blink false 2>/dev/null || true",
                                 timeout=20)
-            sb.files.write(HELPER_PATH, HELPER)
-            r = sb.commands.run(f"python3 {HELPER_PATH} " + shlex.quote(json.dumps(
-                {"cmds": [], "rule": {**LOCAL_RULES["default"], "cap": 0.2, "floor": 0, "quiet": 0}})), timeout=20)
-            self.helper = '"settle_s"' in (r.stdout or "")
+            native = install_native(lambda c: sb.commands.run(c, timeout=60).stdout,
+                                    lambda p, d: sb.files.write(p, d))
+            if native:
+                self.helper_cmd, self.helper = native, True
+            else:
+                sb.files.write(HELPER_PATH, HELPER)
+                r = sb.commands.run(f"{self.helper_cmd} " + shlex.quote(json.dumps(PROBE)), timeout=20)
+                self.helper = '"settle_s"' in (r.stdout or "")
         except Exception:  # noqa: BLE001 - fall back to the SDK's calls
             self.helper = False
         super().__init__(self._screenshot, self._sdk_execute, self._helper_step if self.helper else None,
@@ -229,7 +316,7 @@ class E2BEnv(Env):
         cmds, extra = xdotool_cmds(a)
         rule = LOCAL_RULES.get(rule_kind(a.type)) or LOCAL_RULES["default"]
         t = time.monotonic()
-        r = self.sb.commands.run(f"python3 {HELPER_PATH} " + shlex.quote(json.dumps(
+        r = self.sb.commands.run(f"{self.helper_cmd} " + shlex.quote(json.dumps(
             {"cmds": cmds, "sleep": extra, "rule": rule, "shot": True})), timeout=30)
         rtt = time.monotonic() - t
         try:
@@ -239,7 +326,8 @@ class E2BEnv(Env):
         # wall time of the call is what the agent waits; split it as the helper measured
         settle = float(out.get("settle_s", 0.0))
         self._pending_png = base64.b64decode(out["png"]) if out.get("png") else None
-        return {"act_s": rtt - settle, "settle_s": settle, "capped": out.get("capped"), "helper": True}
+        return {"act_s": rtt - settle, "settle_s": settle, "capped": out.get("capped"), "helper": True,
+                "impl": out.get("impl", "python")}
 
     def _sdk_execute(self, a: Action) -> None:
         sb, t = self.sb, a.type
@@ -285,17 +373,22 @@ class ShellEnv(Env):
         if blink_off:
             run(self.PRE + "xfconf-query -c xsettings -p /Net/CursorBlink -n -t bool -s false 2>/dev/null || true; "
                 "gsettings set org.gnome.desktop.interface cursor-blink false 2>/dev/null || true")
-        run(f"echo {base64.b64encode(HELPER.encode()).decode()} | base64 -d > {HELPER_PATH}")
+        native = install_native(lambda c: run(self.PRE + c))
+        if native:
+            self.helper_cmd = native
+        else:
+            run(f"echo {base64.b64encode(HELPER.encode()).decode()} | base64 -d > {HELPER_PATH}")
+            self.helper_cmd = f"python3 {HELPER_PATH}"
         super().__init__(self._screenshot, self._execute_only, self._helper_step, fixed_wait_s=fixed_wait_s)
 
     def _call(self, spec: dict) -> dict:
-        out = self.run(self.PRE + f"python3 {HELPER_PATH} " + shlex.quote(json.dumps(spec)))
-        out = out.decode() if isinstance(out, (bytes, bytearray)) else str(getattr(out, "stdout", out) or "")
+        out = _stdout(self.run(self.PRE + f"{self.helper_cmd} " + shlex.quote(json.dumps(spec))))
         try:
             return json.loads(out.strip().splitlines()[-1])
         except (ValueError, IndexError):
-            raise RuntimeError("Legato's helper did not answer from the sandbox; it needs an X display, python3, "
-                               f"xdotool and scrot. Output: {out[-300:]!r}") from None
+            raise RuntimeError("Legato's helper did not answer from the sandbox; it needs an X display and xdotool "
+                               "(and python3 and scrot where the native helper can't run). "
+                               f"Output: {out[-300:]!r}") from None
 
     def _screenshot(self) -> bytes:
         out = self._call({"cmds": [], "rule": {**LOCAL_RULES["default"], "cap": 0}, "shot": True})
@@ -313,7 +406,8 @@ class ShellEnv(Env):
         rtt = time.monotonic() - t
         settle = float(out.get("settle_s", 0.0))
         self._pending_png = base64.b64decode(out["png"]) if out.get("png") else None
-        return {"act_s": rtt - settle, "settle_s": settle, "capped": out.get("capped"), "helper": True}
+        return {"act_s": rtt - settle, "settle_s": settle, "capped": out.get("capped"), "helper": True,
+                "impl": out.get("impl", "python")}
 
 
 def attach(sandbox=None, *, shell: Callable[[str], Any] | None = None, screenshot: Callable[[], bytes] | None = None,

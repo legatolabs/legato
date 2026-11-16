@@ -13,6 +13,20 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"
       - run: pytest -q
+  native:
+    # the native helper (native/legato-step): unit tests, both CPUs build, and the same answers as the Python helper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y xvfb xdotool scrot x11-apps
+      - run: rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+      - run: cd native/legato-step && cargo test --release --locked
+      - run: native/build.sh
+      - run: pip install -e ".[dev]"
+      - run: pytest -q tests/test_native.py tests/test_sdk.py tests/test_bring_your_own.py
   site:
     runs-on: ubuntu-latest
     steps:
@@ -29,6 +43,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl && native/build.sh
       - run: pip install -e ".[dev]"
       - run: docker build -t legato-desktop:ci docker/desktop
       - run: pytest -q tests/test_bring_your_own.py
