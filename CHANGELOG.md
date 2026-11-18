@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP: `desktop_shell(desktop_id, command, timeout_s=30)` runs a shell command on the desktop's computer and returns
+  its output and exit code, so an agent can start apps, read files and check results without the screen.
 - A native in-sandbox helper (Rust, `native/legato-step`) for Linux sandboxes and E2B, on x86_64 and arm64. Each
   action is faster: it reads the screen through shared memory instead of running `xwd`, and encodes the screenshot
   while the wait sits out its quiet time. The stop rule and the JSON it answers are unchanged. Sandboxes it can't run

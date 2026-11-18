@@ -49,6 +49,10 @@
       "description": "The current screen"
     },
     {
+      "name": "desktop_shell",
+      "description": "Run a shell command on the desktop's computer; returns its output and exit code"
+    },
+    {
       "name": "desktop_run_task",
       "description": "Hand a whole task to another model (any OpenAI-compatible endpoint)"
     },

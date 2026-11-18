@@ -32,6 +32,7 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
 | `desktop_open(width=1280, height=800)` | opens a desktop (your screen with `--local`, else a fresh sandbox); returns its id and first screenshot |
 | `desktop_act(desktop_id, action, x, y, text, keys, direction, amount, end_x, end_y)` | click, double_click, triple_click, right_click, type, key, scroll, drag or wait, in pixels of the latest screenshot; returns the settled screenshot and how long the screen took |
 | `desktop_screenshot(desktop_id)` | the current screen |
+| `desktop_shell(desktop_id, command, timeout_s=30)` | runs a shell command on the desktop's computer (the container, the sandbox, or yours with `--local`); returns its output and exit code |
 | `desktop_run_task(desktop_id, task, model, base_url, api_key_env, max_steps)` | hands a whole task to `legato.Harness` with any OpenAI-compatible model (default: Qwen3.8-27B on OpenRouter, key from `OPENROUTER_API_KEY`); returns the run report and the final screen |
 | `desktop_close(desktop_id)` | stops the desktop |
 
@@ -39,5 +40,6 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
   the computer use.
 - **See what the agent did:** `legato mcp --record DIR` saves every screenshot the agent got, with a `log.jsonl` of its
   actions, under `DIR/<desktop_id>/`.
+- **`desktop_shell` skips the screen** for what a command does faster: starting apps, reading files, checking results.
 - **`desktop_run_task` delegates.** Use it to offload a whole GUI task to a cheaper open model while your agent keeps
   working.

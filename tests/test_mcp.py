@@ -1,4 +1,4 @@
-"""The MCP server's tools on a fake desktop: open, act (returns the settled screen), screenshot, close."""
+"""The MCP server's tools on a fake desktop: open, act (returns the settled screen), screenshot, shell, close."""
 import asyncio
 import struct
 import sys
@@ -38,7 +38,8 @@ def test_open_act_screenshot_close():
 
     async def go():
         names = {t.name for t in await srv.list_tools()}
-        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_run_task", "desktop_close"}
+        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_shell", "desktop_run_task",
+                         "desktop_close"}
         r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
         assert kinds(r) == ["text", "image"]
         did = r.content[0].text.split()[1]
@@ -73,3 +74,31 @@ def test_record(tmp_path):
     log = [json.loads(line) for line in (tmp_path / did / "log.jsonl").read_text().splitlines()]
     assert [e["event"] for e in log] == ["open", "click", "close"]
     assert (tmp_path / did / log[1]["screenshot"]).read_bytes().startswith(b"\x89PNG")
+
+
+def test_shell(tmp_path):
+    import json
+
+    sent = []
+
+    def with_shell(res):
+        env = legato.attach(screenshot=lambda: png(*res), execute=lambda a: None, fixed_wait_s=0.0)
+        env.shell = lambda cmd, timeout_s: sent.append((cmd, timeout_s)) or "hi\n[exit 0]\n"
+        return None, env
+
+    def no_shell(res):
+        return None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None, fixed_wait_s=0.0)
+
+    async def go():
+        srv = build_server(with_shell, record=str(tmp_path))
+        did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
+        r = await srv.call_tool("desktop_shell", {"desktop_id": did, "command": "echo hi", "timeout_s": 9999})
+        assert r.content[0].text == "hi\n[exit 0]\n"
+        assert sent == [("echo hi", 300.0)]
+        log = [json.loads(line) for line in (tmp_path / did / "log.jsonl").read_text().splitlines()]
+        assert log[-1]["event"] == "shell" and log[-1]["command"] == "echo hi"
+        srv = build_server(no_shell)
+        did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
+        with pytest.raises(Exception, match="no shell"):
+            await srv.call_tool("desktop_shell", {"desktop_id": did, "command": "ls"})
+    asyncio.run(go())
