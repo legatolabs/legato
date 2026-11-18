@@ -38,7 +38,7 @@
   "tools": [
     {
       "name": "desktop_open",
-      "description": "Open a desktop and return its first screenshot"
+      "description": "Open a desktop, optionally starting a URL or app, and return its first screenshot"
     },
     {
       "name": "desktop_act",

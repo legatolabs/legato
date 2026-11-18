@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP: `desktop_open(url=..., app=...)` starts a page or app first and returns once its window has drawn, so the agent
+  skips typing a launch command and waiting for it.
 - MCP: `desktop_shell(desktop_id, command, timeout_s=30)` runs a shell command on the desktop's computer and returns
   its output and exit code, so an agent can start apps, read files and check results without the screen.
 - A native in-sandbox helper (Rust, `native/legato-step`) for Linux sandboxes and E2B, on x86_64 and arm64. Each

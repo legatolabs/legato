@@ -29,7 +29,7 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
 
 | tool | what it does |
 |---|---|
-| `desktop_open(width=1280, height=800)` | opens a desktop (your screen with `--local`, else a fresh sandbox); returns its id and first screenshot |
+| `desktop_open(width=1280, height=800, url=None, app=None)` | opens a desktop (your screen with `--local`, else a fresh sandbox); returns its id and first screenshot. With `url` or `app` it starts that first and returns once the window has drawn (`app` is an app name on macOS, a command on Linux) |
 | `desktop_act(desktop_id, action, x, y, text, keys, direction, amount, end_x, end_y)` | click, double_click, triple_click, right_click, type, key, scroll, drag or wait, in pixels of the latest screenshot; returns the settled screenshot and how long the screen took |
 | `desktop_screenshot(desktop_id)` | the current screen |
 | `desktop_shell(desktop_id, command, timeout_s=30)` | runs a shell command on the desktop's computer (the container, the sandbox, or yours with `--local`); returns its output and exit code |
