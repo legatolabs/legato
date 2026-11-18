@@ -34,7 +34,9 @@ from dataclasses import dataclass, field
 from legato.actions import Action, parse
 from legato.env import Env, png_size
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
+from legato.safety import Denied, Stopped
 from legato.tools import Tool, ToolCall
+from legato import plan as plans
 
 CLAUDE_STYLE_ACTIONS = ["left_click", "right_click", "double_click", "triple_click", "left_click_drag", "type", "key",
                         "scroll", "wait", "done", "fail"]
@@ -66,6 +68,12 @@ make sure you scroll down to see everything before deciding something isn't avai
 try to chain multiple of these calls all into one function calls request.
 </SYSTEM_CAPABILITY>"""
 
+DENIED_NOTE = ("The person at this computer did not allow this action, so it was NOT run, and neither were the "
+               "actions after it in your last turn: {what}. Do not repeat it. Choose another way, or call fail if "
+               "the task cannot be done without it.")
+
+END_NOTE = ("Your last reply had no action, so nothing happened. If the task is complete, call done; otherwise take "
+            "the next step.")
 CUT_OFF_NOTE = ("Your last reply reached the token limit before you called the tool, so nothing happened. Keep your "
                 "reasoning short and call the tool now.")
 
@@ -92,7 +100,9 @@ def computer_tool(actions: list[str] | None = None) -> dict:
 
 def _text_calls(text: str, names: tuple = ()) -> list:
     """(tool name, arguments) pairs written as top-level {...} objects in a reply's text, in order. An object with an
-    "action" is a `computer` call; {"name": n, "arguments": {...}} is a call to tool n, if n is in `names`."""
+    "action" is a `computer` call; {"name": n, "arguments": {...}} is a call to tool n, if n is in `names`;
+    {"tool": n, ...} is a call to tool n with the other fields, or, if n is a screen action, done or fail, a `computer`
+    call with that action."""
     out, depth, start = [], 0, None
     for i, ch in enumerate(text):
         if ch == "{":
@@ -107,6 +117,16 @@ def _text_calls(text: str, names: tuple = ()) -> list:
                 if isinstance(a, dict):
                     if "action" not in a and a.get("name") in names and isinstance(a.get("arguments"), dict):
                         out.append((a["name"], a["arguments"]))
+                        continue
+                    if "action" not in a and isinstance(a.get("tool"), str):
+                        # the shape past calls are written back in ({"tool": "bash", ...}), which models copy
+                        name = a["tool"]
+                        rest = a["arguments"] if isinstance(a.get("arguments"), dict) else \
+                            {k: v for k, v in a.items() if k != "tool"}
+                        if name in names:
+                            out.append((name, rest))
+                        elif name.lower() in CLAUDE_STYLE_ACTIONS:
+                            out.append(("computer", {"action": name.lower(), **rest}))
                         continue
                     a = a.get("arguments", a) if "action" not in a else a
                     if isinstance(a, dict) and "action" in a:
@@ -165,6 +185,29 @@ def resize_png(png: bytes, size: tuple[int, int]) -> bytes:
     return buf.getvalue()
 
 
+def _progress(rec: dict) -> str | None:
+    """The `progress` line of a reply's plan call, if any."""
+    for c in rec.get("tool_calls") or []:
+        f = c.get("function") or {}
+        if f.get("name") != "plan":
+            continue
+        try:
+            args = json.loads(f.get("arguments") or "{}")
+        except ValueError:
+            continue
+        if isinstance(args, dict) and isinstance(args.get("progress"), str) and args["progress"].strip():
+            return args["progress"].strip()
+    return None
+
+
+def jpeg_b64(png_b64: str, quality: int = 85) -> str:
+    """A base64 PNG screenshot as base64 JPEG: the same size and pixels in about a fifth of the bytes."""
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.open(io.BytesIO(base64.b64decode(png_b64))).convert("RGB").save(buf, format="JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
 @dataclass
 class Episode:
     """One task's conversation: the screen size, the size the model sees, and the turns so far."""
@@ -174,6 +217,8 @@ class Episode:
     mw: int
     mh: int
     turns: list = field(default_factory=list)   # {"role": "user", "pngs": [b64...]} / {"role": "assistant", "text"}
+    last_png: bytes | None = None               # change_log: the screen the model saw last, and its text lines
+    last_lines: list | None = None
 
 
 @dataclass
@@ -199,6 +244,7 @@ class RunResult:
     timings: list = field(default_factory=list)
     wall_s: float = 0.0
     error: str | None = None
+    stopped: bool = False       # the person stopped the run (legato.safety.Stopped): `error` says how
     usage: dict = field(default_factory=lambda: {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0})
 
     def report(self) -> str:
@@ -223,13 +269,25 @@ class Harness:
                  system: str | None = None, screenshot_each_action: bool = False, end_on_text: bool = False,
                  screenshot_action: bool = False, model_size: str | tuple | None = "auto",
                  cache_breakpoints: bool | None = None, extra_body: dict | None = None, profile: str = "legato",
-                 tools: list[Tool] | None = None):
-        """coords: "norm1000" or "pixels" (default: pixels for Claude, norm1000 otherwise). image_max: screenshots kept
+                 tools: list[Tool] | None = None, plan: bool = False, plan_max_steps: int = 12,
+                 end_fix: bool = False, change_log: bool = False, hedge_after_s: float | None = None,
+                 plan_trust_first_click: bool = False, ocr_cache: bool = False,
+                 ocr_near: bool = False, strict_done: bool = False, image_format: str = "png", jpeg_quality: int = 85,
+                 change_log_lines: int = 15, change_log_turns: int | None = None, progress_note: bool = False,
+                 history_scale: float | None = None):
+        """plan: one `plan` tool whose steps (screen actions, click_text, shell through the `bash` tool in `tools`,
+        wait_for, done) run in order until one cannot go on (legato/plan.py). end_fix: a reply with no action gets
+        a note to call done if the task is complete, and a second such reply in a row ends the task as done. coords: "norm1000" or "pixels" (default: pixels for Claude, norm1000 otherwise). image_max: screenshots kept
         in the prompt (None keeps all). max_batch: tool calls run per turn (None runs all). model_size: the size
         screenshots are sent at ("auto": Anthropic's recommended size for Claude, the screen size otherwise; None:
         the screen size; or (w, h)). cache_breakpoints: ask for prompt caching with a top-level cache_control (default: on for
         Claude; OpenRouter and Anthropic-compatible APIs read it). tools: more tools beside `computer`, such as
-        `legato.tools.bash(env)`; each result goes back to the model as text."""
+        `legato.tools.bash(env)`; each result goes back to the model as text. image_format: "png" (default) or
+        "jpeg" (jpeg_quality): screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes; the
+        upload is most of a hosted call's wait for its first token (legato-research EXP-0052: a call 1.57 s against
+        3.11 s at median through OpenRouter, the next action unchanged)."""
+        if image_format not in ("png", "jpeg"):
+            raise ValueError("image_format must be 'png' or 'jpeg'")
         coords = coords or ("pixels" if is_claude(model) else "norm1000")
         if coords not in COORDS:
             raise ValueError(f"coords must be one of {list(COORDS)}")
@@ -238,6 +296,39 @@ class Harness:
                                                 timeout_s=step_timeout_s, retries=retries, logprobs=False,
                                                 token_ids=False, extra_body=dict(extra_body or {})))
         self.coords, self.image_max, self.fold = coords, image_max, max(1, fold)
+        self.plan_mode, self.plan_max = plan, max(1, plan_max_steps)
+        self.end_fix = end_fix
+        self.image_format, self.jpeg_quality = image_format, jpeg_quality
+        self._jpeg: dict[str, str] = {}               # PNG b64 -> JPEG b64: each kept screenshot is encoded once
+        # change_log: each turn carries the text that appeared and went on the screen (macOS Vision), so the history
+        # holds earlier screens as text and image_max can be 1. Older screenshots then go one at a time (fold=1).
+        self.change_log = change_log
+        # change_log_lines: at most this many appeared and gone lines a turn; change_log_turns: only the newest N
+        # turns keep their change text (older ones say it was left out), so a long task's prompt stops growing
+        self.change_log_lines, self.change_log_turns = max(1, change_log_lines), change_log_turns
+        # progress_note: each plan carries `progress`, one line of what is done and what is left; it stays in the
+        # history as the model's own memory when older screenshots go
+        self.progress_note = progress_note
+        # history_scale: kept screenshots other than the newest go at this fraction of their size (e.g. 0.5, a
+        # quarter of the image tokens); clicks are on the newest, so they are unaffected
+        self.history_scale = history_scale
+        self._scaled: dict[tuple, str] = {}
+        # hedge_after_s: a call with no reply after this many seconds is sent again, and the first reply wins (the
+        # provider stalls now and then: 25 calls of 12-66 s with short replies in legato-research EXP-0044/0046)
+        self.hedge_after_s = hedge_after_s
+        # plan_trust_first_click: a labelled click before any step of its plan has acted clicks where the model
+        # aimed, without reading the screen (it is the screen the model just saw)
+        self.plan_trust_first_click = plan_trust_first_click
+        if ocr_cache:                         # a still screen is read once (the VM's reader takes ~1 s a read)
+            plans.OCR_CACHE = True
+        # ocr_near: a labelled click reads the box around the model's coordinate first, the whole screen only when
+        # the label is not in it
+        self.ocr_near = ocr_near
+        # strict_done: done in the same plan counts only after a shell or applescript step that exits 0 and printed
+        # what it checked; a wait_for does not count (plans.STRICT_DONE_SWAPS says so in the prompt)
+        self.strict_done = strict_done
+        if change_log:
+            self.fold = 1
         self.max_batch = max(1, max_batch) if max_batch else None
         self.temperature, self.max_tokens, self.native_tools, self.system = temperature, max_tokens, native_tools, system
         self.screenshot_each_action, self.end_on_text, self.screenshot_action = (screenshot_each_action, end_on_text,
@@ -274,34 +365,82 @@ class Harness:
     def _messages(self, task: str, w: int, h: int, turns: list) -> list:
         """System + task, then one user turn per observation and one assistant turn per reply. Old screenshots are
         replaced by a placeholder `fold` at a time, so the prefix stays identical for several turns."""
-        sys_text = (self.system or SYSTEM).format(w=w, h=h, coords=COORDS[self.coords], batch=self.max_batch or "several")
-        if self.tools:
+        if self.plan_mode:
+            sys_text = (self.system or plans.PLAN_SYSTEM).format(w=w, h=h, coords=COORDS[self.coords], batch=self.plan_max)
+            if self.strict_done:
+                sys_text = plans.strict_system(sys_text)
+            if self.progress_note:
+                sys_text += plans.PROGRESS_NOTE
+        else:
+            sys_text = (self.system or SYSTEM).format(w=w, h=h, coords=COORDS[self.coords], batch=self.max_batch or "several")
+        if self.tools and not self.plan_mode:
             sys_text += "\n" + self._tools_prompt()
         n_img = sum(len(t.get("pngs") or [t["png_b64"]]) for t in turns if t["role"] == "user")
         excess = max(0, n_img - self.image_max) if self.image_max is not None else 0
         drop = -(-excess // self.fold) * self.fold if excess else 0     # round up to a whole chunk
         msgs, seen, first = [{"role": "system", "content": sys_text}], 0, True
+        users = sum(1 for t in turns if t["role"] == "user")
+        u = 0
         for t in turns:
             if t["role"] == "user":
+                u += 1
                 parts = [{"type": "text", "text": f"Task: {task}"}] if first else []
                 first = False
                 if t.get("note"):
                     parts.append({"type": "text", "text": t["note"]})
                 for text in t.get("results") or []:
                     parts.append({"type": "text", "text": text})
+                if t.get("change"):
+                    keep_change = self.change_log_turns is None or users - u < self.change_log_turns
+                    parts.append({"type": "text", "text": t["change"] if keep_change else
+                                  "(what changed on this older screen is left out)"})
                 pngs = t.get("pngs") or [t["png_b64"]]
                 for j, b64 in enumerate(pngs):
                     seen += 1
                     if len(pngs) > 1:
                         parts.append({"type": "text", "text": f"(screenshot after action {j + 1})"})
                     if seen <= drop:
-                        parts.append({"type": "text", "text": "(older screenshot omitted)"})
+                        parts.append({"type": "text", "text": "(older screenshot omitted)" if not self.change_log else
+                                      "(older screenshot omitted: what changed is in the text)"})
+                    elif self.history_scale and seen < n_img:
+                        parts.append({"type": "image_url", "image_url": {"url": self._scaled_url(b64)}})
                     else:
-                        parts.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64}})
+                        parts.append({"type": "image_url", "image_url": {"url": self._image_url(b64)}})
                 msgs.append({"role": "user", "content": parts})
             else:
                 msgs.append({"role": "assistant", "content": t["text"]})
         return msgs
+
+    def _scaled_url(self, b64: str) -> str:
+        """An older kept screenshot at history_scale of its size, in image_format."""
+        key = (b64, self.history_scale, self.image_format)
+        out = self._scaled.get(key)
+        if out is None:
+            from PIL import Image
+            im = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+            im = im.resize((max(1, round(im.width * self.history_scale)), max(1, round(im.height * self.history_scale))),
+                           Image.LANCZOS)
+            buf = io.BytesIO()
+            if self.image_format == "jpeg":
+                im.save(buf, format="JPEG", quality=self.jpeg_quality)
+            else:
+                im.save(buf, format="PNG")
+            out = base64.b64encode(buf.getvalue()).decode()
+            if len(self._scaled) >= 32:
+                self._scaled.pop(next(iter(self._scaled)))
+            self._scaled[key] = out
+        return f"data:image/{'jpeg' if self.image_format == 'jpeg' else 'png'};base64," + out
+
+    def _image_url(self, b64: str) -> str:
+        if self.image_format != "jpeg":
+            return "data:image/png;base64," + b64
+        out = self._jpeg.get(b64)
+        if out is None:
+            out = jpeg_b64(b64, self.jpeg_quality)
+            if len(self._jpeg) >= 32:                 # more than any prompt keeps; the oldest goes first
+                self._jpeg.pop(next(iter(self._jpeg)))
+            self._jpeg[b64] = out
+        return "data:image/jpeg;base64," + out
 
     def _tools_prompt(self) -> str:
         """The system-prompt lines for the extra tools. Without native tool calls the model gets no tool specs, so it
@@ -319,7 +458,29 @@ class Harness:
         mw, mh = self._size(w, h)
         ep = Episode(task, w, h, mw, mh)
         ep.turns.append({"role": "user", "pngs": [self._png(ep, png)]})
+        ep.last_png = png
         return ep
+
+    def _changes(self, ep: Episode, png: bytes) -> str | None:
+        """change_log: the text that appeared and went on the screen since the model last saw it, or None when the
+        screen's text cannot be read here."""
+        t = time.monotonic()
+        try:
+            if ep.last_lines is None and ep.last_png is not None:
+                ep.last_lines = plans.screen_lines(ep.last_png)
+            now = plans.screen_lines(png)
+        except Exception:  # noqa: BLE001 - no text reader (not macOS): the screenshot alone
+            return None
+        finally:
+            ep.change_s = getattr(ep, "change_s", 0.0) + time.monotonic() - t
+        before = ep.last_lines or []
+        ep.last_png, ep.last_lines = png, now
+        w, h = png_size(png)
+        sx, sy = (1000.0 / w, 1000.0 / h) if self.coords == "norm1000" else (ep.mw / w, ep.mh / h)
+
+        def place(ls):                            # where the model would click: its own coordinates
+            return [(t, round(x * sx), round(y * sy)) for t, x, y in ls]
+        return plans.describe_changes(place(before), place(now), most=self.change_log_lines)
 
     def _parse(self, args: dict, ep: Episode) -> tuple[Action | None, str]:
         if self.coords == "norm1000":
@@ -338,12 +499,17 @@ class Harness:
         """One model call: the actions to run next. Raises PolicyError when the call fails."""
         msgs = self._messages(ep.task, ep.mw, ep.mh, ep.turns)
         names = CLAUDE_STYLE_ACTIONS + (["screenshot"] if self.screenshot_action else [])
-        tools = [computer_tool(names)] + [t.spec() for t in self.tools.values()] if self.native_tools else None
+        if self.plan_mode:
+            tools = [plans.plan_tool(self.plan_max, progress=self.progress_note)] if self.native_tools else None
+        else:
+            tools = [computer_tool(names)] + [t.spec() for t in self.tools.values()] if self.native_tools else None
         # Claude caches only where asked: OpenRouter's automatic caching (one top-level marker that follows the end of
         # the conversation) stands in for the reference implementation's per-turn breakpoints
-        rec = self.client.chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,
+        rec = self._chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,
                                tool_choice="auto" if tools else None,
                                extra={"cache_control": {"type": "ephemeral"}} if self.cache else None)
+        if self.plan_mode:
+            return self._decide_plan(rec, msgs, ep)
         calls = _named_calls(rec, tuple(self.tools))
         plan = Plan(rec, msgs, [], [])
         text = (rec.get("content") or "").strip()
@@ -377,16 +543,229 @@ class Harness:
                 plan.done = True
         return plan
 
-    def feed(self, ep: Episode, plan: Plan, pngs: list[bytes], results: list[str] | None = None) -> None:
+    def _chat(self, *a, **kw) -> dict:
+        """client.chat, sent again if it has not answered within hedge_after_s; the first reply wins."""
+        if not self.hedge_after_s:
+            return self.client.chat(*a, **kw)
+        import concurrent.futures as cf
+        t0 = time.monotonic()
+        pool = cf.ThreadPoolExecutor(max_workers=2)
+        try:
+            first = pool.submit(self.client.chat, *a, **kw)
+            try:
+                return first.result(timeout=self.hedge_after_s)
+            except cf.TimeoutError:
+                pass
+            second = pool.submit(self.client.chat, *a, **kw)
+            done, _ = cf.wait([first, second], return_when=cf.FIRST_COMPLETED)
+            win = next(iter(done))
+            try:
+                rec = win.result()
+            except Exception:  # noqa: BLE001 - the other one may still answer
+                rec = (second if win is first else first).result()
+            rec = dict(rec)
+            rec["s"], rec["hedged"] = time.monotonic() - t0, True
+            return rec
+        finally:
+            pool.shutdown(wait=False)
+
+    def _decide_plan(self, rec: dict, msgs: list, ep: Episode) -> Plan:
+        """A plan reply: its steps, in order, as Action / ToolCall / plans.FindClick / plans.WaitFor; done or fail last
+        (asked for: run() decides whether it counts)."""
+        plan = Plan(rec, msgs, [], [])
+        text = (rec.get("content") or "").strip()
+        if text and rec.get("tool_calls"):
+            plan.reply.append(text[:2000])
+        if self.progress_note:
+            note = _progress(rec)
+            if note:
+                plan.reply.append(f"Progress: {note[:300]}")
+        steps = plans.plan_steps(rec) or []
+        shell = next((t for t in self.tools.values() if t.name == "bash"), None)
+        for st in steps[: self.plan_max]:
+            kind = str(st.get("action", "")).lower().strip()
+            plan.reply.append(json.dumps({k: v for k, v in st.items() if v is not None}, ensure_ascii=False))
+            if kind in ("done", "fail"):
+                plan.done, plan.failed = kind == "done", kind == "fail"
+                break
+            label = st.get("text")
+            if kind in plans.LABELLED and isinstance(label, str) and label.strip() and \
+                    label.strip().lower() not in plans.MODIFIERS:
+                a, why = self._parse(st, ep)       # a labelled click: found by its label when it runs
+                if a is None:
+                    plan.reply.append(f"(invalid step: {why})")
+                    break
+                plan.actions.append(plans.FindClick(label.strip(), a.type, (a.x, a.y), fallback=(a.x, a.y)))
+                continue
+            if kind == "applescript":
+                tool = self.tools.get("applescript")
+                if tool is None or not isinstance(st.get("script"), str):
+                    plan.reply.append("(invalid step: applescript needs a script, and the applescript tool)")
+                    break
+                plan.actions.append(ToolCall("applescript", {k: st[k] for k in ("script", "check") if st.get(k)}))
+                continue
+            if kind == "shell":
+                if shell is None or not isinstance(st.get("command"), str):
+                    plan.reply.append("(invalid step: shell needs a command, and a shell)")
+                    break
+                plan.actions.append(ToolCall("bash", {"command": st["command"]}))
+            elif kind in ("click_text", "wait_for"):
+                label = str(st.get("text") or "").strip()
+                if not label:
+                    plan.reply.append(f"(invalid step: {kind} needs text)")
+                    break
+                if kind == "wait_for":
+                    t = min(plans.MAX_WAIT_S, max(0.5, float(st.get("timeout_s") or 5.0)))
+                    plan.actions.append(plans.WaitFor(label, t))
+                else:
+                    near = None
+                    if st.get("coordinate") is not None:
+                        a, _ = self._parse({"action": "left_click", "coordinate": st["coordinate"]}, ep)
+                        near = (a.x, a.y) if a else None
+                    k = "double_click" if st.get("double") else "right_click" if st.get("right") else "click"
+                    plan.actions.append(plans.FindClick(label, k, near))
+            else:
+                a, why = self._parse(st, ep)
+                if a is None:
+                    plan.reply.append(f"(invalid step: {why})")
+                    break
+                if a.done:
+                    plan.done, plan.failed = a.type == "done", a.type == "fail"
+                    break
+                plan.actions.append(a)
+        if not steps:
+            plan.cut_off = rec.get("finish_reason") == "length"
+            plan.reply.append(text or ("(reply cut off at the token limit)" if plan.cut_off else "(no action)"))
+        return plan
+
+    def _run_plan(self, plan: Plan, env: Env, seen: bytes, timing: dict) -> tuple[list, list]:
+        """Run a plan's steps in order until one cannot go on. Returns (screenshots, texts for the model). Sets
+        plan.done only when done followed a check that passed and every step ran."""
+        pngs, results, notes = [], [], []
+        changed, check, last_xy, ran = False, None, None, 0
+        stop = None
+
+        def acted(obs) -> None:
+            pngs.append(obs.screenshot)
+            for k in ("act_s", "settle_s", "obs_s"):
+                timing[k] += env.last.get(k, 0.0)
+            if env.last.get("wait"):
+                timing.setdefault("waits", []).append(env.last["wait"])
+
+        def look() -> bytes:
+            t = time.monotonic()
+            png = env.observe().screenshot
+            timing["obs_s"] += time.monotonic() - t
+            return png
+
+        def find(label: str, near):
+            t = time.monotonic()
+            try:
+                png = look()
+                if self.ocr_near and near is not None:
+                    xy = plans.find_text_near(png, label, near)
+                    if xy:
+                        timing["found_near"] = timing.get("found_near", 0) + 1
+                        return xy
+                return plans.find_text(png, label, near)
+            finally:
+                timing["find_s"] = timing.get("find_s", 0.0) + time.monotonic() - t
+        n = len(plan.actions)
+        for i, st in enumerate(plan.actions, 1):
+            try:
+                if isinstance(st, ToolCall):
+                    t = time.monotonic()
+                    out = self.call_tool(st)
+                    timing["tool_s"] = timing.get("tool_s", 0.0) + time.monotonic() - t
+                    results.append(f"{st.name} result:\n{out}")
+                    changed = True
+                    check = not plans.tool_failed(out)
+                    if check and self.strict_done and not plans.printed(out):
+                        check = None                # it ran, but shows nothing that proves the task is done
+                    if not check:
+                        stop = f"step {i} ({'shell' if st.name == 'bash' else st.name}) failed"
+                        break
+                elif isinstance(st, plans.WaitFor):
+                    t_end, found = time.monotonic() + st.timeout_s, None
+                    while True:
+                        found = find(st.text, None)
+                        if found or time.monotonic() >= t_end:
+                            break
+                        time.sleep(0.3)
+                    check = bool(found)
+                    if found and self.strict_done:
+                        check = None                # text on the screen, not proof: it may have been there before
+                    if not found:
+                        stop = f'step {i}: "{st.text}" did not appear within {st.timeout_s:g} s'
+                        break
+                elif isinstance(st, plans.FindClick):
+                    if self.plan_trust_first_click and not changed and st.fallback is not None:
+                        xy = st.fallback                # nothing has acted yet: the screen is the one the model saw
+                        timing["label_trusted"] = timing.get("label_trusted", 0) + 1
+                    else:
+                        xy = find(st.text, st.near or last_xy)
+                    if xy and st.fallback is not None:
+                        timing["label_found"] = timing.get("label_found", 0) + 1
+                    if not xy and st.fallback is not None:   # not there: the click the model aimed, if still safe
+                        timing["label_missed"] = timing.get("label_missed", 0) + 1
+                        xy = st.fallback
+                        if changed and plans.target_moved(seen, look(), xy[0], xy[1]):
+                            stop = f'step {i}: no "{st.text}" on the screen, and the screen changed where it would click'
+                            break
+                    if not xy:
+                        stop = f'step {i}: no "{st.text}" on the screen'
+                        break
+                    acted(env.act(Action(st.kind, x=xy[0], y=xy[1])))
+                    changed, check, last_xy = True, None, xy
+                else:
+                    if changed and st.type in plans.POINTER and st.x is not None and \
+                            plans.target_moved(seen, look(), st.x, st.y):
+                        stop = f"step {i}: the screen changed where it would {st.type.replace('_', ' ')}"
+                        break
+                    acted(env.act(st))
+                    changed, check = True, None
+                    if st.x is not None:
+                        last_xy = (st.x, st.y)
+            except RuntimeError as e:          # no text reader here
+                stop = f"step {i}: {e}"
+                break
+            ran = i
+        if stop:
+            notes.append(f"The plan ran {ran} of {n} steps and stopped: {stop}. Nothing after it ran.")
+        if plan.done and (stop or (n and check is not True)):
+            if not stop:
+                notes.append(("done was not taken: it counts only right after a shell or applescript step that exits "
+                              "0 and prints what it checked." if self.strict_done else
+                              "done was not taken: it counts only right after a check that passed (wait_for, or a "
+                              "shell command that exits 0).") + " Look at the screen, then call done if it is finished.")
+            plan.done = False
+        if plan.failed and stop:                # fail was never reached: the model sees why the plan stopped first
+            plan.failed = False
+        timing["plan_steps"], timing["plan_ran"] = n, ran
+        if stop:
+            timing["plan_stop"] = stop[:120]
+        last = plan.actions[ran - 1] if ran else None
+        if stop or (changed and not isinstance(last, (Action, plans.FindClick))):
+            pngs.append(look())
+        return pngs, results + notes
+
+    def feed(self, ep: Episode, plan: Plan, pngs: list[bytes], results: list[str] | None = None,
+             note: str | None = None) -> None:
         """Record the turn: the model's reply, then the tool results (text) and the screenshot(s) taken after its
-        actions."""
+        actions. `note` is text the model reads with them (an action the person did not allow)."""
         ep.turns.append({"role": "assistant", "text": "\n".join(plan.reply) or "(no action)"})
         keep = pngs if self.screenshot_each_action else pngs[-1:]
         turn = {"role": "user", "pngs": [self._png(ep, p) for p in keep]}
         if results:
             turn["results"] = list(results)
+        if self.change_log and pngs:
+            change = self._changes(ep, pngs[-1])
+            if change:
+                turn["change"] = change
         if plan.cut_off:            # a thinking model ran out of tokens mid-reasoning on 22% of turns (docs/benchmarks.md)
             turn["note"] = CUT_OFF_NOTE
+        if note:
+            turn["note"] = note
         ep.turns.append(turn)
 
     # ------------------------------------------------------------ the loop
@@ -402,6 +781,11 @@ class Harness:
         res, t0 = RunResult(task), time.monotonic()
         obs = env.observe()
         ep = self.begin(task, obs.screenshot)
+        seen = obs.screenshot                       # the screenshot the model plans on
+        idle = 0                                    # replies in a row with no action (end_fix)
+        if self.plan_mode:                          # the text reader loads its model once (~10 s): during the first call
+            import threading
+            threading.Thread(target=plans.warm_up, args=(obs.screenshot,), daemon=True).start()
         for turn in range(max_steps):
             try:
                 plan = self.decide(ep)
@@ -413,32 +797,71 @@ class Harness:
                 res.usage[k] += u.get(k) or 0
             res.usage["cost_usd"] += u.get("cost") or 0.0
             timing = {"model_s": plan.rec["s"], "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
-            pngs, results, stale = [], [], False
-            for a in plan.actions:
+            pngs, results, stale, ran, note, denied = [], [], False, [], None, None
+            if self.plan_mode:
+                try:
+                    pngs, results = self._run_plan(plan, env, seen, timing)
+                except Stopped as e:              # the person's stop, during a step
+                    res.stopped, res.error = True, f"stopped by the person: {e}"
+                except Denied as e:               # the person's no to a step: the rest did not run
+                    note, denied = DENIED_NOTE.format(what=e), f"not allowed: {e}"
+                    obs = env.observe()
+                    pngs, results = [obs.screenshot], []
+                ran = list(plan.actions[: timing.get("plan_ran", 0)])
+            for a in ([] if self.plan_mode else plan.actions):
                 if isinstance(a, ToolCall):
                     t = time.monotonic()
                     results.append(f"{a.name} result:\n{self.call_tool(a)}")
                     timing["tool_s"] = timing.get("tool_s", 0.0) + time.monotonic() - t
                     stale = True    # a tool may have changed the screen
+                    ran.append(a)
                     continue
-                obs = env.observe() if a is None else env.act(a)
+                try:
+                    obs = env.observe() if a is None else env.act(a)
+                except Stopped as e:              # the person's stop: end here, with what was done so far
+                    res.stopped, res.error = True, f"stopped by the person: {e}"
+                    break
+                except Denied as e:               # the person's no: nothing ran; the model is told and chooses again
+                    note = DENIED_NOTE.format(what=e)
+                    denied = f"not allowed: {a.describe()}"
+                    obs = env.observe()
+                    pngs.append(obs.screenshot)
+                    stale = False
+                    break
+                ran.append(a)
                 pngs.append(obs.screenshot)
                 stale = False
                 for k in ("act_s", "settle_s", "obs_s"):
                     timing[k] += env.last.get(k, 0.0)
-            if stale:
+            if stale and not res.stopped:
                 obs = env.observe()
                 pngs.append(obs.screenshot)
                 timing["obs_s"] += env.last.get("obs_s", 0.0)
+            if self.end_fix:
+                silent = not plan.rec.get("tool_calls") and not plans._objects(str(plan.rec.get("content") or ""))
+                if silent and not plan.actions and not plan.done and not plan.failed and not plan.cut_off:
+                    idle += 1
+                    if idle >= 2:                   # it has said it is finished, twice, without the done action
+                        plan.done, timing["ended"] = True, "no action twice"
+                    else:
+                        results = list(results or []) + [END_NOTE]
+                else:
+                    idle = 0
             res.steps += 1
-            res.actions += [a.describe() if a else "screenshot" for a in plan.actions]
+            res.actions += [a.describe() if a else "screenshot" for a in ran] + ([denied] if denied else [])
+            if self.plan_mode and (plan.done or plan.failed):
+                res.actions.append("done" if plan.done else "fail")
             res.timings.append(timing)
-            res.done, res.failed = plan.done, plan.failed
             if on_step:
-                on_step(turn, plan.actions, timing)
-            if plan.done or plan.failed:
+                on_step(turn, ran, timing)
+            if res.stopped:
                 break
-            self.feed(ep, plan, pngs or [obs.screenshot], results)
+            if not note:                          # a "done" after an action that was not allowed does not count
+                res.done, res.failed = plan.done, plan.failed
+                if plan.done or plan.failed:
+                    break
+            self.feed(ep, plan, pngs or [obs.screenshot], results, note)
+            seen = (pngs or [obs.screenshot])[-1]
         res.wall_s = time.monotonic() - t0
         return res
 

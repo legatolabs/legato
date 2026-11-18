@@ -34,15 +34,20 @@ def checks() -> dict:
     from legato import __version__
     local_ok = _has("mss") and _has("pyautogui")
     display = sys.platform in ("darwin", "win32") or bool(os.environ.get("DISPLAY"))
+    from legato import safety
+    perms = safety.permissions()                 # macOS: Accessibility and Screen Recording (read-only checks)
+    denied = safety.permission_problems(perms)
     out = {
         "legato": __version__,
         "python": platform.python_version(),
         "platform": sys.platform,
         "sandboxes": {
             "docker": _docker(),
-            "local": {"ok": local_ok and display,
-                      "fix": None if local_ok and display else
-                      ('pip install "legatolabs[local]"' if not local_ok else "no display: run inside a desktop session")},
+            "local": {"ok": local_ok and display and not denied,
+                      "fix": ('pip install "legatolabs[local]"' if not local_ok else
+                              "no display: run inside a desktop session" if not display else
+                              "macOS permissions are off (below)" if denied else None),
+                      "permissions": perms},
             "e2b": {"ok": _has("e2b_desktop") and bool(os.environ.get("E2B_API_KEY")),
                     "fix": None if _has("e2b_desktop") and os.environ.get("E2B_API_KEY") else
                     ('pip install "legatolabs[e2b]"' if not _has("e2b_desktop") else "export E2B_API_KEY (e2b.dev)")},
@@ -70,6 +75,9 @@ def main(argv=None) -> int:
         elif s.get("note"):
             line += f" ({s['note']})"
         print(line)
+        for perm, p in (s.get("permissions") or {}).items():
+            state = {True: "ok ", False: "no "}.get(p["ok"], "?  ")
+            print(f"      {state} {perm.replace('_', ' ')}" + (f": {p['fix']}" if p["fix"] else ""))
     keys = ", ".join(c["model_keys"]) or "none set"
     print(f"  model keys: {keys}" + (f" ({c['model_note']})" if c["model_note"] else ""))
     return 0

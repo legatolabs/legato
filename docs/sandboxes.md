@@ -37,11 +37,28 @@ works as the handle too: Legato calls it if it has none of those methods.
 `legato.local()` drives the screen you are looking at, with `mss` for screenshots and `pyautogui` for input. Pair it
 with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing leaves your machine.
 
-- **It is your real mouse and keyboard.** Move the mouse into a corner of the screen to stop the agent. Use a spare
-  account or a VM for anything you would not hand to a person.
+- **It is your real mouse and keyboard.** Use a spare account or a VM for anything you would not hand to a person.
+- **Stop it** by moving the mouse into a corner of the screen, or on macOS by holding Escape. It is checked before
+  each action (not during a model call), and the run ends with `result.stopped` set.
+- **It asks first** before an action on a short list (`legato/safety.py`), in the terminal, and a no is reported to
+  the model as "not run":
+  - keys: Cmd+Delete with any other modifier (Trash, Empty Trash), Cmd+Q or Ctrl+Q with any other modifier (quit,
+    log out), Alt+F4, Shift+Delete, Ctrl+Alt+Delete;
+  - typed text that is run (it ends with a newline, or Return is pressed after it): `rm`, `rmdir`, `unlink`,
+    `shred`, `find -delete`, `sudo`, `doas`, `mkfs`, `dd of=`, `diskutil erase…`, `git push --force/--delete/--mirror`,
+    `git reset --hard`, `git clean -f`, `> file`, `truncate`, and anything piped into a shell.
+
+  A click is only coordinates, so a click on Delete, Send or Buy, a menu item, a drag to the Trash, the Delete key
+  alone and a command behind an alias are **not** caught. `legato.local(confirm=fn)` takes your own
+  `fn(description) -> bool`; `confirm=legato.safety.deny` refuses the list; `confirm=None`, `legato run --yes` or
+  `LEGATO_CONFIRM=off` asks nothing. Without a terminal (a script's stdin is a pipe, an MCP server, CI) nothing is
+  asked either.
 - **macOS:** allow your terminal (or MCP client) under System Settings → Privacy & Security, in both Screen Recording
-  and Accessibility. Screenshots are scaled to the logical screen size, and Ctrl shortcuts are sent as Cmd
-  (`legato.local(mac_cmd=False)` turns that off).
+  and Accessibility. `legato doctor` shows whether each is on and which app to allow, and `legato.local()` prints
+  the same when one is off. Screenshots are scaled to the logical screen size, and Ctrl shortcuts are sent as Cmd
+  (`legato.local(mac_cmd=False)` turns that off). `legato.local(wait_scope="app")` makes the wait for the
+  screen watch only the front app's windows, so another app animating (a terminal spinner, a video) doesn't hold
+  each action to the wait's 2 s cap.
 - **Windows:** works as is.
 - **Linux:** an X11 session (not Wayland) and `python3-tk`, which `pyautogui` needs.
 - Only the primary screen is used.

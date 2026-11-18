@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `Harness(plan=True)`: one `plan` tool call carries the steps of a turn (screen actions, `click_text` by visible
+  label, shell, AppleScript, `wait_for` a label, done), run in order until one cannot go on; the model then sees what
+  ran and why it stopped. Labels are read with macOS Vision. `end_fix=True`: a reply that says the task is complete
+  without an action gets a note, and a second one in a row ends the task as done.
+- `legato.tools.applescript(env)`: AppleScript that is compiled against the app's dictionary first and read back with
+  a `check` script; an error returns the app's real terms.
+- `Harness(image_format="jpeg")`: screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes.
+  The upload is most of a hosted call's wait for its first token on a home uplink; on replayed Mac turns through
+  OpenRouter it halved a call with the next action unchanged (legato-research EXP-0052). PNG stays the default.
+- `legato.local()` is safe to run on your own Mac: move the mouse into a corner or hold Escape to stop it, and risky
+  keys and typed shell commands (`legato/safety.py`) wait for a yes (`confirm=`, `legato run --yes`). `legato doctor`
+  checks the macOS permissions. `wait_scope="app"` waits on the front app's windows only; `wait="ax|cells"` ends a
+  wait on the front app's Accessibility events.
+- Off by default, for experiments: `change_log` (one screenshot and a text log of what changed on the screen, with
+  `change_log_lines` and `change_log_turns`), `progress_note`, `history_scale`, `hedge_after_s`, `ocr_cache`,
+  `ocr_near`, `plan_trust_first_click`, `strict_done`.
+
 - MCP: `desktop_open(url=..., app=...)` starts a page or app first and returns once its window has drawn, so the agent
   skips typing a launch command and waiting for it.
 - MCP: `desktop_shell(desktop_id, command, timeout_s=30)` runs a shell command on the desktop's computer and returns

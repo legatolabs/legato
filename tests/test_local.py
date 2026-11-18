@@ -235,3 +235,75 @@ def test_the_driver_takes_itself_out_of_the_dock_on_a_mac(monkeypatch):
     monkeypatch.setattr(L.sys, "platform", "darwin")
     env(mac=True)                                             # a fake gui (tests, the app's own input): left alone
     assert hidden == []
+
+
+# ------------------------------------------------------------ wait_scope="app": the wait watches the front app only
+class FakeQuartz:
+    """A window list and per-window pixels: the front app (pid 7) and another app (pid 9) that keeps animating."""
+    kCGWindowListOptionOnScreenOnly, kCGNullWindowID, CGRectInfinite = 1, 0, "inf"
+    kCGWindowImageBoundsIgnoreFraming, kCGWindowImageNominalResolution = 1, 16
+
+    def __init__(self):
+        self.front = [{"kCGWindowNumber": 1, "kCGWindowOwnerPID": 7, "kCGWindowLayer": 0, "kCGWindowAlpha": 1.0,
+                       "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 80, "Height": 40}}]
+        self.other = [{"kCGWindowNumber": 2, "kCGWindowOwnerPID": 9, "kCGWindowLayer": 0, "kCGWindowAlpha": 1.0,
+                       "kCGWindowBounds": {"X": 50, "Y": 10, "Width": 40, "Height": 40}}]
+        self.pixels = {1: b"front", 2: b"other-0"}
+        self.asked = []
+
+    def CGWindowListCopyWindowInfo(self, opts, rel):
+        return self.front + self.other
+
+    def CGWindowListCreateImageFromArray(self, rect, ids, opts):
+        self.asked.append(list(ids))
+        return b"".join(self.pixels[i] for i in ids)
+
+    def CGImageGetDataProvider(self, img):
+        return img
+
+    def CGDataProviderCopyData(self, p):
+        return p
+
+
+def app_env(q):
+    e = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Screen(), wait_scope="app", quartz=q)
+    e.mac = True
+    return e
+
+
+def test_app_scope_ignores_another_app_animating():
+    q = FakeQuartz()
+    e = app_env(q)
+    d = e._digest()
+    q.pixels[2] = b"other-1"                       # the background app ticks
+    assert e._digest() == d
+    assert q.asked[-1] == [1]                      # only the front app's windows are captured
+
+
+def test_app_scope_sees_the_front_app_change_move_or_lose_the_front():
+    q = FakeQuartz()
+    e = app_env(q)
+    d = e._digest()
+    q.pixels[1] = b"front-changed"
+    assert e._digest() != d
+    d = e._digest()
+    q.front[0]["kCGWindowBounds"] = {"X": 5, "Y": 0, "Width": 80, "Height": 40}     # same pixels, window moved
+    assert e._digest() != d
+    d = e._digest()
+    q.front, q.other = q.other, q.front            # another app comes to the front
+    assert e._digest() != d
+
+
+def test_app_scope_falls_back_to_the_screen_when_windows_cant_be_read():
+    class Broken(FakeQuartz):
+        def CGWindowListCopyWindowInfo(self, opts, rel):
+            raise RuntimeError("no window server")
+    e = app_env(Broken())
+    screen = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Screen())._digest()
+    assert e._digest() == screen
+
+
+def test_wait_scope_is_checked():
+    import pytest
+    with pytest.raises(ValueError):
+        LocalEnv(gui=Gui(), grabber=Screen(), wait_scope="window")

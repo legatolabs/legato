@@ -2,7 +2,7 @@
 
   legato run "Add a Total row under the table and save" \\
       --model qwen/qwen3-vl-235b-a22b-instruct --base-url https://openrouter.ai/api/v1 [--api-key-env OPENROUTER_API_KEY]
-      [--max-steps 30] [--coords norm1000|pixels] [--sandbox e2b|local]
+      [--max-steps 30] [--coords norm1000|pixels] [--sandbox e2b|local] [--yes]
 
 Runs the open harness on a fresh E2B Desktop sandbox (needs `pip install "legatolabs[e2b]"` and E2B_API_KEY), or with
 `--sandbox local` on this computer's own screen (`pip install "legatolabs[local]"`), and prints where the time went.
@@ -58,6 +58,8 @@ def main(argv=None) -> int:
     r.add_argument("--sandbox", default="e2b",
                    help="e2b: a fresh cloud desktop (default); local: this computer (moves your real mouse); or your "
                         "own: path/to/file.py:function or module:function returning a legato Env (docs/sandboxes.md)")
+    r.add_argument("--yes", action="store_true",
+                   help="with --sandbox local: do not ask before risky actions (cmd+Delete, a typed rm or sudo...)")
     r.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
     a = ap.parse_args(argv)
     from legato import Harness
@@ -65,7 +67,7 @@ def main(argv=None) -> int:
     if a.sandbox == "local":
         try:
             from legato.local import local
-            env, close = local(), (lambda: None)
+            env, close = local(confirm=None if a.yes else "auto"), (lambda: None)
         except ImportError:
             return _fail('Driving this computer needs extra packages. Run: pip install "legatolabs[local]"')
         except Exception as e:                    # no display, or no screen-recording permission
@@ -99,7 +101,7 @@ def main(argv=None) -> int:
     finally:
         close()
     if a.json:
-        print(json.dumps({"done": res.done, "failed": res.failed, "error": res.error, "steps": res.steps,
+        print(json.dumps({"done": res.done, "failed": res.failed, "error": res.error, "stopped": res.stopped, "steps": res.steps,
                           "actions": res.actions, "wall_s": round(res.wall_s, 2), "usage": res.usage}))
     else:
         print(res.report())

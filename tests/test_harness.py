@@ -93,6 +93,25 @@ def test_history_drops_screenshots_in_chunks_keeping_the_prefix():
     assert prefixes[3].startswith(prefixes[2][:-1]) and prefixes[5].startswith(prefixes[4][:-1])
 
 
+def test_jpeg_screenshots_keep_the_size_and_cut_the_bytes():
+    from PIL import Image
+    import base64
+    buf = io.BytesIO()
+    Image.effect_noise((320, 200), 40).convert("RGB").save(buf, format="PNG")
+    png = base64.b64encode(buf.getvalue()).decode()
+    turns = [{"role": "user", "png_b64": png}]
+    url = lambda h: [p for m in h._messages("task", 320, 200, turns) if m["role"] == "user"  # noqa: E731
+                     for p in m["content"] if p.get("type") == "image_url"][0]["image_url"]["url"]
+    assert url(legato.Harness("m", "http://x/v1")).startswith("data:image/png;base64,")      # PNG unless asked
+    h = legato.Harness("m", "http://x/v1", image_format="jpeg")
+    first = url(h)
+    assert first.startswith("data:image/jpeg;base64,") and url(h) == first                    # encoded once, stable
+    jpg = base64.b64decode(first.split(",", 1)[1])
+    assert Image.open(io.BytesIO(jpg)).size == (320, 200) and len(jpg) < len(buf.getvalue())
+    with pytest.raises(ValueError):
+        legato.Harness("m", "http://x/v1", image_format="webp")
+
+
 def test_pixel_coordinates():
     a, _ = _parse_pixels({"action": "left_click", "coordinate": [960, 540]}, 1920, 1080)
     assert (a.x, a.y) == (960, 540)
@@ -280,6 +299,33 @@ def test_tools_without_native_tool_calls(server):
     assert '{"name": "<tool>", "arguments": {...}}' in system and '- note: Write a note. Parameters: {"type"' in system
 
 
+def test_calls_written_in_the_shape_of_past_calls_are_read(server):
+    # the history writes a tool call as {"tool": "note", ...}; models copy that shape, for done too
+    server["script"] = [{"content": 'Noting. {"tool": "note", "text": "y"}'},
+                        {"content": 'The note is written; the task is complete.\n{"tool": "done"}'}]
+    log = []
+    res = legato.Harness("m", server["url"], tools=[recorder(log)]).run("t", counting_env(log, []))
+    assert res.done and res.steps == 2 and log == [("tool", "y")]
+
+
+def test_the_tool_shape_maps_to_actions_and_known_tools_only():
+    from legato.harness import _named_calls
+    assert _named_calls({"content": '{"tool": "done"}'}) == [("computer", {"action": "done"})]
+    assert _named_calls({"content": '{"tool": "FAIL"}'}) == [("computer", {"action": "fail"})]
+    assert _named_calls({"content": '{"tool": "left_click", "coordinate": [1, 2]}'}) == \
+        [("computer", {"action": "left_click", "coordinate": [1, 2]})]
+    assert _named_calls({"content": '{"tool": "computer", "action": "wait"}'}) == \
+        [("computer", {"tool": "computer", "action": "wait"})]
+    assert _named_calls({"content": '{"tool": "bash", "command": "ls"}'}, ("bash",)) == [("bash", {"command": "ls"})]
+    assert _named_calls({"content": '{"tool": "bash", "arguments": {"command": "ls"}}'}, ("bash",)) == \
+        [("bash", {"command": "ls"})]
+    assert _named_calls({"content": '{"tool": "bash", "command": "ls"}'}) == []        # not a tool here
+    assert _named_calls({"content": '{"tool": "spotify", "song": "x"}'}, ("bash",)) == []
+    said_and_made = {"content": '{"tool": "bash", "command": "ls"}',
+                     "tool_calls": [named("bash", {"command": "ls"})]}
+    assert _named_calls(said_and_made, ("bash",)) == [("bash", {"command": "ls"})]     # once
+
+
 def test_tool_names_must_be_free():
     with pytest.raises(ValueError):
         legato.Harness("m", "http://x/v1", tools=[recorder([], name="computer")])
@@ -294,3 +340,45 @@ def test_written_actions_run_before_native_tool_calls(server):
     log = []
     res = legato.Harness("m", server["url"], tools=[recorder(log)]).run("t", counting_env(log, []))
     assert res.done and log == ["click", ("tool", "z")]
+
+
+def _noise_png(w=320, h=200) -> str:
+    from PIL import Image
+    import base64
+    buf = io.BytesIO()
+    Image.effect_noise((w, h), 40).convert("RGB").save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def test_change_log_keeps_only_the_newest_turns_text():
+    h = legato.Harness("m", "http://x/v1", plan=True, change_log=True, image_max=1, change_log_turns=2)
+    turns = []
+    for i in range(4):
+        turns += [{"role": "user", "png_b64": "AAAA", "change": f"change {i}"}, {"role": "assistant", "text": "x"}]
+    texts = [p["text"] for m in h._messages("task", 100, 100, turns[:-1]) if m["role"] == "user"
+             for p in m["content"] if p.get("type") == "text"]
+    assert "change 3" in texts and "change 2" in texts and "change 1" not in texts and "change 0" not in texts
+    assert sum("left out" in t for t in texts) == 2
+
+
+def test_history_scale_shrinks_older_screenshots_only():
+    import base64
+    from PIL import Image
+    h = legato.Harness("m", "http://x/v1", image_max=3, history_scale=0.5, image_format="jpeg")
+    turns = [{"role": "user", "png_b64": _noise_png()}, {"role": "assistant", "text": "a"},
+             {"role": "user", "png_b64": _noise_png()}]
+    urls = [p["image_url"]["url"] for m in h._messages("task", 320, 200, turns) if m["role"] == "user"
+            for p in m["content"] if p.get("type") == "image_url"]
+    sizes = [Image.open(io.BytesIO(base64.b64decode(u.split(",", 1)[1]))).size for u in urls]
+    assert sizes == [(160, 100), (320, 200)] and all(u.startswith("data:image/jpeg") for u in urls)
+
+
+def test_progress_note_is_asked_for_and_kept_in_the_history():
+    h = legato.Harness("m", "http://x/v1", plan=True, progress_note=True)
+    msgs = h._messages("task", 100, 100, [{"role": "user", "png_b64": "AAAA"}])
+    assert "progress" in msgs[0]["content"]
+    rec = {"content": "Opening Notes.", "tool_calls": [{"function": {"name": "plan", "arguments": json.dumps(
+        {"progress": "Notes open; next: paste the text", "steps": [{"action": "wait"}]})}}]}
+    from legato.harness import Episode
+    plan = h._decide_plan(rec, msgs, Episode("task", 100, 100, 100, 100))
+    assert "Progress: Notes open; next: paste the text" in plan.reply
