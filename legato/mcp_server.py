@@ -7,7 +7,8 @@
     # Cursor and others: {"mcpServers": {"legato": {"command": "legato", "args": ["mcp"], "env": {"E2B_API_KEY": "..."}}}}
 
 Tools:
-- desktop_open: start an E2B desktop (with --local: this computer's screen) and return its first screenshot.
+- desktop_open: start an E2B desktop (with --local: this computer's screen) and return its first screenshot. With url or
+  app, it starts that first and returns once its window has drawn.
 - desktop_act: click, type, press keys, scroll or drag. The tool returns once the screen has stopped changing, with
   the new screenshot. Coordinates are pixels of the last screenshot.
 - desktop_screenshot: the current screen.
@@ -19,12 +20,16 @@ Tools:
 from __future__ import annotations
 
 import os
+import shlex
+import sys
 import time
 import uuid
 from typing import Any, Callable
 
 from legato.actions import ALIASES, KINDS, Action, norm_keys
 from legato.env import Env
+from legato.settle import Waiter, digest
+from legato.tools import local_shell
 
 try:                                   # mcp >= 2
     from mcp.server.mcpserver import Image
@@ -37,6 +42,33 @@ except ImportError:                    # mcp 1.x
         from mcp.server.fastmcp.exceptions import ToolError
     except ImportError as e:           # pragma: no cover
         raise ImportError('the MCP server needs the mcp package: pip install "legatolabs[mcp]"') from e
+
+
+LAUNCH_RULE = {"launch": {"floor": 0.5, "quiet": 1.0, "min_same": 2}}   # once the window starts drawing
+
+
+def launch_command(platform: str, url: str | None = None, app: str | None = None) -> str:
+    """The shell command that opens `url` (in the default browser) or starts `app`, without waiting for it. `app` is
+    an app name on macOS (open -a) and a command elsewhere. `platform`: "darwin", "win32" or anything else for Linux."""
+    if platform == "darwin":
+        return f"open -a {shlex.quote(app)}" + (f" {shlex.quote(url)}" if url else "") if app else f"open {shlex.quote(url or '')}"
+    if platform == "win32":
+        return f'start "" {app} {url or ""}'.strip() if app else f'start "" "{url}"'
+    if app:
+        return f"nohup {app}" + (f" {shlex.quote(url)}" if url else "") + " >/dev/null 2>&1 &"
+    q = shlex.quote(url or "")
+    return f"(xdg-open {q} || firefox-esr {q} || firefox {q}) >/dev/null 2>&1 &"
+
+
+def wait_for_launch(screenshot, before: str, appear_s: float = 10.0) -> None:
+    """Wait until the screen differs from the frame digest `before` (the app's window appeared), then until it holds
+    still. Gives up after `appear_s` with no change: the app may have been open already."""
+    t = time.monotonic()
+    while time.monotonic() - t < appear_s:
+        if digest(screenshot()) != before:
+            Waiter(screenshot, LAUNCH_RULE).settle("launch", cap_s=10.0, poll_s=0.15)
+            return
+        time.sleep(0.15)
 
 
 def e2b_factory(resolution: tuple[int, int]):
@@ -85,17 +117,33 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return desks[desktop_id]
 
     @srv.tool()
-    def desktop_open(width: int = 1280, height: int = 800) -> list:
+    def desktop_open(width: int = 1280, height: int = 800, url: str | None = None, app: str | None = None) -> list:
         """Open a desktop and return its id and first screenshot: a fresh cloud desktop (E2B), or this computer's
         screen when the server runs with --local, or your own sandbox with --sandbox. With --sandbox docker, the first
-        call can take a few minutes while the desktop image downloads."""
+        call can take a few minutes while the desktop image downloads. url: open it in the browser first. app: start
+        it first (an app name on macOS, such as "TextEdit"; a command on Linux, such as "gnome-calculator"). With url
+        or app the screenshot is taken once the window has drawn."""
         sb, env = factory((width, height))
         did = uuid.uuid4().hex[:12]
         desks[did] = {"sb": sb, "env": env, "wh": (width, height), "opened": time.time()}
+        note = ""
+        if url or app:
+            if not callable(getattr(env, "shell", None)):
+                note = " (this desktop has no shell, so url and app were not opened)"
+            else:
+                platform = sys.platform if env.shell is local_shell else "linux"
+                before = digest(env.observe().screenshot)
+                t = time.monotonic()
+                out = env.shell(launch_command(platform, url, app), 30.0)
+                if not out.rstrip().endswith("[exit 0]"):
+                    note = f" (starting it failed: {out.strip()[-300:]})"
+                else:
+                    wait_for_launch(lambda: env.observe().screenshot, before)
+                    note = f" (started {app or url} in {time.monotonic() - t:.1f} s)"
         img = shot(desks[did])
         w, h = desks[did]["wh"]
-        keep(did, "open", desks[did]["png"], width=w, height=h)
-        return [f"desktop_id: {did} ({w}x{h})", img]
+        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app)
+        return [f"desktop_id: {did} ({w}x{h}){note}", img]
 
     @srv.tool()
     def desktop_act(desktop_id: str, action: str, x: int | None = None, y: int | None = None, text: str | None = None,
