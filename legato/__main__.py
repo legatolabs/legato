@@ -13,6 +13,7 @@ A local model server (`--base-url http://localhost:8000/v1`) needs no key.
   legato rl probe|collect|export|profile ... graded rollouts for RL (see docs/rl.md)
   legato mcp [--local]                       an MCP server: a desktop for any agent (see docs/mcp.md)
   legato doctor [--json]                     what is installed and configured, and how to fix what is missing
+  legato app-engine                          the engine the Legato Mac app starts (JSON lines on stdin/stdout)
 """
 from __future__ import annotations
 
@@ -30,6 +31,9 @@ def main(argv=None) -> int:
     if argv[:1] == ["mcp"]:
         from legato.mcp_server import main as mcp_main
         return mcp_main(argv[1:])
+    if argv[:1] == ["app-engine"]:
+        from legato.app_engine import main as engine_main
+        return engine_main(argv[1:])
     if argv[:1] == ["doctor"]:
         from legato.doctor import main as doctor_main
         return doctor_main(argv[1:])
