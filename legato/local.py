@@ -122,6 +122,19 @@ def _need(name: str):
         raise ImportError(f"{name} could not start: {e}") from None
 
 
+def no_dock_icon() -> bool:
+    """Take this process out of the Dock. A Python that macOS treats as an app (Homebrew's and python.org's framework
+    builds) gets a Dock icon once it drives the mouse and keyboard, and the icon keeps animating, so the screen never
+    holds still and every wait runs to its cap (68% of actions on the macOS task VMs). The driver needs no icon, menu
+    or window. Returns whether it could (AppKit is there whenever pyautogui runs on a Mac)."""
+    try:
+        import AppKit
+        app = AppKit.NSApplication.sharedApplication()
+        return bool(app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyProhibited))
+    except Exception:  # noqa: BLE001 - no AppKit: nothing to hide
+        return False
+
+
 class LocalEnv(Env):
     """This computer's primary screen. `mac_cmd` sends Ctrl shortcuts as Cmd on macOS, since models learn Linux and
     Windows shortcuts (ctrl+c, ctrl+s)."""
@@ -130,6 +143,8 @@ class LocalEnv(Env):
 
     def __init__(self, mac_cmd: bool = True, fixed_wait_s: float | None = None, *, gui: Any = None, grabber: Any = None,
                  paste: Any = "auto"):
+        if sys.platform == "darwin" and gui is None:
+            no_dock_icon()
         self.gui = gui or _need("pyautogui")
         self.gui.PAUSE = 0.02                     # pyautogui sleeps 0.1 s after every call by default
         self.sct = grabber or _need("mss").mss()

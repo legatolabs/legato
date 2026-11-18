@@ -1,4 +1,6 @@
 """legato.local() against a fake screen and mouse: no display needed."""
+import sys
+
 from legato.actions import Action
 from legato.env import png_size
 from legato.local import LocalEnv
@@ -214,3 +216,22 @@ def test_actions_written_in_the_text_run_before_the_native_call():
     assert _calls(same) == [{"action": "type", "text": "3:00PM"}]            # said and called: run once
     assert _calls({"content": "Clicking save.", "tool_calls": [call]}) == [{"action": "type", "text": "3:00PM"}]
     assert _calls({"content": '{"action": "wait"}'}) == [{"action": "wait"}]
+
+
+def test_the_driver_takes_itself_out_of_the_dock_on_a_mac(monkeypatch):
+    import types
+    import importlib
+    L = importlib.import_module("legato.local")          # the module (legato.local is also the function)
+    calls = []
+    app = types.SimpleNamespace(setActivationPolicy_=lambda p: calls.append(p) or True)
+    fake = types.SimpleNamespace(NSApplication=types.SimpleNamespace(sharedApplication=lambda: app),
+                                 NSApplicationActivationPolicyProhibited=2)
+    monkeypatch.setitem(sys.modules, "AppKit", fake)
+    assert L.no_dock_icon() is True and calls == [2]
+    monkeypatch.setitem(sys.modules, "AppKit", None)          # no AppKit: nothing to do, no error
+    assert L.no_dock_icon() is False
+    hidden = []
+    monkeypatch.setattr(L, "no_dock_icon", lambda: hidden.append(1))
+    monkeypatch.setattr(L.sys, "platform", "darwin")
+    env(mac=True)                                             # a fake gui (tests, the app's own input): left alone
+    assert hidden == []
