@@ -205,6 +205,8 @@ def find_text(png: bytes, text: str, near: tuple[int, int] | None = None) -> tup
             continue
         if n == want:
             rank, box = 0, box_of(None)
+        elif " " in want and " " not in n and n == want.replace(" ", ""):
+            rank, box = 0, box_of(None)          # a reader that dropped the spaces between the label's words
         else:
             i = n.find(want)
             if i < 0 or (i > 0 and n[i - 1].isalnum()) or (i + len(want) < len(n) and n[i + len(want)].isalnum()):
@@ -248,7 +250,8 @@ _READ: "dict[bytes, list]" = {}
 
 def read_lines(png: bytes) -> list:
     """[(line text, box_of(substring or None) -> (x, y) centre in pixels)] for the text on the screenshot, by the
-    macOS Vision framework. Raises RuntimeError where it is not available. With OCR_CACHE, the same screenshot (the
+    macOS Vision framework, or RapidOCR elsewhere when it is installed (rapidocr-onnxruntime). Raises RuntimeError
+    when neither is available. With OCR_CACHE, the same screenshot (the
     same bytes: a screen that has not changed) is read once; a wait_for that polls a still screen reads it once."""
     if not OCR_CACHE:
         return _read_lines(png)
@@ -261,12 +264,51 @@ def read_lines(png: bytes) -> list:
     return _READ[key]
 
 
+_RAPID: list = []      # the RapidOCR reader, made once (loading its models takes about a second)
+
+
+def _read_lines_rapid(png: bytes) -> list:
+    """read_lines where macOS Vision is not available (Linux): RapidOCR (pip install rapidocr-onnxruntime, models in
+    the wheel, CPU). A substring's centre is placed along its line's box by character position."""
+    if not _RAPID:
+        from rapidocr_onnxruntime import RapidOCR
+        _RAPID.append(RapidOCR())
+    result, _ = _RAPID[0](png)
+    out = []
+    for box, text, _score in result or []:
+        xs, ys = [p[0] for p in box], [p[1] for p in box]
+        x0, x1, yc = min(xs), max(xs), (min(ys) + max(ys)) / 2
+        line = str(text)
+
+        def box_of(sub, line=line, x0=x0, x1=x1, yc=yc):
+            if sub is None:
+                return round((x0 + x1) / 2), round(yc)
+            low = line.lower().replace("…", "...")
+            i, n = low.find(sub), len(sub)
+            if i < 0:                            # the reader can drop the spaces between words ("Documentsaved")
+                keep = [k for k, c in enumerate(low) if c != " "]
+                j = "".join(low[k] for k in keep).find(sub.replace(" ", ""))
+                if j < 0:
+                    return None
+                n = len(sub.replace(" ", ""))
+                i, n = keep[j], keep[j + n - 1] - keep[j] + 1
+            mid = (i + n / 2) / max(1, len(line))
+            return round(x0 + (x1 - x0) * mid), round(yc)
+        out.append((line, box_of))
+    return out
+
+
 def _read_lines(png: bytes) -> list:
     try:
         import Vision
         from Foundation import NSData, NSMakeRange
     except Exception as e:  # noqa: BLE001
-        raise RuntimeError("reading text on the screen needs macOS and pyobjc-framework-Vision") from e
+        try:
+            import rapidocr_onnxruntime  # noqa: F401
+        except Exception:  # noqa: BLE001
+            raise RuntimeError("reading text on the screen needs macOS (pyobjc-framework-Vision) or "
+                               "rapidocr-onnxruntime") from e
+        return _read_lines_rapid(png)
     from PIL import Image
     w, h = Image.open(io.BytesIO(png)).size
     handler = Vision.VNImageRequestHandler.alloc().initWithData_options_(NSData.dataWithBytes_length_(png, len(png)),

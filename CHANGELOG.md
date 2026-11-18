@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Plans read labels (`click_text`, `wait_for`, labelled clicks) on Linux too: where macOS Vision is not available,
+  `legato.plan` uses RapidOCR if it is installed (`pip install rapidocr-onnxruntime`, CPU). A label also matches a
+  line the reader ran together ("Document saved" in "Documentsaved").
 - `Harness(plan=True)`: one `plan` tool call carries the steps of a turn (screen actions, `click_text` by visible
   label, shell, AppleScript, `wait_for` a label, done), run in order until one cannot go on; the model then sees what
   ran and why it stopped. Labels are read with macOS Vision. `end_fix=True`: a reply that says the task is complete
