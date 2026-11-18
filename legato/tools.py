@@ -115,4 +115,113 @@ def bash(target: Union["Env", Callable[[str], Any], None] = None, *, timeout_s: 
                 handler)
 
 
-__all__ = ["Tool", "ToolCall", "bash", "clip", "local_shell", "wrap_command"]
+APPLESCRIPT_HINT = ("Run AppleScript to read or change an app's data (Calendar, Reminders, Notes, Contacts, Mail, Music, "
+                    "Finder and other scriptable apps). The script is compiled against the app's dictionary first and "
+                    "does not run if it does not compile. On an error you also get the app's real classes, properties "
+                    "and commands: use those names. Give `check`, a read-only script that reads back what you changed, "
+                    "and read its output before you say done. After two failed scripts for one app in a task, scripts "
+                    "for it are refused: use the screen for that app.")
+APP_DIRS = ("/System/Applications", "/Applications", "/System/Applications/Utilities", "/System/Library/CoreServices")
+_TELL = re.compile(r'\btell\s+(?:application|app)\s+"([^"]+)"', re.I)
+_EXIT = re.compile(r"\[exit (-?\d+|timeout[^\]]*)\]\s*$")
+
+
+def _exit_of(out: str) -> tuple[str, str]:
+    """(output without the exit line, exit code as text) of a shell result."""
+    m = _EXIT.search(out)
+    return (out[:m.start()].rstrip(), m.group(1)) if m else (out, "?")
+
+
+def dictionary_summary(sdef_xml: str, max_chars: int = 3000) -> str:
+    """The app-specific part of a scripting dictionary (`sdef App.app`): its classes with their properties and
+    elements, and its commands with their parameters. The Standard and Text suites are left out."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(sdef_xml)
+    except ET.ParseError:
+        return ""
+    lines = []
+    for suite in root.iter("suite"):
+        if suite.get("name", "") in ("Standard Suite", "Text Suite", "Type Definitions"):
+            continue
+        for c in list(suite.iter("class")) + list(suite.iter("class-extension")):
+            name = c.get("name") or f"(more of {c.get('extends')})"
+            props = [p.get("name") for p in c.iter("property") if p.get("name")]
+            elems = [e.get("type") for e in c.iter("element") if e.get("type")]
+            bits = []
+            if props:
+                bits.append("properties: " + ", ".join(props))
+            if elems:
+                bits.append("elements: " + ", ".join(elems))
+            lines.append(f"class {name}" + (f" ({'; '.join(bits)})" if bits else ""))
+        for cmd in suite.iter("command"):
+            params = [q.get("name") for q in cmd.iter("parameter") if q.get("name")]
+            lines.append(f"command {cmd.get('name')}" + (f" ({', '.join(params)})" if params else ""))
+    return clip("\n".join(lines), max_chars)
+
+
+def applescript(target: Union["Env", Callable[[str], Any], None] = None, *, timeout_s: float = 30.0,
+                max_chars: int = 4000, max_failures: int = 2, name: str = "applescript") -> Tool:
+    """AppleScript, checked: compiled first (osacompile; nothing runs if it does not compile), the app's dictionary
+    with any error, an optional read-only `check` run after, and no more scripts for an app after `max_failures`
+    failed ones in this tool's life (one task). macOS only; `target` as for bash()."""
+    if target is None:
+        run = local_shell
+    elif callable(getattr(target, "shell", None)):
+        run = target.shell                        # type: ignore[union-attr]
+    else:
+        raise TypeError("applescript(env) or applescript() for this computer (macOS)")
+    failures: dict[str, int] = {}
+    summaries: dict[str, str] = {}
+    n = [0]
+
+    def write(script: str, tag: str) -> str:
+        n[0] += 1
+        path = f"/tmp/legato-as-{os.getpid()}-{n[0]}-{tag}.applescript"
+        return path, f"cat > {shlex.quote(path)} <<'LEGATO_AS_EOF'\n{script}\nLEGATO_AS_EOF\n"
+
+    def summary(app: str) -> str:
+        if app not in summaries:
+            paths = " ".join(shlex.quote(f"{d}/{app}.app") for d in APP_DIRS)
+            out, code = _exit_of(run(f'for p in {paths}; do [ -d "$p" ] && {{ sdef "$p"; exit 0; }}; done; exit 1',
+                                     timeout_s))
+            summaries[app] = dictionary_summary(out) if code == "0" else ""
+        s = summaries[app]
+        return f"\n\n{app}'s dictionary:\n{s}" if s else ""
+
+    def failed(apps: list[str], text: str) -> str:
+        for a in apps or ["?"]:
+            failures[a] = failures.get(a, 0) + 1
+        return clip(text + "".join(summary(a) for a in apps), max_chars)
+
+    def handler(args: dict) -> str:
+        script = args.get("script")
+        if not isinstance(script, str) or not script.strip():
+            return "error: give a script"
+        apps = list(dict.fromkeys(_TELL.findall(script)))
+        out_of = [a for a in apps if failures.get(a, 0) >= max_failures]
+        if out_of:
+            return (f"not run: AppleScript for {out_of[0]} already failed {max_failures} times in this task. "
+                    "Use the screen for that app.")
+        path, cmd = write(script, "main")
+        out, code = _exit_of(run(cmd + f"osacompile -o {shlex.quote(path + '.scpt')} {shlex.quote(path)}", timeout_s))
+        if code != "0":
+            return failed(apps, f"did not compile, so nothing ran:\n{out}")
+        out, code = _exit_of(run(f"osascript {shlex.quote(path + '.scpt')}", timeout_s))
+        if code != "0":
+            return failed(apps, f"compiled, then failed when it ran (exit {code}):\n{out}")
+        text = f"ran (exit 0). Result:\n{out or '(nothing)'}"
+        check = args.get("check")
+        if isinstance(check, str) and check.strip():
+            cpath, ccmd = write(check, "check")
+            cout, ccode = _exit_of(run(ccmd + f"osascript {shlex.quote(cpath)}", timeout_s))
+            text += f"\n\ncheck (exit {ccode}):\n{cout or '(nothing)'}"
+        return clip(text, max_chars)
+
+    return Tool(name, APPLESCRIPT_HINT, {"type": "object", "required": ["script"], "properties": {
+        "script": {"type": "string", "description": "The AppleScript to run"},
+        "check": {"type": "string", "description": "A read-only AppleScript that reads back what the script changed"}}},
+        handler)
+
+
+__all__ = ["Tool", "ToolCall", "applescript", "bash", "clip", "dictionary_summary", "local_shell", "wrap_command"]

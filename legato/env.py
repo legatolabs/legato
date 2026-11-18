@@ -272,12 +272,15 @@ class Env:
         elif self._step is not None:
             timing = self._step(action) or {}
         else:
+            self.waiter.prime()     # with background=True, before the first action: what moves on its own
             t = time.monotonic()
             self._execute(action)
             timing["act_s"] = time.monotonic() - t
             t = time.monotonic()
             self.waiter.settle(rule_kind(action.type))
             timing["settle_s"] = time.monotonic() - t
+            if self.waiter.background and self.waiter.last:
+                timing["wait"] = dict(self.waiter.last)
         png = getattr(self, "_pending_png", None)
         self._pending_png = None
         if png:                     # the helper returned the settled frame: no extra round trip

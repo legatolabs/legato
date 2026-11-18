@@ -6,11 +6,15 @@
 
 Screenshots come from `mss` and input from `pyautogui`. The screenshot is scaled to the screen's logical size (half
 the pixel size on a Retina Mac), so the model's coordinates are the ones pyautogui clicks. The wait for the screen
-polls it locally, without a network round trip.
+polls it locally, without a network round trip. With `wait_scope="app"` (macOS) the wait watches only the windows of
+the app in front, so another app animating elsewhere (a terminal spinner, a playing video) no longer holds every
+action to the wait's cap.
 
-The agent moves your real mouse and types on your real keyboard. Move the mouse into a corner of the screen to stop
-it (pyautogui's fail-safe raises in the agent's next action). On macOS, give the terminal Screen Recording and
-Accessibility permission first.
+The agent moves your real mouse and types on your real keyboard. Move the mouse into a corner of the screen, or on
+macOS hold Escape, to stop it: the agent's next action raises `legato.safety.Stopped`, which ends `Harness.run` with
+`stopped=True`. Actions on the short list in `legato.safety` (cmd+Delete, cmd+Q, a typed `rm` or `sudo`...) wait for
+your yes in the terminal. On macOS, give the terminal Screen Recording and Accessibility permission first
+(`legato doctor` says whether they are on).
 """
 from __future__ import annotations
 
@@ -22,8 +26,9 @@ import sys
 import time
 from typing import Any
 
+from legato import safety
 from legato.actions import Action
-from legato.env import Env
+from legato.env import Env, Obs
 from legato.settle import LOCAL_RULES, Waiter
 from legato.tools import local_shell
 
@@ -135,14 +140,31 @@ def no_dock_icon() -> bool:
         return False
 
 
+def front_windows(quartz: Any) -> tuple[int | None, list[dict]]:
+    """(pid, its on-screen windows) of the app in front: the owner of the topmost ordinary window (layer 0), with all
+    of that app's windows, its menus and sheets included. Read from the window list, which is current in any process;
+    NSWorkspace's frontmost app only updates in a process that runs an AppKit run loop."""
+    info = quartz.CGWindowListCopyWindowInfo(quartz.kCGWindowListOptionOnScreenOnly, quartz.kCGNullWindowID) or []
+    pid = next((w.get("kCGWindowOwnerPID") for w in info
+                if w.get("kCGWindowLayer") == 0 and w.get("kCGWindowAlpha", 1) > 0), None)
+    return pid, [w for w in info if pid is not None and w.get("kCGWindowOwnerPID") == pid]
+
+
 class LocalEnv(Env):
     """This computer's primary screen. `mac_cmd` sends Ctrl shortcuts as Cmd on macOS, since models learn Linux and
-    Windows shortcuts (ctrl+c, ctrl+s)."""
+    Windows shortcuts (ctrl+c, ctrl+s). `confirm(description) -> bool` is asked before a risky action
+    (`legato.safety`): "auto" asks in the terminal when there is one, None never asks. `wait_scope` is what the wait
+    for the screen watches: "screen" (all of it) or, on macOS, "app" (only the front app's windows; elsewhere it falls
+    back to the screen)."""
 
     shell = staticmethod(local_shell)
 
     def __init__(self, mac_cmd: bool = True, fixed_wait_s: float | None = None, *, gui: Any = None, grabber: Any = None,
-                 paste: Any = "auto"):
+                 paste: Any = "auto", confirm: safety.Confirm | str | None = "auto", wait_scope: str = "screen",
+                 quartz: Any = None, wait: str = "screen"):
+        if wait_scope not in ("screen", "app"):
+            raise ValueError('wait_scope must be "screen" or "app"')
+        self.wait_scope = wait_scope
         if sys.platform == "darwin" and gui is None:
             no_dock_icon()
         self.gui = gui or _need("pyautogui")
@@ -157,19 +179,85 @@ class LocalEnv(Env):
         self._clip: bytes | None = None           # clipboard contents to put back before the next action
         self.mackeys: Any = None                  # explicit-flag key events: only with the real pyautogui on a Mac
         self.macmouse: Any = None                 # explicit-count double and triple clicks, likewise
+        self.confirm: safety.Confirm | None = safety.default_confirm() if confirm == "auto" else confirm
+        self._typed = ""                          # text typed since the last Return or click: what a Return would run
+        fs = getattr(self.gui, "FailSafeException", None)
+        self._failsafe: tuple = (fs,) if isinstance(fs, type) and issubclass(fs, BaseException) else ()
+        self.escape: Any = None                   # is Escape held on the real keyboard: the person's second stop
+        self.refocus = self.mac and gui is None   # after a question in the terminal, bring the agent's app back
         if self.mac and gui is None:
+            self.escape = safety.escape_held
+            for problem in safety.permission_problems():
+                print(f"legato: {problem}", file=sys.stderr)
             try:
                 self.mackeys, self.macmouse = MacKeys(), MacMouse()
             except Exception:                     # no Quartz: pyautogui's own handling
                 self.mackeys = self.macmouse = None
+        self.quartz = quartz                      # for wait_scope="app"; imported on first use
         super().__init__(self._png, self._exec, fixed_wait_s=fixed_wait_s)
-        self.waiter = Waiter(self._digest, rules=LOCAL_RULES)
+        # wait: "screen" (every pixel holds still), "cells" (leaving out the cells that move on their own), "ax" (the
+        # front app's Accessibility events go quiet, macOS) or "ax+cells" (both)
+        if wait not in ("screen", "cells", "ax", "ax+cells", "ax|cells"):
+            raise ValueError('wait must be "screen", "cells", "ax", "ax+cells" or "ax|cells"')
+        self.wait = wait
+        cells = Waiter(self._cells, rules=LOCAL_RULES, background=True) if "cells" in wait else None
+        if wait.startswith("ax"):
+            from legato.axwait import AXWaiter
+            self.waiter = AXWaiter(LOCAL_RULES, pixels=cells, pixels_always=wait != "ax|cells")
+        else:
+            self.waiter = cells or Waiter(self._digest, rules=LOCAL_RULES)
+
+    def _cells(self, cell: int = 32) -> tuple:
+        """A digest for each `cell`-point square of the screen, row by row (Waiter(background=True))."""
+        g = self._grab()
+        w, h = g.size
+        c = max(1, round(cell * w / max(1, self.size[0])))     # cell points in the grab's pixels (Retina: 2x)
+        cols, rows = -(-w // c), -(-h // c)
+        raw = memoryview(g.raw)
+        try:
+            import numpy as np
+            a = np.frombuffer(raw, dtype=np.uint8).reshape(h, w, 4)
+            return tuple(hashlib.blake2b(a[r * c:(r + 1) * c, k * c:(k + 1) * c].tobytes(), digest_size=8).hexdigest()
+                         for r in range(rows) for k in range(cols))
+        except ImportError:
+            hs = [hashlib.blake2b(digest_size=8) for _ in range(cols * rows)]
+            for y in range(h):
+                base, row = y * w * 4, (y // c) * cols
+                for k in range(cols):
+                    hs[row + k].update(raw[base + k * c * 4: base + min(w, (k + 1) * c) * 4])
+            return tuple(x.hexdigest() for x in hs)
 
     def _grab(self):
         return self.sct.grab(self.mon)
 
     def _digest(self) -> str:
+        if self.wait_scope == "app" and self.mac:
+            d = self._app_digest()
+            if d is not None:
+                return d
         return hashlib.blake2b(bytes(self._grab().raw), digest_size=16).hexdigest()
+
+    def _app_digest(self) -> str | None:
+        """The front app's windows only: where they are and what they show. None when they can't be read."""
+        try:
+            q = self.quartz
+            if q is None:
+                import Quartz as q
+                self.quartz = q
+            pid, wins = front_windows(q)
+            h = hashlib.blake2b(digest_size=16)
+            h.update(repr((pid, sorted((w.get("kCGWindowNumber"), tuple(sorted(dict(w.get("kCGWindowBounds") or {}).items())))
+                                       for w in wins))).encode())
+            if wins:
+                img = q.CGWindowListCreateImageFromArray(q.CGRectInfinite, [w["kCGWindowNumber"] for w in wins],
+                                                         q.kCGWindowImageBoundsIgnoreFraming
+                                                         | q.kCGWindowImageNominalResolution)
+                if img is None:
+                    return None
+                h.update(bytes(q.CGDataProviderCopyData(q.CGImageGetDataProvider(img))))
+            return h.hexdigest()
+        except Exception:  # noqa: BLE001 - the whole screen still works
+            return None
 
     def _png(self) -> bytes:
         from PIL import Image
@@ -180,6 +268,90 @@ class LocalEnv(Env):
         buf = io.BytesIO()
         im.save(buf, "PNG", compress_level=1)
         return buf.getvalue()
+
+    # ------------------------------------------------------------ the person's stop and yes
+    def stop_requested(self) -> str | None:
+        """Why the person wants the agent to stop, or None. Checked before every action, because key presses and
+        pasted text on macOS do not go through pyautogui and so never reach its fail-safe."""
+        if self.escape is not None and self.escape():
+            return "Escape was held down"
+        if getattr(self.gui, "FAILSAFE", None) is True:
+            try:
+                x, y = self.gui.position()
+            except Exception:  # noqa: BLE001
+                return None
+            w, h = self.size
+            if x in (0, w - 1) and y in (0, h - 1):
+                return "the mouse was moved into a corner of the screen"
+        return None
+
+    def _risk(self, a: Action) -> tuple[str | None, str]:
+        """(what to ask the person about `a`, or None; the typed text a later Return would run)."""
+        t, typed = a.type, self._typed
+
+        def quote(s: str) -> str:
+            s = s.strip()
+            return f'"{s[:120]}{"…" if len(s) > 120 else ""}"'
+        if t == "type":
+            typed = (typed + (a.text or "").replace("\r", "\n"))[-4000:]
+            if "\n" not in typed:
+                return None, typed
+            run, _, rest = typed.rpartition("\n")
+            why = safety.text_risk(run)
+            return (f"type and run {quote(run)} ({why})" if why else None), rest
+        if t == "key":
+            for combo in (a.keys or "").split():
+                names = [self.key(k) for k in combo.split("+") if k]
+                if why := safety.keys_risk(names):
+                    return f"press {combo} ({why})", typed
+                if safety.is_enter(names):
+                    if why := safety.text_risk(typed):
+                        return f"press Return after typing {quote(typed)} ({why})", ""
+                    typed = ""
+            return None, typed
+        if t in ("click", "double_click", "triple_click", "right_click", "drag"):
+            return None, ""                       # the focus may have moved: a later Return runs something else
+        return None, typed
+
+    def _front(self) -> str | None:
+        """The bundle id of the app in front (macOS), to bring it back after the person answers in the terminal."""
+        if not self.refocus:
+            return None
+        try:
+            asn = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True, timeout=5).stdout.strip()
+            out = subprocess.run(["lsappinfo", "info", "-only", "bundleid", asn], capture_output=True, text=True,
+                                 timeout=5).stdout
+            return out.split("=", 1)[1].strip().strip('"') or None
+        except (OSError, subprocess.SubprocessError, IndexError):
+            return None
+
+    def _refocus(self, bundle: str | None) -> None:
+        if bundle:
+            try:
+                subprocess.run(["open", "-b", bundle], capture_output=True, timeout=10)
+                time.sleep(0.5)
+            except (OSError, subprocess.SubprocessError):
+                pass
+
+    def act(self, action: Action) -> Obs:
+        """Run `action`, unless the person has asked to stop (`safety.Stopped`) or says no to it (`safety.Denied`)."""
+        if action.done:
+            return super().act(action)
+        if why := self.stop_requested():
+            self._restore_clipboard()
+            raise safety.Stopped(why)
+        ask, typed = self._risk(action)
+        if ask and self.confirm is not None:
+            front = self._front()
+            if not self.confirm(ask):
+                raise safety.Denied(ask)
+            self._refocus(front)                  # answering put the terminal in front: the action is not for it
+        self._typed = typed
+        try:
+            return super().act(action)
+        except self._failsafe:
+            self._restore_clipboard()
+            raise safety.Stopped("the mouse was moved into a corner of the screen") from None
 
     def key(self, name: str) -> str:
         if name == "super":
@@ -272,14 +444,21 @@ class LocalEnv(Env):
             held = [self.key(k) for k in a.keys.split("+") if k]
             if self.mackeys is not None and all(k in MacKeys.MODS for k in held):
                 self.mackeys.hold(held, True)
-                g.click(a.x, a.y)
-                self.mackeys.hold(held, False)
+                try:
+                    g.click(a.x, a.y)
+                finally:                          # a stop in the middle must not leave the key held
+                    self.mackeys.hold(held, False)
             else:
                 for k in held:
                     g.keyDown(k)
-                g.click(a.x, a.y)
-                for k in reversed(held):
-                    g.keyUp(k)
+                try:
+                    g.click(a.x, a.y)
+                finally:
+                    was = getattr(g, "FAILSAFE", True)
+                    g.FAILSAFE = False            # pyautogui checks its fail-safe before keyUp and would skip it
+                    for k in reversed(held):
+                        g.keyUp(k)
+                    g.FAILSAFE = was
         elif t == "click":
             g.click(a.x, a.y)
         elif t in ("double_click", "triple_click"):
@@ -313,6 +492,11 @@ class LocalEnv(Env):
             time.sleep(1.0)
 
 
-def local(mac_cmd: bool = True, fixed_wait_s: float | None = None) -> LocalEnv:
-    """This computer's screen, mouse and keyboard, for `Harness.run`."""
-    return LocalEnv(mac_cmd=mac_cmd, fixed_wait_s=fixed_wait_s)
+def local(mac_cmd: bool = True, fixed_wait_s: float | None = None, *,
+          confirm: safety.Confirm | str | None = "auto", wait_scope: str = "screen", **options: Any) -> LocalEnv:
+    """This computer's screen, mouse and keyboard, for `Harness.run`. `confirm(description) -> bool` is asked before
+    a risky action (the list is in `legato.safety`). The default, "auto", asks in the terminal when stdin is one and
+    asks nothing in an unattended run; `confirm=None` never asks; `confirm=legato.safety.deny` refuses them all.
+    wait_scope="app" (macOS): the wait for the screen watches only the front app's windows. `options` go to LocalEnv
+    (wait="screen" | "cells" | "ax" | "ax|cells": what decides that the screen has settled)."""
+    return LocalEnv(mac_cmd=mac_cmd, fixed_wait_s=fixed_wait_s, confirm=confirm, wait_scope=wait_scope, **options)

@@ -28,6 +28,7 @@ from typing import Any, Callable
 
 from legato.actions import ALIASES, KINDS, Action, norm_keys
 from legato.env import Env
+from legato.safety import Denied, Stopped
 from legato.settle import Waiter, digest
 from legato.tools import local_shell
 
@@ -161,7 +162,13 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         a = Action(kind, x=x, y=y, x2=end_x, y2=end_y, text=text, keys=norm_keys(keys) if keys else None,
                    direction=direction, amount=amount)
         t = time.monotonic()
-        obs = d["env"].act(a)
+        try:
+            obs = d["env"].act(a)
+        except Stopped as e:
+            raise ToolError(f"The person at this computer stopped the agent ({e}). Do not act again until they "
+                            "ask you to.") from None
+        except Denied as e:
+            raise ToolError(f"Not run: the person at this computer did not allow it ({e}).") from None
         d["wh"] = (obs.width, obs.height)
         last = d["env"].last
         note = (f"{a.describe()}: done in {time.monotonic() - t:.2f} s "

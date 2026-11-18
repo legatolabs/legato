@@ -18,6 +18,7 @@ import httpx
 
 from legato.actions import Action
 from legato.env import Env, attach, png_size
+from legato.safety import Denied, Stopped
 
 DEFAULT_BASE = "https://legato.computer/api"
 MODEL = "legato/qwen3.8-27b-cu"
@@ -99,6 +100,7 @@ class Result:
     wall_s: float
     actions: list[str] = field(default_factory=list)
     timings: list[dict] = field(default_factory=list)
+    stopped: bool = False       # the person stopped the run (legato.safety.Stopped)
 
     @property
     def mean_step_s(self) -> float:
@@ -112,10 +114,11 @@ def run(task: str, sandbox=None, *, env: Env | None = None, api_key: str | None 
     t0 = time.monotonic()
     res = Result(False, 0, 0.0)
     with Agent(task, api_key=api_key, base_url=base_url, max_steps=max_steps) as agent:
-        obs = env.observe()
+        obs, said = env.observe(), None
         for i in range(max_steps):
             t = time.monotonic()
-            a = agent.step(obs.screenshot)
+            a = agent.step(obs.screenshot, said)
+            said = None
             model_s = time.monotonic() - t
             res.actions.append(a.describe())
             if a.done:
@@ -123,7 +126,14 @@ def run(task: str, sandbox=None, *, env: Env | None = None, api_key: str | None 
                 res.timings.append({"model_s": model_s})
                 res.steps = i + 1
                 break
-            obs = env.act(a)
+            try:
+                obs = env.act(a)
+            except Stopped:                       # the person's stop
+                res.stopped, res.steps = True, i + 1
+                break
+            except Denied as e:                   # the person's no: the action did not run, and the model is told
+                res.actions[-1] = f"not allowed: {res.actions[-1]}"
+                obs, said = env.observe(), f"not run: the person at this computer did not allow it ({e})"
             timing = {"model_s": model_s, **env.last}
             res.timings.append(timing)
             res.steps = i + 1
