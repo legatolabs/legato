@@ -324,3 +324,19 @@ def test_printed():
     assert not plans.printed("[exit 0]") and plans.printed("1\n[exit 0]")
     assert not plans.printed("ran (exit 0). Result:\n(nothing)")
     assert plans.printed("ran (exit 0). Result:\n(nothing)\n\ncheck (exit 0):\nDark")
+
+
+def test_the_rapidocr_reader_places_labels_and_matches_words_it_ran_together(monkeypatch):
+    class Fake:                                   # RapidOCR's answer: [box (4 points), text, score], elapsed
+        def __call__(self, png):
+            return [[[[100, 100], [300, 100], [300, 120], [100, 120]], "File Edit View", "0.9"],
+                    [[[600, 400], [740, 400], [740, 420], [600, 420]], "Documentsaved", "0.9"]], 0.1
+    monkeypatch.setattr(plans, "_RAPID", [Fake()])
+    lines = plans._read_lines_rapid(b"")
+    assert [l for l, _ in lines] == ["File Edit View", "Documentsaved"]
+    assert lines[0][1](None) == (200, 110)
+    x, y = lines[0][1]("edit")
+    assert 180 < x < 220 and y == 110                     # "Edit" sits in the middle of "File Edit View"
+    monkeypatch.setattr(plans, "read_lines", lambda png: lines)
+    assert plans.find_text(b"", "Document saved") == (670, 410)
+    assert plans.find_text(b"", "View")[0] > 260
