@@ -11,6 +11,7 @@ Tools:
 - desktop_act: click, type, press keys, scroll or drag. The tool returns once the screen has stopped changing, with
   the new screenshot. Coordinates are pixels of the last screenshot.
 - desktop_screenshot: the current screen.
+- desktop_shell: run a shell command on the desktop's computer and get its output and exit code.
 - desktop_run_task: hand a whole task to `legato.Harness` with a model of your choice (for example an open model on
   OpenRouter) and get back its report and the final screen.
 - desktop_close: stop the desktop.
@@ -51,7 +52,9 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
     srv = _Server("legato", instructions=(
         "Desktops for computer use. Open one with desktop_open, act with desktop_act using pixel coordinates of "
         "the latest screenshot, and close it with desktop_close when done. desktop_act returns as soon as the screen "
-        "has settled, so there is no need to wait or take extra screenshots." + (" " + about if about else "")))
+        "has settled, so there is no need to wait or take extra screenshots. desktop_shell runs a command on the "
+        "desktop's computer: use it to start apps, read and write files and check results, which is faster than "
+        "the screen." + (" " + about if about else "")))
     desks: dict[str, dict] = {}
 
     def keep(did: str, event: str, png: bytes | None, **detail: Any) -> None:
@@ -124,6 +127,22 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         img = shot(get(desktop_id))
         keep(desktop_id, "screenshot", desks[desktop_id]["png"])
         return img
+
+    @srv.tool()
+    def desktop_shell(desktop_id: str, command: str, timeout_s: float = 30.0) -> str:
+        """Run a shell command on the desktop's computer and return its output (stdout and stderr) and exit code.
+        Use it to start apps, read and write files and check results; it is faster than the screen. Start a GUI app
+        in the background (nohup app >/dev/null 2>&1 &), or the command waits for it to exit. timeout_s: 1 to 300."""
+        from legato.tools import bash
+        d = get(desktop_id)
+        try:
+            tool = bash(d["env"], timeout_s=min(max(float(timeout_s), 1.0), 300.0))
+        except TypeError:
+            raise ToolError("this desktop has no shell") from None
+        t = time.monotonic()
+        out = tool.handler({"command": command})
+        keep(desktop_id, "shell", None, command=command, seconds=round(time.monotonic() - t, 3))
+        return out
 
     @srv.tool()
     def desktop_run_task(desktop_id: str, task: str, model: str = "qwen/qwen3.8-27b",
