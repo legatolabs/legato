@@ -166,3 +166,20 @@ def test_screenshots_are_jpeg_unless_png_is_asked():
     assert to_image(b"not an image")._mime_type == "image/png"   # sent as it came
     with pytest.raises(ValueError):
         build_server(factory, image_format="gif")
+
+
+def test_fixed_wait_flag(monkeypatch):
+    from legato import mcp_server, providers
+    built = {}
+    env = legato.attach(screenshot=lambda: png(), execute=lambda a: None)
+    monkeypatch.setattr(providers, "load", lambda spec: lambda w, h: (None, env))
+    monkeypatch.setattr(providers, "warm", lambda spec: None)
+    monkeypatch.setattr(mcp_server, "build_server", lambda factory, **kw: built.update(factory=factory, **kw) or
+                        type("S", (), {"run": lambda self: None})())
+    mcp_server.main(["--sandbox", "local", "--fixed-wait", "2", "--image-format", "png"])
+    assert built["factory"]((64, 40))[1].fixed_wait_s == 2.0 and built["image_format"] == "png"
+    local_mod = __import__("importlib").import_module("legato.local")   # legato.local is also a function
+    monkeypatch.setattr(local_mod, "local", lambda **kw: built.update(local_kw=kw) or env)
+    mcp_server.main(["--local", "--wait-scope", "app"])
+    built["factory"]((64, 40))
+    assert built["local_kw"] == {"wait_scope": "app"}

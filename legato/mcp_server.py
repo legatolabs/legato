@@ -259,10 +259,26 @@ def main(argv=None) -> int:
                                                    "under DIR/<desktop_id>/")
     ap.add_argument("--image-format", choices=("jpeg", "png"), default="jpeg",
                     help="screenshots the agent gets: jpeg (default, about a fifth of the bytes) or png (lossless)")
+    ap.add_argument("--fixed-wait", type=float, metavar="S",
+                    help="sleep S seconds after every action instead of waiting for the screen (a baseline to "
+                         "compare against, as in docs/benchmarks.md)")
+    ap.add_argument("--wait-scope", choices=("screen", "app"), default="screen",
+                    help="with --local on macOS: what the wait for the screen watches, all of it (default) or only "
+                         "the front app's windows, so another app animating doesn't hold every action to the cap")
     a = ap.parse_args(argv)
     spec = "local" if a.local else a.sandbox
     make = providers.load(spec)
+    if spec == "local" and a.wait_scope != "screen":
+        def make(w, h):  # noqa: F811 - the same desktop, with the wait on the front app's windows
+            from legato.local import local
+            return None, local(wait_scope=a.wait_scope)
     providers.warm(spec)                       # e.g. pull the desktop image while the agent gets going
-    build_server(lambda res: make(*res), about=providers.about(spec), record=a.record,
+
+    def factory(res):
+        sb, env = make(*res)
+        if a.fixed_wait is not None:
+            env.fixed_wait_s = a.fixed_wait
+        return sb, env
+    build_server(factory, about=providers.about(spec), record=a.record,
                  image_format=a.image_format).run()
     return 0
