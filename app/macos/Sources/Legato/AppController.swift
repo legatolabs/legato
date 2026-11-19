@@ -343,7 +343,8 @@ final class AppController: NSObject {
         if let u = m["usage"] as? [String: Any] { model.cost = u["cost_usd"] as? Double ?? model.cost }
         ghost.hide()
         hud.show()
-        if model.status == "done" { hud.hide(after: 12) }
+        let long = model.message.count > 220 || model.message.split(separator: "\n").count > 3
+        if model.status == "done" && !long { hud.hide(after: 12) }   // an answer to read stays until closed
         refreshMenu()
         if windows["history"]?.isVisible == true { history.reload(select: model.runID) }
     }

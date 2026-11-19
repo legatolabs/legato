@@ -12,6 +12,7 @@ final class HUDController {
     private var hideWork: DispatchWorkItem?
     private var watch: AnyCancellable?
     static let width: CGFloat = 460
+    static let wideWidth: CGFloat = 600             // an answer to read (a summary, a list)
 
     init(model: RunModel, actions: HUDActions) {
         self.model = model
@@ -97,7 +98,7 @@ struct HUDView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .frame(width: HUDController.width, alignment: .leading)
+        .frame(width: wide ? HUDController.wideWidth : HUDController.width, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.panelFill))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line, lineWidth: 1))
         .foregroundColor(.white)
@@ -177,14 +178,58 @@ struct HUDView: View {
                     Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundColor(Theme.dim)
                 }.buttonStyle(.plain)
             }
-            if !model.message.isEmpty {
-                Text(model.message)
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.85))
-                    .lineLimit(4)
-                    .textSelection(.enabled)
+            if !answer.isEmpty {
+                if wide {
+                    ScrollView {
+                        Text(rendered)
+                            .font(.system(size: 12.5))
+                            .foregroundColor(.white.opacity(0.9))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.trailing, 6)
+                    }
+                    .frame(height: min(360, 18 * CGFloat(answer.split(separator: "\n").count + 2)))
+                    HStack {
+                        Spacer()
+                        PillButton(title: copied ? "Copied" : "Copy", action: copy)
+                    }
+                } else {
+                    Text(rendered)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.85))
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                }
             }
         }
+    }
+
+    @State private var copied = false
+
+    /// The model's last words without a stray `{"action": "done"}` some models print after them.
+    private var answer: String {
+        model.message
+            .replacingOccurrences(of: "\\{\\s*\"action\"\\s*:\\s*\"(done|fail)\"[^}]*\\}", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Long answers (several lines, or a few hundred characters) get the wide card with room to read.
+    private var wide: Bool {
+        model.phase == .finished && (answer.count > 220 || answer.split(separator: "\n").count > 3)
+    }
+
+    /// Markdown as the model wrote it (bold, lists, links, code), line breaks kept.
+    private var rendered: AttributedString {
+        let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        let text = answer.replacingOccurrences(of: "(?m)^#{1,6}\\s*", with: "", options: .regularExpression)
+        return (try? AttributedString(markdown: text, options: opts)) ?? AttributedString(text)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(answer, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
     }
 
     private var summary: String {

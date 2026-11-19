@@ -7,6 +7,19 @@ struct SettingsView: View {
     let runTest: () -> Void
     @State private var key = ""
     @State private var keyShown = false
+    @State private var listing = false
+    @State private var listed: String?
+
+    private func refreshModels() {
+        listing = true
+        listed = nil
+        let id = settings.providerID
+        ModelCatalog.refresh(id, settings) { err in
+            listing = false
+            let n = settings.catalog[id]?.count ?? 0
+            listed = err.map { "Couldn’t list models: \($0)" } ?? "\(n) models from \(ProviderPreset.find(id).name). ⌘K in the command bar searches them."
+        }
+    }
 
     var body: some View {
         Form {
@@ -18,13 +31,23 @@ struct SettingsView: View {
                 TextField("Base URL", text: $settings.baseURL, prompt: Text("https://…/v1"))
                 HStack {
                     TextField("Model", text: $settings.model, prompt: Text("model id"))
-                    if !settings.preset.models.isEmpty {
+                    let known = settings.preset.models + (settings.catalog[settings.providerID] ?? []).filter { !settings.preset.models.contains($0) }
+                    if !known.isEmpty {
                         Menu("") {
-                            ForEach(settings.preset.models, id: \.self) { m in Button(m) { settings.model = m } }
+                            ForEach(known.prefix(200), id: \.self) { m in Button(m) { settings.model = m; settings.noteUsed() } }
                         }
                         .menuStyle(.borderlessButton)
                         .frame(width: 24)
                     }
+                    Button(action: refreshModels) {
+                        Image(systemName: listing ? "hourglass" : "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Read this provider's models with your key")
+                    .disabled(listing)
+                }
+                if let listed {
+                    Text(listed).font(.system(size: 11)).foregroundColor(.secondary)
                 }
                 HStack {
                     Group {
@@ -34,7 +57,7 @@ struct SettingsView: View {
                             SecureField("API key", text: $key, prompt: Text(settings.preset.keyHint))
                         }
                     }
-                    .onSubmit { settings.apiKey = key }
+                    .onSubmit { settings.apiKey = key; refreshModels() }
                     .onChange(of: key) { _, v in settings.apiKey = v.trimmingCharacters(in: .whitespacesAndNewlines) }
                     Button(action: { keyShown.toggle() }) { Image(systemName: keyShown ? "eye.slash" : "eye") }
                         .buttonStyle(.borderless)
@@ -48,7 +71,7 @@ struct SettingsView: View {
                         Text(r).font(.system(size: 11)).foregroundColor(.secondary).lineLimit(2)
                     }
                 }
-                Text("Your key is kept in your Keychain and sent only to this base URL. Screenshots of your screen go to the same place.")
+                Text("Each provider keeps its own key in your Keychain, sent only to its base URL. Screenshots of your screen go to the same place. Switch between models of any provider with a key from the command bar (⌘1-⌘4, ⌘K).")
                     .font(.system(size: 11)).foregroundColor(.secondary)
             }
             Section("Behaviour") {

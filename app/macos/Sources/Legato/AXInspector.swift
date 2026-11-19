@@ -97,8 +97,26 @@ enum AX {
             let sel = string(focused as! AXUIElement, kAXSelectedTextAttribute) ?? ""
             c.selection = String(sel.prefix(2000))
         }
-        c.window = String(c.window.prefix(120))
+        c.window = cleanTitle(c.window, app: c.app)
         return c
+    }
+
+    /// A window title as a person would name it: without a terminal's size ("— 107×33"), decoration ("✳", "◂"), the
+    /// app's own name, or empty parts; at most `limit` characters, cut in the middle.
+    static func cleanTitle(_ raw: String, app: String, limit: Int = 60) -> String {
+        let seps = CharacterSet(charactersIn: "—–-|·◂▸•")
+        var parts = raw.components(separatedBy: " — ").flatMap { $0.components(separatedBy: " - ") }
+            .map { $0.trimmingCharacters(in: .whitespaces.union(seps)) }
+            .map { $0.replacingOccurrences(of: "^[✳✻✶✷✸✹●○◆◇★☆⠀-⣿]+\\s*", with: "", options: .regularExpression) }
+            .filter { !$0.isEmpty }
+        parts.removeAll { $0.range(of: "^\\d+\\s*[×x]\\s*\\d+$", options: .regularExpression) != nil }  // 107×33
+        parts.removeAll { $0.caseInsensitiveCompare(app) == .orderedSame }
+        var t = parts.joined(separator: " — ")
+        if t.count > limit {
+            let half = (limit - 1) / 2
+            t = String(t.prefix(half)) + "…" + String(t.suffix(limit - 1 - half))
+        }
+        return t
     }
 }
 

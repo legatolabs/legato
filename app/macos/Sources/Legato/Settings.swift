@@ -12,11 +12,32 @@ struct ProviderPreset: Identifiable, Hashable {
 
     static let all: [ProviderPreset] = [
         ProviderPreset(id: "openrouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1",
-                       models: ["qwen/qwen3.8-27b", "anthropic/claude-sonnet-5.5", "qwen/qwen4-max", "openai/gpt-6.1-terra"],
+                       models: ["qwen/qwen3.8-27b", "anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5", "qwen/qwen4-max",
+                                "openai/gpt-6.1-terra"],
                        needsKey: true, keyHint: "sk-or-…"),
         ProviderPreset(id: "anthropic", name: "Anthropic", baseURL: "https://api.anthropic.com/v1",
-                       models: ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"],
+                       models: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
                        needsKey: true, keyHint: "sk-ant-…"),
+        ProviderPreset(id: "openai", name: "OpenAI", baseURL: "https://api.openai.com/v1",
+                       models: [], needsKey: true, keyHint: "sk-…"),
+        ProviderPreset(id: "gemini", name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+                       models: [], needsKey: true, keyHint: "AIza…"),
+        ProviderPreset(id: "fireworks", name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1",
+                       models: [], needsKey: true, keyHint: "fw_…"),
+        ProviderPreset(id: "groq", name: "Groq", baseURL: "https://api.groq.com/openai/v1",
+                       models: [], needsKey: true, keyHint: "gsk_…"),
+        ProviderPreset(id: "together", name: "Together", baseURL: "https://api.together.xyz/v1",
+                       models: [], needsKey: true, keyHint: "the Together key"),
+        ProviderPreset(id: "deepinfra", name: "DeepInfra", baseURL: "https://api.deepinfra.com/v1/openai",
+                       models: [], needsKey: true, keyHint: "the DeepInfra key"),
+        ProviderPreset(id: "cerebras", name: "Cerebras", baseURL: "https://api.cerebras.ai/v1",
+                       models: [], needsKey: true, keyHint: "csk-…"),
+        ProviderPreset(id: "xai", name: "xAI", baseURL: "https://api.x.ai/v1",
+                       models: [], needsKey: true, keyHint: "xai-…"),
+        ProviderPreset(id: "ollama", name: "Ollama (this Mac)", baseURL: "http://localhost:11434/v1",
+                       models: [], needsKey: false, keyHint: "none"),
+        ProviderPreset(id: "lmstudio", name: "LM Studio (this Mac)", baseURL: "http://localhost:1234/v1",
+                       models: [], needsKey: false, keyHint: "none"),
         ProviderPreset(id: "local", name: "Local server", baseURL: "http://localhost:8000/v1",
                        models: [], needsKey: false, keyHint: "usually none"),
         ProviderPreset(id: "custom", name: "Other (OpenAI-compatible)", baseURL: "",
@@ -24,6 +45,21 @@ struct ProviderPreset: Identifiable, Hashable {
     ]
 
     static func find(_ id: String) -> ProviderPreset { all.first { $0.id == id } ?? all[0] }
+
+    /// A model id shown short: the part after the provider's prefix ("anthropic/claude-sonnet-5.5" -> "claude-sonnet-5.5",
+    /// "accounts/fireworks/models/x" -> "x").
+    static func short(_ model: String) -> String {
+        String(model.split(separator: "/").last ?? Substring(model))
+    }
+}
+
+/// One model at one provider: what the command bar switches between.
+struct ModelChoice: Codable, Hashable, Identifiable {
+    let provider: String
+    let model: String
+    var id: String { provider + "|" + model }
+    var preset: ProviderPreset { ProviderPreset.find(provider) }
+    var label: String { ProviderPreset.short(model) }
 }
 
 /// Settings in UserDefaults; the API key in Keychain. Observed by the settings window and read at each run.
@@ -64,15 +100,32 @@ final class AppSettings: ObservableObject {
         fnKey = d.bool(forKey: "fnKey")
         enginePython = d.string(forKey: "enginePython") ?? ""
         onboarded = d.bool(forKey: "onboarded")
+        recents = load("recents", [ModelChoice].self) ?? []
+        pastTasks = d.stringArray(forKey: "pastTasks") ?? []
+        catalog = load("catalog", [String: [String]].self) ?? [:]
+        catalogDate = load("catalogDate", [String: Date].self) ?? [:]
+        if recents.isEmpty && !model.isEmpty { recents = [current] }
     }
 
     var preset: ProviderPreset { ProviderPreset.find(providerID) }
 
     func choose(_ p: ProviderPreset) {
+        if !baseURL.isEmpty { d.set(baseURL, forKey: "baseURL." + providerID) }   // each provider keeps its own URL
         providerID = p.id
-        if !p.baseURL.isEmpty { baseURL = p.baseURL }
-        if let m = p.models.first, !p.models.contains(model) { model = m }
+        baseURL = d.string(forKey: "baseURL." + p.id) ?? p.baseURL
+        if baseURL.isEmpty { baseURL = p.baseURL }
+        let known = p.models + (catalog[p.id] ?? [])
+        if let m = known.first, !known.contains(model) { model = m }
     }
+
+    /// Switch to `c` (the command bar's chips and picker): its provider, that provider's URL and key, and the model.
+    func select(_ c: ModelChoice) {
+        if c.provider != providerID { choose(c.preset) }
+        model = c.model
+        noteUsed()
+    }
+
+    var current: ModelChoice { ModelChoice(provider: providerID, model: model) }
 
     var apiKey: String {
         get { Keychain.read(account: providerID) ?? "" }
@@ -82,12 +135,66 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    func key(for provider: String) -> String { Keychain.read(account: provider) ?? "" }
+
+    func baseURL(for provider: String) -> String {
+        if provider == providerID { return baseURL }
+        return d.string(forKey: "baseURL." + provider) ?? ProviderPreset.find(provider).baseURL
+    }
+
+    /// Ready to use without a trip to Settings: a URL, and a key unless it needs none.
+    func usable(_ provider: String) -> Bool {
+        let p = ProviderPreset.find(provider)
+        return !baseURL(for: provider).isEmpty && (!p.needsKey || !key(for: provider).isEmpty)
+    }
+
+    // ------------------------------------------------------------ recent models, past tasks, fetched model lists
+    /// The models used last, newest first (the command bar's chips: ⌘1-⌘4).
+    @Published var recents: [ModelChoice] = [] { didSet { save(recents, "recents") } }
+    /// Tasks typed before, newest first (↑ in the command bar).
+    @Published var pastTasks: [String] = [] { didSet { d.set(pastTasks, forKey: "pastTasks") } }
+    /// Each provider's models as its /models listed them (ModelCatalog), with when.
+    @Published var catalog: [String: [String]] = [:] { didSet { save(catalog, "catalog") } }
+    @Published var catalogDate: [String: Date] = [:] { didSet { save(catalogDate, "catalogDate") } }
+
+    func noteUsed() {
+        let c = current
+        guard !c.model.isEmpty else { return }
+        recents = [c] + recents.filter { $0 != c }.prefix(5)
+    }
+
+    func noteTask(_ t: String) {
+        pastTasks = [t] + pastTasks.filter { $0 != t }.prefix(49)
+    }
+
+    /// Every model the picker can offer: recents first, then each usable provider's suggestions and fetched list.
+    var choices: [ModelChoice] {
+        var out: [ModelChoice] = recents
+        for p in ProviderPreset.all where usable(p.id) {
+            for m in p.models + (catalog[p.id] ?? []) {
+                let c = ModelChoice(provider: p.id, model: m)
+                if !out.contains(c) { out.append(c) }
+            }
+        }
+        if !current.model.isEmpty && !out.contains(current) { out.insert(current, at: 0) }
+        return out
+    }
+
+    private func save<T: Encodable>(_ v: T, _ key: String) {
+        if let data = try? JSONEncoder().encode(v) { d.set(data, forKey: key) }
+    }
+
+    private func load<T: Decodable>(_ key: String, _ type: T.Type) -> T? {
+        guard let data = d.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
     /// Ready to run: a base URL, a model, and a key unless the server is local.
     var problem: String? {
         if baseURL.trimmingCharacters(in: .whitespaces).isEmpty { return "Set the model's base URL in Settings." }
         if model.trimmingCharacters(in: .whitespaces).isEmpty { return "Choose a model in Settings." }
         let local = ["localhost", "127.0.0.1", "0.0.0.0"].contains { baseURL.contains($0) }
-        if !local && apiKey.isEmpty { return "Add your \(preset.name) API key in Settings." }
+        if !local && preset.needsKey && apiKey.isEmpty { return "Add your \(preset.name) API key in Settings." }
         return nil
     }
 
