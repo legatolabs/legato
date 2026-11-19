@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- MCP: screenshots go to the agent as JPEG (quality 85), like the harness since #17; `legato mcp --image-format png`
+  keeps PNG. Recordings (`--record`) stay PNG.
 - Plans read labels (`click_text`, `wait_for`, labelled clicks) on Linux too: where macOS Vision is not available,
   `legato.plan` uses RapidOCR if it is installed (`pip install rapidocr-onnxruntime`, CPU). A label also matches a
   line the reader ran together ("Document saved" in "Documentsaved").

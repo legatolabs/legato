@@ -143,3 +143,26 @@ def test_open_with_app_waits_for_its_window():
             "desktop_open", {"width": 64, "height": 40, "url": "https://a.b"})
         assert "no shell" in r.content[0].text
     asyncio.run(go())
+
+
+def test_screenshots_are_jpeg_unless_png_is_asked():
+    import base64
+
+    from legato.mcp_server import to_image
+
+    def factory(res):
+        return None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None, fixed_wait_s=0.0)
+
+    async def first_image(srv):
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        return r.content[1]
+
+    def mime(c):                                        # mcp 2 says mime_type, mcp 1 mimeType
+        return getattr(c, "mime_type", None) or c.mimeType
+
+    jpg = asyncio.run(first_image(build_server(factory)))
+    assert mime(jpg) == "image/jpeg" and base64.b64decode(jpg.data).startswith(b"\xff\xd8")
+    assert mime(asyncio.run(first_image(build_server(factory, image_format="png")))) == "image/png"
+    assert to_image(b"not an image")._mime_type == "image/png"   # sent as it came
+    with pytest.raises(ValueError):
+        build_server(factory, image_format="gif")
