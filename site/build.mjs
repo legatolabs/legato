@@ -143,7 +143,7 @@ const FOOTER = shell.match(/<footer>[\s\S]*?<\/footer>/)[0];
 
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
-for (const f of ["index.html", "styles.css", "site.js", "favicon.svg"]) cpSync(join(SITE, f), join(DIST, f));
+for (const f of ["index.html", "mac.html", "styles.css", "site.js", "demo.js", "favicon.svg"]) cpSync(join(SITE, f), join(DIST, f));
 // IndexNow key (Bing and others): https://www.indexnow.org/documentation
 for (const f of readdirSync(SITE).filter((n) => /^[0-9a-f]{32}\.txt$/.test(n))) cpSync(join(SITE, f), join(DIST, f));
 cpSync(join(SITE, "brand"), join(DIST, "brand"), { recursive: true });
@@ -151,7 +151,7 @@ mkdirSync(join(DIST, "media"), { recursive: true });
 if (existsSync(join(SITE, "media"))) cpSync(join(SITE, "media"), join(DIST, "media"), { recursive: true });
 
 const files = ["README.md", ...walk(join(ROOT, "docs")).map((p) => relative(ROOT, p).split("\\").join("/"))];
-const urls = ["/"], full = [];
+const urls = ["/", "/mac"], full = [];
 for (const rel of files) {
   const md = readFileSync(join(ROOT, rel), "utf8");
   const url = urlOf(rel);

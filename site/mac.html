@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legato for Mac · say it, watch it happen</title>
+<meta name="description" content="Hold Fn and say a task. Legato for Mac looks at your screen, acts and waits for it to settle, step by step, on your own Mac with the model you choose. Open source.">
+<link rel="canonical" href="https://legato.computer/mac">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/brand/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
+<meta name="theme-color" content="#0a0a0a">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Legato">
+<meta property="og:title" content="Legato for Mac · say it, watch it happen">
+<meta property="og:description" content="Hold Fn and say a task. Legato does it on your own Mac with the model you choose.">
+<meta property="og:url" content="https://legato.computer/mac">
+<meta property="og:image" content="https://legato.computer/brand/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="home calm mac">
+<canvas class="waves" aria-hidden="true"></canvas>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Legato home"><img src="/brand/wordmark.svg" alt="Legato" width="92" height="19"></a>
+    <nav class="nav" aria-label="Main">
+      <a href="/docs/benchmarks">research</a>
+      <a href="/mac">mac</a>
+      <a href="/docs" class="hide-xs">docs</a>
+      <a href="https://github.com/legatolabs/legato" rel="noopener" class="hide-sm">github</a>
+      <span class="est hide-sm">est. 2026</span>
+      <a class="btn sm" href="/#partners">work with us</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero x-hero mac-hero">
+  <div class="wrap">
+    <p class="eyebrow">legato for mac</p>
+    <h1>Say it.<br><em>Watch it happen.</em></h1>
+    <p class="lead">Hold Fn and say a task. Legato looks at your screen, acts, and waits for it to settle, step by step, on your own Mac with the model you choose.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg">↓ download for mac</a>
+      <a class="link" href="https://github.com/legatolabs/legato" rel="noopener">source on github →</a>
+    </div>
+    <p class="req">Apple silicon · macOS 14 or later · bring your own model</p>
+  </div>
+</section>
+
+<section id="demo" class="x-sec mac-demo">
+  <div class="wrap">
+    <figure class="demo" aria-label="Illustration: the Legato command bar takes a task, then Legato opens Calendar, creates a 10:00 standup tomorrow and invites the team, step by step.">
+      <div class="stage">
+        <div class="menubar"><span class="app">Finder</span><span class="m">File</span><span class="m">Edit</span><span class="m">View</span><span class="clock">Thu 9:41</span></div>
+
+        <div class="win cal" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><span>Calendar</span></div>
+          <div class="grid">
+            <div class="hdr"></div><div class="hdr">Wed</div><div class="hdr">Thu</div><div class="hdr tmr">Fri</div><div class="hdr">Sat</div>
+            <div class="hr">9</div><div></div><div></div><div class="tmr"></div><div></div>
+            <div class="hr">10</div><div></div><div></div><div class="tmr slot"></div><div></div>
+            <div class="hr">11</div><div></div><div></div><div class="tmr"></div><div></div>
+            <div class="hr">12</div><div></div><div></div><div class="tmr"></div><div></div>
+          </div>
+          <div class="evt"><b class="t"></b><span class="w">10:00 – 10:30</span></div>
+          <div class="pop"><div class="row"><span>title</span><b class="ptitle"></b></div><div class="row"><span>invite</span><b class="pinv"></b></div></div>
+        </div>
+
+        <div class="bar-cmd" aria-hidden="true">
+          <span class="note"></span><span class="typed"></span><span class="caret"></span>
+          <div class="foot"><span class="chip on">qwen3.8-27b</span><span class="chip">claude-sonnet-5.5</span><span class="k">↩ run</span></div>
+        </div>
+
+        <div class="hud" aria-hidden="true"><span class="pulse"></span><span class="line">Looking at the screen…</span><div class="trail"></div></div>
+
+        <div class="cursor" aria-hidden="true"><svg viewBox="0 0 16 22"><path d="M1 1 L1 17 L5 13 L8 20 L11 19 L8 12 L14 12 Z"/></svg><span class="say"></span></div>
+        <span class="ripple" aria-hidden="true"></span>
+
+        <div class="dock"><i class="d-finder"></i><i class="d-cal"><b>19</b></i><i class="d-mail"></i><i class="d-notes"></i><i class="d-term"></i></div>
+      </div>
+      <div class="phases" aria-hidden="true"><span data-p="observe">observe</span><span data-p="decide">decide</span><span data-p="act">act</span><span data-p="settle">settle</span></div>
+      <figcaption>Illustration of Legato for Mac: hold Fn, say a task, and it runs the loop on your own Mac with your own model.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="x-sec mac-points">
+  <div class="wrap">
+    <div class="trio">
+      <div><b>Any model.</b><p>Claude, Qwen or any model behind an OpenAI-compatible API, with your own key, kept in your Keychain.</p></div>
+      <div><b>Your apps.</b><p>It works in the apps you already use, with a shell and each app's own scripting beside the screen.</p></div>
+      <div><b>Open source.</b><p>Apache-2.0. Read it, build it, change it. <a href="/docs">Docs →</a></p></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Legato Labs · the runtime for agents that act</span>
+    <nav aria-label="Footer"><a href="/docs/benchmarks">research</a><a href="/mac">mac</a><a href="/docs">docs</a><a href="https://github.com/legatolabs" rel="noopener">github</a><a href="/llms.txt">llms.txt</a><a href="mailto:hello@legato.computer">hello@legato.computer</a></nav>
+  </div>
+</footer>
+
+<script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+<script defer src="/_vercel/insights/script.js"></script>
+<script src="/site.js" defer></script>
+<script src="/demo.js" defer></script>
+</body>
+</html>
