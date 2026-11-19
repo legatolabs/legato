@@ -1,6 +1,7 @@
 """legato.tools: the Tool type, the bash tool and each desktop's shell."""
 from __future__ import annotations
 
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -46,6 +47,7 @@ def test_bash_timeout_kills_background_children():
     assert "[exit timeout after 0.5 s]" in out and time.monotonic() - t < 3
 
 
+@pytest.mark.skipif(shutil.which("timeout") is None, reason="wrap_command is for Linux shells, which have GNU timeout")
 def test_wrapped_command_runs_in_a_real_shell():
     out = legato.tools.local_shell(wrap_command("echo $((6 * 7)); false", 5), 10)
     assert out.startswith("42\n[exit 1]")
