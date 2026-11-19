@@ -188,7 +188,7 @@ writeFileSync(join(WK, "agent-skills", "index.json"), JSON.stringify(
   { $schema: "https://schemas.agentskills.io/discovery/0.2.0/schema.json", skills: skillEntries }, null, 2));
 writeFileSync(join(WK, "ai-catalog.json"), JSON.stringify({
   specVersion: "1.0",
-  host: { displayName: "Legato Labs", identifier: "did:web:legato.computer" },
+  host: { displayName: "Legato", identifier: "did:web:legato.computer" },
   entries: [
     ...skillEntries.map((s) => ({ identifier: `urn:air:legato.computer:skill:${s.name}`, displayName: "Use Legato",
       type: "text/markdown", url: s.url, description: s.description,
