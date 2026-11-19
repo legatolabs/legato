@@ -10,41 +10,38 @@ struct ProviderPreset: Identifiable, Hashable {
     let needsKey: Bool
     let keyHint: String
 
+    /// The model makers first, then the inference providers and routers (OpenRouter, Together, Fireworks, Groq,
+    /// Cerebras), then any OpenAI-compatible server (Legato Cloud, a server of your own).
     static let all: [ProviderPreset] = [
+        ProviderPreset(id: "openai", name: "OpenAI", baseURL: "https://api.openai.com/v1",
+                       models: [], needsKey: true, keyHint: "sk-…"),
+        ProviderPreset(id: "anthropic", name: "Claude (Anthropic)", baseURL: "https://api.anthropic.com/v1",
+                       models: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
+                       needsKey: true, keyHint: "sk-ant-…"),
+        ProviderPreset(id: "gemini", name: "Gemini (Google)", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+                       models: [], needsKey: true, keyHint: "AIza…"),
+        ProviderPreset(id: "xai", name: "Grok (xAI)", baseURL: "https://api.x.ai/v1",
+                       models: [], needsKey: true, keyHint: "xai-…"),
         ProviderPreset(id: "openrouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1",
                        models: ["qwen/qwen3.8-27b", "anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5", "qwen/qwen4-max",
                                 "openai/gpt-6.1-terra"],
                        needsKey: true, keyHint: "sk-or-…"),
-        ProviderPreset(id: "anthropic", name: "Anthropic", baseURL: "https://api.anthropic.com/v1",
-                       models: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
-                       needsKey: true, keyHint: "sk-ant-…"),
-        ProviderPreset(id: "openai", name: "OpenAI", baseURL: "https://api.openai.com/v1",
-                       models: [], needsKey: true, keyHint: "sk-…"),
-        ProviderPreset(id: "gemini", name: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
-                       models: [], needsKey: true, keyHint: "AIza…"),
-        ProviderPreset(id: "fireworks", name: "Fireworks", baseURL: "https://api.fireworks.ai/inference/v1",
+        ProviderPreset(id: "together", name: "Together AI", baseURL: "https://api.together.xyz/v1",
+                       models: [], needsKey: true, keyHint: "the Together key"),
+        ProviderPreset(id: "fireworks", name: "Fireworks AI", baseURL: "https://api.fireworks.ai/inference/v1",
                        models: [], needsKey: true, keyHint: "fw_…"),
         ProviderPreset(id: "groq", name: "Groq", baseURL: "https://api.groq.com/openai/v1",
                        models: [], needsKey: true, keyHint: "gsk_…"),
-        ProviderPreset(id: "together", name: "Together", baseURL: "https://api.together.xyz/v1",
-                       models: [], needsKey: true, keyHint: "the Together key"),
-        ProviderPreset(id: "deepinfra", name: "DeepInfra", baseURL: "https://api.deepinfra.com/v1/openai",
-                       models: [], needsKey: true, keyHint: "the DeepInfra key"),
         ProviderPreset(id: "cerebras", name: "Cerebras", baseURL: "https://api.cerebras.ai/v1",
                        models: [], needsKey: true, keyHint: "csk-…"),
-        ProviderPreset(id: "xai", name: "xAI", baseURL: "https://api.x.ai/v1",
-                       models: [], needsKey: true, keyHint: "xai-…"),
-        ProviderPreset(id: "ollama", name: "Ollama (this Mac)", baseURL: "http://localhost:11434/v1",
-                       models: [], needsKey: false, keyHint: "none"),
-        ProviderPreset(id: "lmstudio", name: "LM Studio (this Mac)", baseURL: "http://localhost:1234/v1",
-                       models: [], needsKey: false, keyHint: "none"),
-        ProviderPreset(id: "local", name: "Local server", baseURL: "http://localhost:8000/v1",
-                       models: [], needsKey: false, keyHint: "usually none"),
-        ProviderPreset(id: "custom", name: "Other (OpenAI-compatible)", baseURL: "",
-                       models: [], needsKey: true, keyHint: "the provider's key"),
+        ProviderPreset(id: "custom", name: "Custom (OpenAI-compatible)", baseURL: "",
+                       models: [], needsKey: false, keyHint: "the server's key, if it has one"),
     ]
 
-    static func find(_ id: String) -> ProviderPreset { all.first { $0.id == id } ?? all[0] }
+    /// Where a new install starts: OpenRouter with the model the Mac champion was measured with.
+    static let start = find("openrouter")
+
+    static func find(_ id: String) -> ProviderPreset { all.first { $0.id == id } ?? all.first { $0.id == "openrouter" }! }
 
     /// A model id shown short: the part after the provider's prefix ("anthropic/claude-sonnet-5.5" -> "claude-sonnet-5.5",
     /// "accounts/fireworks/models/x" -> "x").
@@ -97,8 +94,8 @@ final class AppSettings: ObservableObject {
     @Published var onboarded: Bool { didSet { d.set(onboarded, forKey: "onboarded") } }
 
     init() {
-        d.register(defaults: ["providerID": "openrouter", "baseURL": ProviderPreset.all[0].baseURL,
-                              "model": ProviderPreset.all[0].models[0], "maxSteps": 40, "imageMax": 4, "guardClicks": true, "allowShell": true,
+        d.register(defaults: ["providerID": ProviderPreset.start.id, "baseURL": ProviderPreset.start.baseURL,
+                              "model": ProviderPreset.start.models[0], "maxSteps": 40, "imageMax": 4, "guardClicks": true, "allowShell": true,
                               "ghostCursor": true, "fnKey": true, "holdToTalk": true, "repeats": true, "enginePython": "", "onboarded": false])
         providerID = d.string(forKey: "providerID") ?? "openrouter"
         baseURL = d.string(forKey: "baseURL") ?? ""

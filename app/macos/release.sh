@@ -63,8 +63,8 @@ rm -rf "$ICONSET"
 
 # ---- engine: standalone Python + legato
 echo "==> engine: $PBS_FILE"
-[ -f "$CACHE/$PBS_FILE" ] || curl -fsSL -o "$CACHE/$PBS_FILE" "$PBS_URL/$PBS_FILE"
-curl -fsSL -o "$CACHE/SHA256SUMS-$PBS_TAG" "$PBS_URL/SHA256SUMS"
+[ -f "$CACHE/$PBS_FILE" ] || curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o "$CACHE/$PBS_FILE" "$PBS_URL/$PBS_FILE"
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o "$CACHE/SHA256SUMS-$PBS_TAG" "$PBS_URL/SHA256SUMS"
 WANT="$(grep " $PBS_FILE\$" "$CACHE/SHA256SUMS-$PBS_TAG" | cut -d' ' -f1)"
 GOT="$(shasum -a 256 "$CACHE/$PBS_FILE" | cut -d' ' -f1)"
 [ -n "$WANT" ] && [ "$WANT" = "$GOT" ] || { echo "checksum mismatch for $PBS_FILE"; rm -f "$CACHE/$PBS_FILE"; exit 1; }
