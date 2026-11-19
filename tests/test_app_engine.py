@@ -379,7 +379,7 @@ def test_the_applescript_tool_asks_before_a_script_that_cannot_be_undone_and_run
 
 
 def test_applescript_is_kept_to_the_apps_and_steps_where_it_has_worked(monkeypatch):
-    # 17 Nov, the app's runs: Notes searched for a "favorite song", every Messages chat read to find "my girlfriend",
+    # the app's runs on a real Mac: Notes searched for a "favorite song", every Messages chat read to find a person,
     # a Contacts script escaped twice; across EXP-0037 to EXP-0044, Contacts scripts failed first try in 13 of 16
     from legato import app_engine as ae
     ran = []
@@ -394,7 +394,7 @@ def test_applescript_is_kept_to_the_apps_and_steps_where_it_has_worked(monkeypat
     t = ae.applescript_tool(lambda q: True)
     assert "Calendar" in t.description and "Messages" in t.description
     for script in ['tell application "Messages" to get name of every chat',
-                   'tell application "Contacts" to get value of phones of person "Steph"',
+                   'tell application "Contacts" to get value of phones of person "Sam"',
                    'tell application "Spotify" to play']:
         assert t.handler({"script": script}).startswith("not run: AppleScript here is only for")
     out = t.handler({"script": 'tell application "Notes" to get name of every note'})
@@ -442,7 +442,7 @@ def test_an_app_the_shell_opens_is_brought_to_the_front(monkeypatch):
 
 
 def test_the_app_runs_plans_one_call_carries_the_steps(tmp_path, monkeypatch, server):
-    # "text my girlfriend goodnight" in one call: open Messages, click her chat by its label, type, check, done
+    # "text Sam goodnight" in one call: open Messages, click the chat by its label, type, check, done
     import legato.app_engine as eng
     from legato import plan as plans
     from legato.harness import Harness
@@ -457,7 +457,7 @@ def test_the_app_runs_plans_one_call_carries_the_steps(tmp_path, monkeypatch, se
         return {"type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
     server["script"] = [{"tool_calls": [call("plan", {"steps": [
         {"action": "shell", "command": "open -a Messages"},
-        {"action": "click_text", "text": "Steph"},
+        {"action": "click_text", "text": "Sam"},
         {"action": "type", "text": "goodnight"},
         {"action": "wait_for", "text": "goodnight"},
         {"action": "done"}]})]}]
@@ -469,13 +469,13 @@ def test_the_app_runs_plans_one_call_carries_the_steps(tmp_path, monkeypatch, se
         def _confirm(self, question):
             return True
     acts = []
-    rec = Run(FakeLink(), {"id": "p1", "task": "text my girlfriend goodnight", "model": "m", "base_url": "http://x/v1",
+    rec = Run(FakeLink(), {"id": "p1", "task": "text Sam goodnight", "model": "m", "base_url": "http://x/v1",
                            "shell": True, "runs_dir": str(tmp_path)}, env_factory=lambda run: OkEnv(acts.append))()
     assert made["plan"] is True and "Messages, Contacts, Mail" in made["system"] and "Only words" in made["system"]
     assert rec["status"] == "done" and rec["steps"] == 1
     assert [a.type for a in acts] == ["click", "type"] and (acts[0].x, acts[0].y) == (40, 60)
     t = rec["turns"][0]
-    assert t["actions"][0].startswith("bash(") and t["actions"][1] == 'click text "Steph"' and t["actions"][-1] == "done"
+    assert t["actions"][0].startswith("bash(") and t["actions"][1] == 'click text "Sam"' and t["actions"][-1] == "done"
     assert t["timing"]["plan_steps"] == 4 and t["timing"]["plan_ran"] == 4
     assert [x["function"]["name"] for x in server["bodies"][0]["tools"]] == ["plan"]
 

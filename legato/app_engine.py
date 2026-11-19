@@ -313,8 +313,8 @@ def shell_tool(ask, timeout_s: float = 30.0, max_chars: int = 4000, focus=None) 
 # Where a script has worked for Qwen3.8-27B (legato-research EXP-0037 to EXP-0044, 164 scripts): creating or changing
 # named items in Calendar and Reminders (calendar-week 6 of 8 passed scripted, 2 of 10 on the screen), named notes,
 # Finder's Trash and System Events settings. Contacts failed first try in 13 of 16 episodes (`phone numbers` for
-# `phones`), and on 17 Nov the app's runs spent their time reading through Notes and every Messages chat to work out
-# what "my favorite song" and "my girlfriend" meant: those are for the screen.
+# `phones`), and on a real Mac the app's runs spent their time reading through Notes and every Messages chat to work
+# out what a vague request ("my favorite song", "text my partner") meant: those are for the screen.
 SCRIPT_APPS = ("Calendar", "Reminders", "Notes", "Finder", "System Events")
 # reading every item of the person's data, with no `whose` to name one: searching, not doing
 _TROLL = re.compile(r"\bevery\s+(?:notes?|chats?|messages?|persons?|people|accounts?|buddy|buddies|participants?)\b"
