@@ -272,7 +272,7 @@ class Harness:
                  tools: list[Tool] | None = None, plan: bool = False, plan_max_steps: int = 12,
                  end_fix: bool = False, change_log: bool = False, hedge_after_s: float | None = None,
                  plan_trust_first_click: bool = False, ocr_cache: bool = False,
-                 ocr_near: bool = False, strict_done: bool = False, image_format: str = "png", jpeg_quality: int = 85,
+                 ocr_near: bool = False, strict_done: bool = False, image_format: str = "jpeg", jpeg_quality: int = 85,
                  change_log_lines: int = 15, change_log_turns: int | None = None, progress_note: bool = False,
                  history_scale: float | None = None):
         """plan: one `plan` tool whose steps (screen actions, click_text, shell through the `bash` tool in `tools`,
@@ -282,10 +282,11 @@ class Harness:
         screenshots are sent at ("auto": Anthropic's recommended size for Claude, the screen size otherwise; None:
         the screen size; or (w, h)). cache_breakpoints: ask for prompt caching with a top-level cache_control (default: on for
         Claude; OpenRouter and Anthropic-compatible APIs read it). tools: more tools beside `computer`, such as
-        `legato.tools.bash(env)`; each result goes back to the model as text. image_format: "png" (default) or
-        "jpeg" (jpeg_quality): screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes; the
+        `legato.tools.bash(env)`; each result goes back to the model as text. image_format: "jpeg" (default,
+        jpeg_quality) or "png": screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes; the
         upload is most of a hosted call's wait for its first token (legato-research EXP-0052: a call 1.57 s against
-        3.11 s at median through OpenRouter, the next action unchanged)."""
+        3.11 s at median through OpenRouter, the next action unchanged; EXP-0053: on 27 Mac tasks a call 2.28 against
+        3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless."""
         if image_format not in ("png", "jpeg"):
             raise ValueError("image_format must be 'png' or 'jpeg'")
         coords = coords or ("pixels" if is_claude(model) else "norm1000")
@@ -436,11 +437,14 @@ class Harness:
             return "data:image/png;base64," + b64
         out = self._jpeg.get(b64)
         if out is None:
-            out = jpeg_b64(b64, self.jpeg_quality)
+            try:
+                out = jpeg_b64(b64, self.jpeg_quality)
+            except Exception:                         # not an image Pillow reads: send it as it came, never fail a turn
+                out = ""
             if len(self._jpeg) >= 32:                 # more than any prompt keeps; the oldest goes first
                 self._jpeg.pop(next(iter(self._jpeg)))
             self._jpeg[b64] = out
-        return "data:image/jpeg;base64," + out
+        return "data:image/jpeg;base64," + out if out else "data:image/png;base64," + b64
 
     def _tools_prompt(self) -> str:
         """The system-prompt lines for the extra tools. Without native tool calls the model gets no tool specs, so it
