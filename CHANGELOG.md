@@ -13,7 +13,9 @@
   a `check` script; an error returns the app's real terms.
 - `Harness(image_format="jpeg")`: screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes.
   The upload is most of a hosted call's wait for its first token on a home uplink; on replayed Mac turns through
-  OpenRouter it halved a call with the next action unchanged (legato-research EXP-0052). PNG stays the default.
+  OpenRouter it halved a call with the next action unchanged (legato-research EXP-0052), and on 27 live Mac tasks it
+  cut a median task from 23.7 to 18.5 s with passes held (EXP-0053). JPEG is the default; `image_format="png"` sends
+  the screenshots lossless.
 - `legato.local()` is safe to run on your own Mac: move the mouse into a corner or hold Escape to stop it, and risky
   keys and typed shell commands (`legato/safety.py`) wait for a yes (`confirm=`, `legato run --yes`). `legato doctor`
   checks the macOS permissions. `wait_scope="app"` waits on the front app's windows only; `wait="ax|cells"` ends a

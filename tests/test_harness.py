@@ -102,12 +102,14 @@ def test_jpeg_screenshots_keep_the_size_and_cut_the_bytes():
     turns = [{"role": "user", "png_b64": png}]
     url = lambda h: [p for m in h._messages("task", 320, 200, turns) if m["role"] == "user"  # noqa: E731
                      for p in m["content"] if p.get("type") == "image_url"][0]["image_url"]["url"]
-    assert url(legato.Harness("m", "http://x/v1")).startswith("data:image/png;base64,")      # PNG unless asked
-    h = legato.Harness("m", "http://x/v1", image_format="jpeg")
+    assert url(legato.Harness("m", "http://x/v1", image_format="png")).startswith("data:image/png;base64,")
+    h = legato.Harness("m", "http://x/v1")                                                    # JPEG by default
     first = url(h)
     assert first.startswith("data:image/jpeg;base64,") and url(h) == first                    # encoded once, stable
     jpg = base64.b64decode(first.split(",", 1)[1])
     assert Image.open(io.BytesIO(jpg)).size == (320, 200) and len(jpg) < len(buf.getvalue())
+    assert url(legato.Harness("m", "http://x/v1")).startswith("data:image/") and \
+        legato.Harness("m", "http://x/v1")._image_url("bm90IGFuIGltYWdl") == "data:image/png;base64,bm90IGFuIGltYWdl"  # unreadable: as it came
     with pytest.raises(ValueError):
         legato.Harness("m", "http://x/v1", image_format="webp")
 
