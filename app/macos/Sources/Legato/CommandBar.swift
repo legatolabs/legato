@@ -12,9 +12,14 @@ final class CommandBarController: NSObject, NSWindowDelegate {
     private var watch: AnyCancellable?
     private var top: CGFloat = 0                     // the panel grows and shrinks downward from here
 
-    init(model: RunModel, settings: AppSettings, submit: @escaping (String, AX.Context) -> Void, stop: @escaping () -> Void,
+    private let prior: () -> PriorResult?
+    private var submitTask: ((String) -> Void)!
+
+    init(model: RunModel, settings: AppSettings, prior: @escaping () -> PriorResult?,
+         submit: @escaping (String, AX.Context, PriorResult?) -> Void, stop: @escaping () -> Void,
          openSettings: @escaping () -> Void) {
         self.settings = settings
+        self.prior = prior
         panel = KeyablePanel(contentRect: NSRect(x: 0, y: 0, width: 640, height: 120),
                              styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
                              backing: .buffered, defer: false)
@@ -28,13 +33,14 @@ final class CommandBarController: NSObject, NSWindowDelegate {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self
+        submitTask = { [weak self] text in
+            guard let self else { return }
+            let ctx = self.state.context, fu = self.state.followUp
+            self.hide()
+            submit(text, ctx, fu)
+        }
         let view = CommandBarView(state: state, model: model, settings: settings,
-                                  submit: { [weak self] text in
-                                      guard let self else { return }
-                                      let ctx = self.state.context
-                                      self.hide()
-                                      submit(text, ctx)
-                                  },
+                                  submit: { [weak self] text in self?.submitTask(text) },
                                   cancel: { [weak self] in self?.hide() },
                                   stop: stop,
                                   openSettings: { [weak self] in self?.hide(); openSettings() })
@@ -54,6 +60,7 @@ final class CommandBarController: NSObject, NSWindowDelegate {
         state.context = AX.frontContext()
         state.text = ""
         state.mode = .task
+        state.followUp = prior()
         state.recall = -1
         state.focus += 1
         ModelCatalog.refreshStale(settings)
@@ -76,17 +83,49 @@ final class CommandBarController: NSObject, NSWindowDelegate {
 
     func hide() { panel.orderOut(nil) }
 
+    // ------------------------------------------------------------ hold Fn to talk
+    func listen() {
+        if !panel.isVisible { show() }
+        state.text = ""
+        state.mode = .listening
+    }
+
+    func heard(_ text: String) { state.text = text }
+
+    /// Fn let go: run what was said (nothing said: close).
+    func spoken(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard state.mode == .listening else { return }
+        state.mode = .task
+        if t.isEmpty || settings.problem != nil {
+            state.text = t
+            if t.isEmpty { hide() }
+            return
+        }
+        settings.noteTask(t)
+        settings.noteUsed()
+        submitTask(t)
+    }
+
+    /// Another key while Fn was held: keep what was heard in the field, to edit or run.
+    func stopListening() {
+        guard state.mode == .listening else { return }
+        state.mode = .task
+        state.focus += 1
+    }
+
     func windowDidResignKey(_ notification: Notification) { hide() }
 }
 
 final class CommandBarState: ObservableObject {
-    enum Mode { case task, model }
+    enum Mode { case task, model, listening }
     @Published var text = ""
     @Published var context = AX.Context()
     @Published var focus = 0
     @Published var mode = Mode.task
     @Published var query = ""
     @Published var pick = 0                         // the highlighted model in the list
+    @Published var followUp: PriorResult?           // the last answer this task follows (⌫ on an empty field drops it)
     var recall = -1                                 // which past task ↑ brought back (-1: none)
 }
 
@@ -106,6 +145,8 @@ struct CommandBarView: View {
                 busy
             } else if state.mode == .model {
                 picker
+            } else if state.mode == .listening {
+                listening
             } else {
                 input
                 Divider().overlay(Theme.line)
@@ -118,6 +159,7 @@ struct CommandBarView: View {
         .foregroundColor(.white)
         .environment(\.colorScheme, .dark)
         .onExitCommand(perform: { state.mode == .model ? closePicker() : cancel() })
+        .animation(.easeOut(duration: 0.12), value: state.mode)
         .onChange(of: state.focus) { focused = true }
         .onAppear { focused = true }
     }
@@ -125,9 +167,21 @@ struct CommandBarView: View {
     // ------------------------------------------------------------ the task
     private var input: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let f = state.followUp {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.turn.down.right")
+                    Text("Following up on “\(f.task)”").lineLimit(1).truncationMode(.middle)
+                    Button(action: { state.followUp = nil }) { Image(systemName: "xmark") }
+                        .buttonStyle(.plain)
+                        .help("Start fresh (⌫ on an empty field)")
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(Theme.neon)
+                .padding(.leading, 34)
+            }
             HStack(spacing: 12) {
                 NoteMark().frame(width: 22, height: 22)
-                TextField("Tell Legato what to do…", text: $state.text)
+                TextField(state.followUp == nil ? "Tell Legato what to do…" : "Follow up…", text: $state.text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 20))
                     .focused($focused)
@@ -135,6 +189,11 @@ struct CommandBarView: View {
                     .onKeyPress(.upArrow) { recall(+1) }
                     .onKeyPress(.downArrow) { recall(-1) }
                     .onKeyPress(.tab) { openPicker(); return .handled }
+                    .onKeyPress(.delete) {
+                        guard state.text.isEmpty, state.followUp != nil else { return .ignored }
+                        state.followUp = nil
+                        return .handled
+                    }
             }
             if !state.context.app.isEmpty {
                 HStack(spacing: 6) {
@@ -186,7 +245,7 @@ struct CommandBarView: View {
                 .help("Search every model")
             }
             Spacer(minLength: 8)
-            Text("↩ run  ↑ last  esc")
+            Text(settings.holdToTalk ? "↩ run  hold fn to talk" : "↩ run  ↑ last  esc")
         }
         .font(.system(size: 11))
         .foregroundColor(Theme.dim)
@@ -323,6 +382,39 @@ struct CommandBarView: View {
             state.text = past[i]
         }
         return .handled
+    }
+
+    // ------------------------------------------------------------ hold Fn to talk
+    private var listening: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Theme.neon)
+                    .symbolEffect(.variableColor.iterative, options: .repeating)
+                    .frame(width: 22)
+                Text(state.text.isEmpty ? "Listening…" : state.text)
+                    .font(.system(size: 20))
+                    .foregroundColor(state.text.isEmpty ? Theme.dim : .white)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
+            Divider().overlay(Theme.line)
+            HStack {
+                if let f = state.followUp {
+                    Image(systemName: "arrow.turn.down.right")
+                    Text("Following up on “\(f.task)”").lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                Text("let go of fn to run  ·  any other key to edit")
+            }
+            .font(.system(size: 11))
+            .foregroundColor(Theme.dim)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
     }
 
     // ------------------------------------------------------------ running

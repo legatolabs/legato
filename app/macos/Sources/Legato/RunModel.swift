@@ -18,6 +18,8 @@ final class RunModel: ObservableObject {
     @Published var wall: Double = 0
     @Published var runID = ""
     @Published var stopping = false
+    @Published var feed: [String] = []         // what it has done this run, oldest first (the HUD shows the last few)
+    @Published var routine = ""                // "Repeating steps that worked on 18 Nov" when the engine found some
 
     var active: Bool { [.starting, .thinking, .acting, .paused, .confirming].contains(phase) }
 
@@ -36,6 +38,39 @@ final class RunModel: ObservableObject {
         message = ""
         wall = 0
         stopping = false
+        feed = []
+        routine = ""
+    }
+
+    /// Add a done step to the feed, in the past tense ("Typing “x”" -> "Typed “x”"), skipping repeats and waits.
+    func did(_ caption: String) {
+        let past = RunModel.past(caption)
+        guard !past.isEmpty, feed.last != past else { return }
+        feed.append(past)
+        if feed.count > 40 { feed.removeFirst(feed.count - 40) }
+    }
+
+    static func past(_ c: String) -> String {
+        let swaps = [("Typing ", "Typed "), ("Pressing ", "Pressed "), ("Double-click", "Double-clicked"),
+                     ("Triple-click", "Triple-clicked"), ("Right-click", "Right-clicked"), ("Click", "Clicked"),
+                     ("Scroll ", "Scrolled "), ("Drag", "Dragged")]
+        if c.hasPrefix("Waiting") || c.hasPrefix("Starting") || c.hasPrefix("Thinking") || c.hasPrefix("Looking") { return "" }
+        for (a, b) in swaps where c.hasPrefix(a) { return b + c.dropFirst(a.count) }
+        return c
+    }
+
+    /// The shell and AppleScript steps of an engine "step" event, as feed lines.
+    static func toolLines(_ actions: [String]) -> [String] {
+        actions.compactMap { a in
+            if a.hasPrefix("bash(") {
+                let cmd = (a.range(of: "\"command\": \"").map { String(a[$0.upperBound...]) } ?? a)
+                    .replacingOccurrences(of: "\\\"", with: "\"")
+                let c = cmd.hasSuffix("\"})") ? String(cmd.dropLast(3)) : cmd
+                return "Ran " + (c.count > 48 ? String(c.prefix(47)) + "…" : c)
+            }
+            if a.hasPrefix("applescript(") { return "Ran AppleScript" }
+            return nil
+        }
     }
 
     var headline: String {

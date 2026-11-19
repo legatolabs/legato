@@ -128,7 +128,26 @@ struct HUDView: View {
                 }
                 PillButton(title: "Stop", action: actions.stop)
             }
-            if !model.thought.isEmpty && model.phase != .paused {
+            if !model.routine.isEmpty && model.phase != .paused {
+                Label(model.routine, systemImage: "arrow.clockwise")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Theme.neon)
+                    .padding(.leading, 20)
+            }
+            if !model.feed.isEmpty && model.phase != .paused {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(model.feed.suffix(3).enumerated()), id: \.offset) { _, line in
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundColor(Theme.neon.opacity(0.8))
+                            Text(line).lineLimit(1).truncationMode(.tail)
+                        }
+                    }
+                }
+                .font(.system(size: 11))
+                .foregroundColor(Theme.dim)
+                .padding(.leading, 20)
+                .transition(.opacity)
+            } else if !model.thought.isEmpty && model.phase != .paused {
                 Text(model.thought)
                     .font(.system(size: 11))
                     .foregroundColor(Theme.dim)
@@ -136,6 +155,7 @@ struct HUDView: View {
                     .padding(.leading, 20)
             }
         }
+        .animation(.easeOut(duration: 0.15), value: model.feed.count)
     }
 
     private var confirm: some View {
@@ -164,7 +184,8 @@ struct HUDView: View {
                         model.status == "stopped" ? "stop.circle.fill" : "exclamationmark.triangle.fill")
                     .foregroundColor(model.status == "done" ? Theme.neon : .white.opacity(0.8))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.headline).font(.system(size: 13, weight: .semibold))
+                    Text(model.status == "done" && model.wall > 0 ? "Done in \(formatSpeed(model.wall))" : model.headline)
+                        .font(.system(size: 13, weight: .semibold))
                     Text(summary).font(.system(size: 11)).foregroundColor(Theme.dim).lineLimit(1)
                 }
                 Spacer()
@@ -234,7 +255,7 @@ struct HUDView: View {
 
     private var summary: String {
         var parts = [model.task]
-        if model.wall > 0 { parts.append(formatDuration(model.wall)) }
+        if model.wall > 0 && model.status != "done" { parts.append(formatSpeed(model.wall)) }
         if model.turn > 0 { parts.append("\(model.turn) turn\(model.turn == 1 ? "" : "s")") }
         let c = formatCost(model.cost)
         if !c.isEmpty { parts.append(c) }

@@ -500,3 +500,31 @@ def test_the_app_ends_a_task_the_model_twice_calls_complete_without_an_action(tm
     assert made["end_fix"] is True
     assert rec["status"] == "done" and rec["steps"] == 2 and rec["turns"][1]["timing"]["ended"] == "no action twice"
     assert any(END_NOTE in json.dumps(m) for m in server["bodies"][1]["messages"])
+
+
+# ---------------------------------------------------------------- follow-ups and repeats
+def _run_dir(base, rid, task, status, actions):
+    d = base / rid
+    d.mkdir(parents=True)
+    (d / "run.json").write_text(json.dumps({"id": rid, "task": task, "status": status, "wall_s": 9.0,
+                                           "turns": [{"turn": i + 1, "actions": a} for i, a in enumerate(actions)]}))
+
+
+def test_a_repeat_is_the_shortest_done_run_of_the_same_words_without_waits(tmp_path):
+    from legato.app_engine import known_routine
+    _run_dir(tmp_path, "20261118-0800-a", "Play thinking about you", "done",
+             [['click text "Spotify"', "wait"], ['bash({"command": "echo waiting"})', 'type "thinking about you"'],
+              ["key Return"]])
+    _run_dir(tmp_path, "20261118-0900-b", "play thinking about you!", "done",
+             [['bash({"command": "open spotify:search:thinking%20about%20you"})'], ['double click text "Thinking About You"']])
+    _run_dir(tmp_path, "20261118-1000-c", "play thinking about you", "stopped", [["key Return"]])
+    _run_dir(tmp_path, "20261118-1100-d", "play something else", "done", [["key Return"]])
+    r = known_routine(tmp_path, "PLAY thinking, about you")
+    assert r["id"] == "20261118-0900-b" and len(r["steps"]) == 2
+    assert known_routine(tmp_path, "play thinking") is None and known_routine(None, "x") is None
+
+
+def test_the_task_carries_the_follow_up_and_a_repeat_only_when_there_is_no_follow_up(tmp_path):
+    from legato.app_engine import FOLLOW_NOTE, REPEAT_NOTE
+    assert "“open my github”" in FOLLOW_NOTE.format(task="open my github", result="done")
+    assert "1. key Return" in REPEAT_NOTE.format(steps="1. key Return")

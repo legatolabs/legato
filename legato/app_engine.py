@@ -48,6 +48,47 @@ from legato.tools import Tool, ToolCall, applescript, clip, local_shell
 REPLAN_NOTE = ("The run was paused and the person may have used the computer, so the actions left in your last "
                "reply were not run. {why} Look at this screenshot before you act.")
 CONTEXT_NOTE = "\n\nWhere the person was when they asked: {context}"
+FOLLOW_NOTE = ("\n\nThis follows the person's previous request to you, “{task}”, which you finished with: “{result}”. "
+               "Read this one in that light (\"it\", \"that\", \"again\" mean what they did there).")
+REPEAT_NOTE = ("\n\nYou did this same task on this Mac before; these steps finished it then:\n{steps}\n"
+               "They worked from the screen as it was then. If they would finish it from this screen too, do them as one "
+               "plan in this reply (each labelled click is found again before it runs); if not, plan from what the screen "
+               "shows now.")
+REPEAT_MAX_STEPS = 12          # a routine longer than this is not a repeat worth suggesting
+_NOT_STEPS = re.compile(r'^(wait|screenshot|done|fail)$|^bash\(\{"command": "(echo|sleep|true)\b')
+
+
+def _task_key(task: str) -> str:
+    """A task's words as compared for a repeat: lower case, no punctuation, single spaces."""
+    return " ".join(re.sub(r"[^\w\s]", " ", task.lower()).split())
+
+
+def known_routine(runs_dir: str | Path | None, task: str, limit: int = 300) -> dict | None:
+    """The shortest earlier run of the same task (same words) that ended done, as {"id", "steps": [...]}: the
+    actions that did something (no waits, screenshots or `echo`), at most REPEAT_MAX_STEPS. None if there is none."""
+    if not runs_dir:
+        return None
+    key = _task_key(task)
+    if not key:
+        return None
+    best = None
+    try:
+        dirs = sorted((d for d in Path(runs_dir).iterdir() if d.is_dir()), reverse=True)[:limit]
+    except OSError:
+        return None
+    for d in dirs:
+        try:
+            r = json.loads((d / "run.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if r.get("status") != "done" or _task_key(r.get("task") or "") != key:
+            continue
+        steps = [a for t in r.get("turns") or [] for a in t.get("actions") or [] if not _NOT_STEPS.search(a.strip())]
+        if not steps or len(steps) > REPEAT_MAX_STEPS:
+            continue
+        if best is None or len(steps) < len(best["steps"]):
+            best = {"id": r.get("id") or d.name, "steps": steps, "wall_s": r.get("wall_s")}
+    return best
 
 # ------------------------------------------------------------------ the shell: what can't be undone waits for a yes
 SHELL_HINT = ("Run a shell command on this Mac (bash) and get its output and exit code. It is often much faster than "
@@ -567,13 +608,24 @@ class Run:
         t0 = time.monotonic()
         task = (m.get("task") or "").strip()
         full_task = task + (CONTEXT_NOTE.format(context=m["context"].strip()) if (m.get("context") or "").strip() else "")
+        fu = m.get("follow_up") or {}
+        if (fu.get("task") or "").strip():
+            full_task += FOLLOW_NOTE.format(task=fu["task"].strip()[:300], result=(fu.get("result") or "").strip()[:1500])
+        routine = known_routine(m.get("runs_dir"), task) if m.get("repeats", True) is not False and not fu else None
+        if routine:
+            full_task += REPEAT_NOTE.format(steps="\n".join(f"{i}. {a}" for i, a in enumerate(routine["steps"], 1)))
         image_max = int(m["image_max"]) if m.get("image_max") else 8      # Harness's default
         self.record = {"id": self.id, "task": task, "context": m.get("context") or "", "model": m.get("model"),
                        "base_url": m.get("base_url"), "image_max": image_max, "started": time.time(),
                        "status": "running", "turns": [],
                        "usage": {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}}
         status, message, error = "max_steps", "", None
-        link.event("run_started", id=self.id, task=task, dir=str(self.dir))
+        if routine:
+            self.record["routine"] = {"from": routine["id"], "steps": len(routine["steps"])}
+        if fu:
+            self.record["follow_up"] = (fu.get("task") or "")[:300]
+        link.event("run_started", id=self.id, task=task, dir=str(self.dir),
+                   routine={"from": routine["id"], "steps": len(routine["steps"]), "wall_s": routine.get("wall_s")} if routine else None)
         try:
             env = self.env_factory(self)
             tools = ([shell_tool(env._confirm, focus=getattr(env, "_focus", None)), applescript_tool(env._confirm)]

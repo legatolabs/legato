@@ -86,6 +86,8 @@ struct SettingsView: View {
                 Toggle("Let the agent run commands and AppleScript (asks before anything it can’t undo)", isOn: $settings.allowShell)
                 Toggle("Show the agent’s cursor", isOn: $settings.ghostCursor)
                 Toggle("Open with a tap on Fn (⌥⇧Space always works)", isOn: $settings.fnKey)
+                Toggle("Hold Fn to say the task, let go to run it (speech stays on this Mac)", isOn: $settings.holdToTalk)
+                Toggle("Start a task done before with the steps that finished it then", isOn: $settings.repeats)
             }
             Section("Advanced") {
                 TextField("Engine Python", text: $settings.enginePython,

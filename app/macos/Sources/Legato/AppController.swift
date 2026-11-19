@@ -28,6 +28,9 @@ final class AppController: NSObject {
 
     enum AskKind { case click, engine }
 
+    /// The last task's answer, offered as a follow-up the next time the command bar opens (for ten minutes).
+    var lastResult: PriorResult?
+
     // ------------------------------------------------------------ start
     func start() {
         hud = HUDController(model: model, actions: HUDActions(
@@ -39,7 +42,8 @@ final class AppController: NSObject {
             close: { [weak self] in self?.hud.hide(); self?.model.phase = .idle; self?.refreshMenu() },
             settings: { [weak self] in self?.showSettings() }))
         bar = CommandBarController(model: model, settings: settings,
-                                   submit: { [weak self] text, ctx in self?.startRun(task: text, context: ctx) },
+                                   prior: { [weak self] in self?.lastResult.flatMap { Date().timeIntervalSince($0.at) < 600 ? $0 : nil } },
+                                   submit: { [weak self] text, ctx, fu in self?.startRun(task: text, context: ctx, followUp: fu) },
                                    stop: { [weak self] in self?.stop() },
                                    openSettings: { [weak self] in self?.showSettings() })
         _ = ghost                                   // a window of ours exists before the first screenshot filter
@@ -57,6 +61,12 @@ final class AppController: NSObject {
         monitor.onFnTap = { [weak self] in
             guard let self, self.settings.fnKey else { return }
             self.toggleCommandBar()
+        }
+        monitor.onFnHoldStart = { [weak self] in self?.startTalking() }
+        monitor.onFnHoldEnd = { [weak self] in self?.endTalking() }
+        monitor.onFnHoldCancel = { [weak self] in
+            self?.voice.stop()
+            self?.bar.stopListening()
         }
         monitor.install()
         hotkey.onPress = { [weak self] in self?.toggleCommandBar() }
@@ -137,8 +147,35 @@ final class AppController: NSObject {
         bar.toggle()
     }
 
+    // ------------------------------------------------------------ hold Fn to talk
+    let voice = VoiceInput()
+
+    private func startTalking() {
+        guard settings.fnKey, settings.holdToTalk, !model.active else { return }
+        guard VoiceInput.authorized else {                // the first hold asks; the next one listens
+            VoiceInput.authorize { [weak self] problem in
+                if let problem { self?.finishWithError(task: "Hold Fn to talk", problem) }
+            }
+            return
+        }
+        if model.phase == .finished { hud.hide(); model.phase = .idle }
+        bar.listen()
+        voice.onText = { [weak self] t in self?.bar.heard(t) }
+        do {
+            try voice.start()
+        } catch {
+            bar.stopListening()
+            finishWithError(task: "Hold Fn to talk", error.localizedDescription)
+        }
+    }
+
+    private func endTalking() {
+        guard voice.running else { return }
+        voice.finish { [weak self] text in self?.bar.spoken(text) }
+    }
+
     // ------------------------------------------------------------ a run
-    func startRun(task: String, context: AX.Context) {
+    func startRun(task: String, context: AX.Context, followUp: PriorResult? = nil) {
         if model.active { return }
         if let problem = settings.problem {
             finishWithError(task: task, problem)
@@ -170,7 +207,8 @@ final class AppController: NSObject {
         refreshMenu()
         engine.send(["type": "run", "id": id, "task": task, "context": context.summary, "model": settings.model,
                      "base_url": settings.baseURL, "api_key": settings.apiKey, "max_steps": settings.maxSteps, "image_max": settings.imageMax, "wait_scope": "screen", "shell": settings.allowShell,
-                     "runs_dir": settings.runsDir.path])
+                     "runs_dir": settings.runsDir.path, "repeats": settings.repeats,
+                     "follow_up": followUp.map { ["task": $0.task, "result": $0.result] } ?? [:]])
     }
 
     static func runID() -> String {
@@ -303,6 +341,9 @@ final class AppController: NSObject {
         case "run_started":
             model.phase = .thinking
             model.line = "Looking at the screen…"
+            if let r = m["routine"] as? [String: Any], let from = r["from"] as? String {
+                model.routine = "Reusing \(r["steps"] as? Int ?? 0) steps that worked " + Self.when(runID: from)
+            }
         case "thinking":
             model.turn = m["turn"] as? Int ?? model.turn
             if model.phase != .paused && model.phase != .confirming {
@@ -315,6 +356,7 @@ final class AppController: NSObject {
             if let u = m["usage"] as? [String: Any] { model.cost = u["cost_usd"] as? Double ?? model.cost }
         case "step":
             model.turn = m["turn"] as? Int ?? model.turn
+            for l in RunModel.toolLines(m["actions"] as? [String] ?? []) { model.did(l) }
             if let u = m["usage"] as? [String: Any] { model.cost = u["cost_usd"] as? Double ?? model.cost }
         case "finished":
             if let id = m["id"] as? String, id != model.runID, !model.runID.isEmpty { return }
@@ -343,6 +385,9 @@ final class AppController: NSObject {
         if let u = m["usage"] as? [String: Any] { model.cost = u["cost_usd"] as? Double ?? model.cost }
         ghost.hide()
         hud.show()
+        if ["done", "failed"].contains(model.status) && !model.message.isEmpty {
+            lastResult = PriorResult(task: model.task, result: model.message, at: Date())
+        }
         let long = model.message.count > 220 || model.message.split(separator: "\n").count > 3
         if model.status == "done" && !long { hud.hide(after: 12) }   // an answer to read stays until closed
         refreshMenu()
@@ -443,6 +488,7 @@ final class AppController: NSObject {
     private func go(_ id: Int, line: String) {
         model.phase = .acting
         model.line = line
+        model.did(line)
         monitor.beginActing()
         engine.reply(id, ["go": true])
     }
@@ -453,6 +499,18 @@ final class AppController: NSObject {
         let mine = NSRunningApplication.current.localizedName ?? "Legato"
         if let el = AX.element(at: p), el.app != mine { return el }
         return ghost.hidden { AX.element(at: p) }.flatMap { $0.app == mine ? nil : $0 }
+    }
+
+    /// "on 18 Nov" or "earlier today" for a run id (yyyyMMdd-HHmmss-xxxx).
+    static func when(runID: String) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        guard let d = f.date(from: String(runID.prefix(15))) else { return "before" }
+        if Calendar.current.isDateInToday(d) { return "earlier today" }
+        if Calendar.current.isDateInYesterday(d) { return "yesterday" }
+        let g = DateFormatter()
+        g.dateFormat = "d MMM"
+        return "on " + g.string(from: d)
     }
 
     static func verb(_ type: String) -> String {

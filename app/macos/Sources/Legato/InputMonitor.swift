@@ -12,6 +12,13 @@ final class InputMonitor {
     var onTakeover: ((String) -> Void)?
     var onEscape: (() -> Void)?
     var onFnTap: (() -> Void)?
+    /// Fn held past `holdAfter` with nothing else pressed (hold to talk); then let go, or another key cancels it.
+    var onFnHoldStart: (() -> Void)?
+    var onFnHoldEnd: (() -> Void)?
+    var onFnHoldCancel: (() -> Void)?
+    var holdAfter: TimeInterval = 0.45            // the old tap window: a slow tap still opens the bar
+    private var holding = false
+    private var holdWork: DispatchWorkItem?
 
     /// Set by the app: whether a run is active, so input counts as taking over.
     var watching = false
@@ -57,6 +64,16 @@ final class InputMonitor {
         return true
     }
 
+    /// Another key while Fn is down (Fn+Delete, Fn+arrows): not a tap and not talking.
+    private func cancelHold() {
+        fnClean = false
+        holdWork?.cancel()
+        if holding {
+            holding = false
+            DispatchQueue.main.async { self.onFnHoldCancel?() }
+        }
+    }
+
     private func isAgents(_ event: CGEvent) -> Bool {
         let pid = pid_t(truncatingIfNeeded: event.getIntegerValueField(.eventSourceUnixProcessID))
         if enginePid != 0 && pid == enginePid { return true }
@@ -74,18 +91,34 @@ final class InputMonitor {
             let code = event.getIntegerValueField(.keyboardEventKeycode)
             if code == Int64(kVK_Function) {
                 if event.flags.contains(.maskSecondaryFn) {
-                    fnDownAt = Date()
-                    fnClean = true
-                } else if let t = fnDownAt, fnClean, Date().timeIntervalSince(t) < 0.45, !isAgents(event) {
-                    fnDownAt = nil
-                    DispatchQueue.main.async { self.onFnTap?() }
+                    let at = Date()
+                    fnDownAt = at
+                    fnClean = !isAgents(event)
+                    holdWork?.cancel()
+                    let work = DispatchWorkItem { [weak self] in        // still held, nothing else pressed: listen
+                        guard let self, self.fnClean, self.fnDownAt == at else { return }
+                        self.holding = true
+                        self.onFnHoldStart?()
+                    }
+                    holdWork = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + holdAfter, execute: work)
+                } else {
+                    holdWork?.cancel()
+                    if holding {
+                        holding = false
+                        fnDownAt = nil
+                        DispatchQueue.main.async { self.onFnHoldEnd?() }
+                    } else if let t = fnDownAt, fnClean, Date().timeIntervalSince(t) < holdAfter, !isAgents(event) {
+                        fnDownAt = nil
+                        DispatchQueue.main.async { self.onFnTap?() }
+                    }
                 }
             } else {
-                fnClean = false
+                cancelHold()
             }
             return
         }
-        if type == .keyDown { fnClean = false }
+        if type == .keyDown { cancelHold() }
         guard watching, !isAgents(event) else {
             if type == .mouseMoved { lastMove = event.location }
             return

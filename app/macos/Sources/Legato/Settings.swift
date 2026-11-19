@@ -53,6 +53,13 @@ struct ProviderPreset: Identifiable, Hashable {
     }
 }
 
+/// A finished task and its answer: what a follow-up builds on.
+struct PriorResult {
+    let task: String
+    let result: String
+    let at: Date
+}
+
 /// One model at one provider: what the command bar switches between.
 struct ModelChoice: Codable, Hashable, Identifiable {
     let provider: String
@@ -82,13 +89,17 @@ final class AppSettings: ObservableObject {
     @Published var allowShell: Bool { didSet { d.set(allowShell, forKey: "allowShell") } }
     @Published var ghostCursor: Bool { didSet { d.set(ghostCursor, forKey: "ghostCursor") } }
     @Published var fnKey: Bool { didSet { d.set(fnKey, forKey: "fnKey") } }
+    /// Hold Fn to say the task (on-device speech recognition); let go to run it.
+    @Published var holdToTalk: Bool { didSet { d.set(holdToTalk, forKey: "holdToTalk") } }
+    /// A task done before is started with the steps that finished it then (app_engine.known_routine).
+    @Published var repeats: Bool { didSet { d.set(repeats, forKey: "repeats") } }
     @Published var enginePython: String { didSet { d.set(enginePython, forKey: "enginePython") } }
     @Published var onboarded: Bool { didSet { d.set(onboarded, forKey: "onboarded") } }
 
     init() {
         d.register(defaults: ["providerID": "openrouter", "baseURL": ProviderPreset.all[0].baseURL,
                               "model": ProviderPreset.all[0].models[0], "maxSteps": 40, "imageMax": 4, "guardClicks": true, "allowShell": true,
-                              "ghostCursor": true, "fnKey": true, "enginePython": "", "onboarded": false])
+                              "ghostCursor": true, "fnKey": true, "holdToTalk": true, "repeats": true, "enginePython": "", "onboarded": false])
         providerID = d.string(forKey: "providerID") ?? "openrouter"
         baseURL = d.string(forKey: "baseURL") ?? ""
         model = d.string(forKey: "model") ?? ""
@@ -98,6 +109,8 @@ final class AppSettings: ObservableObject {
         allowShell = d.bool(forKey: "allowShell")
         ghostCursor = d.bool(forKey: "ghostCursor")
         fnKey = d.bool(forKey: "fnKey")
+        holdToTalk = d.bool(forKey: "holdToTalk")
+        repeats = d.bool(forKey: "repeats")
         enginePython = d.string(forKey: "enginePython") ?? ""
         onboarded = d.bool(forKey: "onboarded")
         recents = load("recents", [ModelChoice].self) ?? []

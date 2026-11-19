@@ -95,6 +95,11 @@ func formatDuration(_ s: Double) -> String {
     return t >= 60 ? String(format: "%d:%02d", t / 60, t % 60) : "\(t) s"
 }
 
+/// A task's time to the tenth under a minute ("8.2 s"), else minutes and seconds.
+func formatSpeed(_ s: Double) -> String {
+    s < 60 ? String(format: "%.1f s", s) : formatDuration(s)
+}
+
 func formatCost(_ usd: Double) -> String {
     usd <= 0 ? "" : usd < 0.01 ? String(format: "$%.3f", usd) : String(format: "$%.2f", usd)
 }
