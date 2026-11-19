@@ -40,6 +40,9 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
   the computer use.
 - **Screenshots are JPEG** (quality 85), the same pixels in about a fifth of the bytes, as the harness sends them.
   `legato mcp --image-format png` sends lossless PNG.
+- **On your own Mac, with other apps open:** `legato mcp --local --wait-scope app` waits on the front app's windows
+  only, so a chat or video animating elsewhere doesn't hold every action to the wait's cap.
+- **A fixed-sleep baseline:** `legato mcp --fixed-wait 2` sleeps after every action instead of waiting for the screen.
 - **See what the agent did:** `legato mcp --record DIR` saves every screenshot the agent got, with a `log.jsonl` of its
   actions, under `DIR/<desktop_id>/`.
 - **`desktop_shell` skips the screen** for what a command does faster: starting apps, reading files, checking results.

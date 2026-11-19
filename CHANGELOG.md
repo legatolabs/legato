@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- MCP: `--wait-scope app` (with `--local` on macOS) waits on the front app's windows only; `--fixed-wait S` sleeps
+  instead of waiting, as a baseline. `benchmarks/mcp_h2h/` compares Claude Code with Legato's MCP against Claude
+  Code's built-in computer use (#21); no results yet.
 - MCP: screenshots go to the agent as JPEG (quality 85), like the harness since #17; `legato mcp --image-format png`
   keeps PNG. Recordings (`--record`) stay PNG.
 - Plans read labels (`click_text`, `wait_for`, labelled clicks) on Linux too: where macOS Vision is not available,
