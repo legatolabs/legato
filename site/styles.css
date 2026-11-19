@@ -68,7 +68,7 @@ header, main, footer { position: relative; z-index: 1; }
 .hero h1 { font: 400 clamp(64px, 10.4vw, 132px)/0.94 var(--serif); letter-spacing: -0.02em; margin: 0 0 40px; color: var(--fg); }
 .hero h1 em { font-style: italic; color: #8c8c8c; }
 .hero .lead { max-width: 440px; color: var(--fg-2); font-size: 14px; line-height: 1.6; margin: 0 0 44px; }
-.cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 28px; }
+.cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 28px; max-width: 600px; } /* clear of the hero mark */
 .install { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border: 1px solid var(--line-2);
   background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--fg); font: 13px/1 var(--mono); cursor: pointer; }
 .install:hover { border-color: var(--fg-3); }
@@ -110,7 +110,6 @@ header, main, footer { position: relative; z-index: 1; }
 .fig video { width: 100%; height: auto; aspect-ratio: 16 / 9; display: block; border: 1px solid var(--line-2); background: var(--bg-2); }
 .fig figcaption { font-size: 12.5px; color: var(--fg-3); margin-top: 14px; max-width: 860px; line-height: 1.6; }
 .fig .no { color: var(--fg); margin-right: 8px; }
-.fig2 { margin-top: 56px; }
 
 /* project cards */
 .cards { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
@@ -128,10 +127,7 @@ header, main, footer { position: relative; z-index: 1; }
 .gains > div { padding: 20px 22px 22px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .gains .n { font: 400 36px/1 var(--serif); color: var(--fg); margin-bottom: 10px; }
 .gains .t { font-size: 12.5px; line-height: 1.55; color: var(--fg-3); }
-.gains.dev { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.gains.dev .n { color: var(--fg-2); font-size: 30px; }
-.body .sub { margin: 34px 0 0; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-4); }
-@media (max-width: 680px) { .gains, .gains.dev { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 680px) { .gains { grid-template-columns: minmax(0, 1fr); } }
 
 /* code panel */
 .panel { border: 1px solid var(--line-2); background: var(--bg-2); }
