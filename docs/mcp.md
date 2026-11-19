@@ -38,6 +38,8 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
 
 - **`desktop_act` lets your agent drive.** Use it when your agent's own model (for example Claude in Claude Code) does
   the computer use.
+- **Screenshots are JPEG** (quality 85), the same pixels in about a fifth of the bytes, as the harness sends them.
+  `legato mcp --image-format png` sends lossless PNG.
 - **See what the agent did:** `legato mcp --record DIR` saves every screenshot the agent got, with a `log.jsonl` of its
   actions, under `DIR/<desktop_id>/`.
 - **`desktop_shell` skips the screen** for what a command does faster: starting apps, reading files, checking results.

@@ -77,11 +77,30 @@ def e2b_factory(resolution: tuple[int, int]):
     return providers.e2b(*resolution)
 
 
+def to_image(png: bytes, image_format: str = "jpeg", quality: int = 85) -> Image:
+    """A screenshot for the agent: JPEG by default (the same pixels in about a fifth of the bytes, as the harness sends
+    since EXP-0053), PNG as it came with image_format="png" or when Pillow can't read it."""
+    if image_format == "jpeg":
+        try:
+            import io
+
+            from PIL import Image as PILImage
+            buf = io.BytesIO()
+            PILImage.open(io.BytesIO(png)).convert("RGB").save(buf, format="JPEG", quality=quality)
+            return Image(data=buf.getvalue(), format="jpeg")
+        except Exception:  # noqa: BLE001 - never fail an action over the encoding
+            pass
+    return Image(data=png, format="png")
+
+
 def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_factory, about: str = "",
-                 record: str | None = None) -> _Server:
+                 record: str | None = None, image_format: str = "jpeg") -> _Server:
     """The MCP server. `factory(resolution)` returns (sandbox, env); the default starts an E2B desktop. `about` tells
     the agent what kind of desktop it gets. With `record`, every screenshot the agent gets is saved under
-    record/<desktop_id>/, with a log.jsonl of the actions."""
+    record/<desktop_id>/, with a log.jsonl of the actions. `image_format`: "jpeg" (default) or "png" for the
+    screenshots the agent gets; recordings stay PNG."""
+    if image_format not in ("jpeg", "png"):
+        raise ValueError("image_format must be 'jpeg' or 'png'")
     srv = _Server("legato", instructions=(
         "Desktops for computer use. Open one with desktop_open, act with desktop_act using pixel coordinates of "
         "the latest screenshot, and close it with desktop_close when done. desktop_act returns as soon as the screen "
@@ -110,7 +129,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         obs = d["env"].observe()
         d["wh"] = (obs.width, obs.height)
         d["png"] = obs.screenshot
-        return Image(data=obs.screenshot, format="png")
+        return to_image(obs.screenshot, image_format)
 
     def get(desktop_id: str) -> dict:
         if desktop_id not in desks:
@@ -174,7 +193,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         note = (f"{a.describe()}: done in {time.monotonic() - t:.2f} s "
                 f"(waited {last.get('settle_s', 0.0):.2f} s for the screen)")
         keep(desktop_id, kind, obs.screenshot, action=a.describe(), settle_s=round(last.get("settle_s", 0.0), 3))
-        return [note, Image(data=obs.screenshot, format="png")]
+        return [note, to_image(obs.screenshot, image_format)]
 
     @srv.tool()
     def desktop_screenshot(desktop_id: str) -> Image:
@@ -238,9 +257,12 @@ def main(argv=None) -> int:
     ap.add_argument("--local", action="store_true", help="the same as --sandbox local (moves your real mouse)")
     ap.add_argument("--record", metavar="DIR", help="save every screenshot the agent gets, with a log of its actions, "
                                                    "under DIR/<desktop_id>/")
+    ap.add_argument("--image-format", choices=("jpeg", "png"), default="jpeg",
+                    help="screenshots the agent gets: jpeg (default, about a fifth of the bytes) or png (lossless)")
     a = ap.parse_args(argv)
     spec = "local" if a.local else a.sandbox
     make = providers.load(spec)
     providers.warm(spec)                       # e.g. pull the desktop image while the agent gets going
-    build_server(lambda res: make(*res), about=providers.about(spec), record=a.record).run()
+    build_server(lambda res: make(*res), about=providers.about(spec), record=a.record,
+                 image_format=a.image_format).run()
     return 0
