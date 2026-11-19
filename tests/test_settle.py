@@ -113,7 +113,7 @@ def test_a_plain_digest_turns_background_off():
 
 
 def test_a_burst_of_drawing_is_waited_for_while_an_animation_beside_it_is_not():
-    # Spotify on 17 Nov: its bottom bar moved in every frame (3.4% of the screen) while a page drew in after a click
+    # a music player on a real Mac: its bottom bar moved in every frame (3.4% of the screen) while a page drew in after a click
     scr = Screen(spin=range(5), hit=range(10, 30))
     w = waiter(scr, background=True, max_moving=0.1)
     w.prime()
