@@ -49,6 +49,12 @@ final class EngineClient {
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
         env["LEGATO_CONFIRM"] = "off"                     // the app asks; the engine never reads a terminal
+        if let res = Bundle.main.resourcePath, python.hasPrefix(res) {
+            env["PYTHONDONTWRITEBYTECODE"] = "1"          // the bundled engine: never write into the signed app
+            env["PYTHONNOUSERSITE"] = "1"                 // nor read the person's own Python packages
+            env.removeValue(forKey: "PYTHONPATH")
+            env.removeValue(forKey: "PYTHONHOME")
+        }
         p.environment = env
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         p.standardInput = inPipe

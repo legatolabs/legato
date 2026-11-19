@@ -30,6 +30,8 @@
 	<string>Legato listens while you hold Fn, so you can say what to do.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Legato turns what you say while holding Fn into a task. Speech is recognised on this Mac when it can be.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Legato uses AppleScript to do what you ask in apps like Calendar, Reminders, Notes and Finder.</string>
 	<key>LegatoEnginePython</key>
 	<string>@ENGINE_PYTHON@</string>
 </dict>
