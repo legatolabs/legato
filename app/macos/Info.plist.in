@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>computer.legato.mac</string>
+	<key>CFBundleName</key>
+	<string>Legato</string>
+	<key>CFBundleDisplayName</key>
+	<string>Legato</string>
+	<key>CFBundleExecutable</key>
+	<string>Legato</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@BUILD@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Apache-2.0</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Legato listens while you hold Fn, so you can say what to do.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Legato turns what you say while holding Fn into a task. Speech is recognised on this Mac when it can be.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Legato uses AppleScript to do what you ask in apps like Calendar, Reminders, Notes and Finder.</string>
+	<key>SUFeedURL</key>
+	<string>@FEED_URL@</string>
+	<key>SUPublicEDKey</key>
+	<string>@ED_KEY@</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>LegatoEnginePython</key>
+	<string>@ENGINE_PYTHON@</string>
+</dict>
+</plist>

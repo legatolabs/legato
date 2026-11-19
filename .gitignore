@@ -10,3 +10,4 @@ site/dist/
 site/.vercel/
 legato/bin/
 native/legato-step/target/
+app/macos/.build/
