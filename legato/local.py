@@ -13,8 +13,8 @@ action to the wait's cap.
 The agent moves your real mouse and types on your real keyboard. Move the mouse into a corner of the screen, or on
 macOS hold Escape, to stop it: the agent's next action raises `legato.safety.Stopped`, which ends `Harness.run` with
 `stopped=True`. Actions on the short list in `legato.safety` (cmd+Delete, cmd+Q, a typed `rm` or `sudo`...) wait for
-your yes in the terminal. On macOS, give the terminal Screen Recording and Accessibility permission first
-(`legato doctor` says whether they are on).
+your yes in the terminal (under `legato mcp --local` on macOS, in a dialog). On macOS, give the terminal Screen
+Recording and Accessibility permission first (`legato doctor` says whether they are on).
 """
 from __future__ import annotations
 
@@ -343,9 +343,10 @@ class LocalEnv(Env):
         ask, typed = self._risk(action)
         if ask and self.confirm is not None:
             front = self._front()
-            if not self.confirm(ask):
+            allowed = self.confirm(ask)
+            self._refocus(front)                  # answering put the terminal or a dialog in front: put the app back
+            if not allowed:
                 raise safety.Denied(ask)
-            self._refocus(front)                  # answering put the terminal in front: the action is not for it
         self._typed = typed
         try:
             return super().act(action)

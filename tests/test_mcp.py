@@ -143,3 +143,169 @@ def test_open_with_app_waits_for_its_window():
             "desktop_open", {"width": 64, "height": 40, "url": "https://a.b"})
         assert "no shell" in r.content[0].text
     asyncio.run(go())
+
+
+# ------------------------------------------------------------ this Mac: the preset, the model's settings, the person
+from test_harness import server  # noqa: E402, F401
+
+
+def a_mac(confirm=None, ran=None):
+    """legato.local() on a fake Mac: fake screen, mouse and shell, so nothing here touches this computer."""
+    from legato.local import LocalEnv
+    from test_local import Gui, Screen
+    e = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Screen(), confirm=confirm)
+    e.mac = True
+    e.shell = lambda cmd, timeout_s=30.0: (ran if ran is not None else []).append(cmd) or "hi\n[exit 0]"
+    return e
+
+
+KEYS = ("LEGATO_MODEL", "LEGATO_BASE_URL", "LEGATO_API_KEY", "OPENROUTER_API_KEY", "LEGATO_CONFIRM")
+
+
+@pytest.fixture()
+def no_keys(monkeypatch):
+    for k in KEYS:
+        monkeypatch.delenv(k, raising=False)
+    return monkeypatch
+
+
+def test_model_settings_come_from_the_call_then_the_server():
+    from legato.mcp_server import model_settings
+    assert model_settings(environ={}) == ("qwen/qwen3.8-27b", "https://openrouter.ai/api/v1", "")
+    assert model_settings(environ={"OPENROUTER_API_KEY": "or"})[2] == "or"
+    env = {"LEGATO_MODEL": "m1", "LEGATO_BASE_URL": "https://api.example/v1", "LEGATO_API_KEY": "lk",
+           "OPENROUTER_API_KEY": "or", "MY_KEY": "mine"}
+    assert model_settings(environ=env) == ("m1", "https://api.example/v1", "lk")
+    assert model_settings("m2", environ=env) == ("m2", "https://api.example/v1", "lk")
+    # the server's key goes only to the server's endpoint; OpenRouter's key only to OpenRouter
+    assert model_settings(base_url="https://other.example/v1", environ=env)[2] == ""
+    assert model_settings(base_url="https://openrouter.ai/api/v1", environ=env)[2] == "or"
+    assert model_settings(base_url="https://other.example/v1", api_key_env="MY_KEY", environ=env)[2] == "mine"
+    assert model_settings(api_key_env="UNSET", environ=env)[2] == ""
+
+
+def test_run_task_runs_the_mac_apps_setup_on_this_mac(server, no_keys):  # noqa: F811
+    no_keys.setenv("LEGATO_BASE_URL", server["url"])
+    no_keys.setenv("LEGATO_API_KEY", "sk-secret-123")
+    no_keys.setenv("LEGATO_MODEL", "some/model")
+    srv = build_server(lambda res: (None, a_mac()))
+    assert "drive with desktop_act" not in srv.instructions
+
+    async def go():
+        r = await srv.call_tool("desktop_run_task", {"task": "open Notes"})      # no desktop_open needed
+        text = r.content[0].text
+        assert kinds(r) == ["text", "image"] and text.startswith("desktop_id: ")
+        assert "some/model with the Mac app's setup" in text and "done in" in text
+        body = server["bodies"][-1]
+        assert body["model"] == "some/model" and [t["function"]["name"] for t in body["tools"]] == ["plan"]
+        assert "Calendar" in body["messages"][0]["content"]                    # the app's AppleScript limits
+        did = text.split()[1]
+        r = await srv.call_tool("desktop_run_task", {"task": "t", "desktop_id": did, "plain": True})
+        assert "with the plain loop" in r.content[0].text
+        assert [t["function"]["name"] for t in server["bodies"][-1]["tools"]] == ["computer"]
+        return [c.text for c in r.content if c.type == "text"] + [text]
+    texts = asyncio.run(go())
+    assert not any("sk-secret-123" in t for t in texts)                        # the key is never shown
+
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+    r = asyncio.run(srv.call_tool("desktop_run_task", {"task": "t"}))
+    assert "with the plain loop" in r.content[0].text                          # e2b, docker, a sandbox: unchanged
+    assert [t["function"]["name"] for t in server["bodies"][-1]["tools"]] == ["computer"]
+
+
+def test_run_task_without_a_key_says_where_to_set_it(no_keys):
+    srv = build_server(lambda res: (None, a_mac()))
+    assert "drive with desktop_act" in srv.instructions
+    with pytest.raises(Exception, match="LEGATO_API_KEY"):
+        asyncio.run(srv.call_tool("desktop_run_task", {"task": "t"}))
+
+
+def test_risky_actions_ask_the_person_and_the_client_cannot_answer():
+    asked, ran = [], []
+    srv = build_server(lambda res: (None, a_mac(confirm=lambda q: asked.append(q) or False, ran=ran)))
+
+    async def go():
+        for t in await srv.list_tools():                # no argument lets a model allow anything
+            schema = getattr(t, "input_schema", None) or getattr(t, "inputSchema", None) or {}
+            props = set(schema.get("properties", {}))
+            assert props, t.name
+            assert not props & {"allow", "confirm", "yes", "approve", "approved", "force", "unsafe"}, t.name
+        did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
+        with pytest.raises(Exception, match="did not allow"):
+            await srv.call_tool("desktop_act", {"desktop_id": did, "action": "key", "keys": "cmd+q"})
+        r = await srv.call_tool("desktop_shell", {"desktop_id": did, "command": "rm -rf ~/Documents"})
+        assert r.content[0].text.startswith("not run:") and ran == []
+        r = await srv.call_tool("desktop_shell", {"desktop_id": did, "command": "ls ~/Desktop"})
+        assert r.content[0].text == "hi\n[exit 0]" and ran == ["ls ~/Desktop"]
+    asyncio.run(go())
+    assert len(asked) == 2 and "quits the app" in asked[0] and "deletes files" in asked[1]
+
+
+def test_this_computer_takes_one_call_at_a_time():
+    import threading
+    started, release = threading.Event(), threading.Event()
+
+    def confirm(q):                                     # the person has not answered yet
+        started.set()
+        release.wait(5)
+        return False
+    e = a_mac(confirm=confirm)
+    srv = build_server(lambda res: (None, e))
+
+    async def go():
+        did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
+        risky = asyncio.ensure_future(srv.call_tool("desktop_act", {"desktop_id": did, "action": "key",
+                                                                    "keys": "cmd+q"}))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        click = asyncio.ensure_future(srv.call_tool("desktop_act", {"desktop_id": did, "action": "click",
+                                                                    "x": 9, "y": 9}))
+        await asyncio.sleep(0.3)
+        assert e.gui.calls == []                        # the click waits: it cannot press the dialog's Allow
+        release.set()
+        await click
+        with pytest.raises(Exception):
+            await risky
+    asyncio.run(go())
+    assert e.gui.calls == [("click", (9, 9))]
+
+
+def test_local_asks_in_a_macos_dialog(no_keys):
+    from legato import safety
+    from legato.mcp_server import local_confirm, local_factory
+    no_keys.setattr(sys, "platform", "darwin")
+    assert local_confirm() is safety.dialog
+    no_keys.setenv("LEGATO_CONFIRM", "off")
+    assert local_confirm() is None
+    no_keys.delenv("LEGATO_CONFIRM")
+    no_keys.setattr(sys, "platform", "linux")
+    assert local_confirm() is None                      # elsewhere: as before
+    got = {}
+    no_keys.setattr(sys.modules["legato.local"], "local", lambda **kw: got.update(kw) or "env")
+    assert local_factory(safety.dialog)((1280, 800)) == (None, "env")
+    assert got == {"confirm": safety.dialog, "wait": "cells"}
+
+
+def test_drive_mode_leaves_run_task_out(no_keys):
+    import legato.mcp_server as m
+    srv = build_server(lambda res: (None, a_mac()), run_task=False)
+    names = {t.name for t in asyncio.run(srv.list_tools())}
+    assert "desktop_run_task" not in names and {"desktop_open", "desktop_act", "desktop_shell"} <= names
+    assert "desktop_run_task" not in srv.instructions
+    got = []
+
+    class Srv:
+        def run(self):
+            pass
+    no_keys.setattr(m, "build_server", lambda factory, about="", record=None, run_task=True:
+                    got.append((about, run_task)) or Srv())
+    no_keys.setattr(sys, "platform", "darwin")
+    m.main(["--local"])                                 # no key: nothing steers to desktop_run_task
+    no_keys.setenv("OPENROUTER_API_KEY", "k")
+    m.main(["--local"])
+    m.main(["--local", "--drive"])
+    (no_key, _), (a_about, a_task), (b_about, b_task) = got
+    assert "hand the whole task" not in no_key
+    assert a_task and "hand the whole task to desktop_run_task" in a_about and "macOS dialog" in a_about
+    assert not b_task and "desktop_run_task" not in b_about and "macOS dialog" in b_about

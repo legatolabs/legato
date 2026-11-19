@@ -51,8 +51,8 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
   A click is only coordinates, so a click on Delete, Send or Buy, a menu item, a drag to the Trash, the Delete key
   alone and a command behind an alias are **not** caught. `legato.local(confirm=fn)` takes your own
   `fn(description) -> bool`; `confirm=legato.safety.deny` refuses the list; `confirm=None`, `legato run --yes` or
-  `LEGATO_CONFIRM=off` asks nothing. Without a terminal (a script's stdin is a pipe, an MCP server, CI) nothing is
-  asked either.
+  `LEGATO_CONFIRM=off` asks nothing. Without a terminal (a script's stdin is a pipe, CI) nothing is asked either;
+  `legato mcp --local` on macOS asks in a dialog instead.
 - **macOS:** allow your terminal (or MCP client) under System Settings → Privacy & Security, in both Screen Recording
   and Accessibility. `legato doctor` shows whether each is on and which app to allow, and `legato.local()` prints
   the same when one is off. Screenshots are scaled to the logical screen size, and Ctrl shortcuts are sent as Cmd

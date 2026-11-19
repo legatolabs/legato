@@ -20,8 +20,10 @@ Firefox (`legato mcp --sandbox docker`). Each action returns the new screenshot 
 4. **Check what you see.** Judge the result from the screenshot, and say what you saw when you report back.
 5. **Close.** Call `desktop_close` when you are done.
 
-- **Long GUI chores:** `desktop_run_task` hands a whole task to another model (any OpenAI-compatible endpoint; the key
-  is read from the environment) and returns its report and the final screen.
-- **The user's own screen** (`legato mcp --local`): these are their real windows. Do not close windows or change
-  settings unless asked, and ask before anything destructive.
+- **Long GUI chores:** `desktop_run_task` hands a whole task to Legato's own loop and model (set in the server's
+  environment) and returns its report and the final screen.
+- **The user's own screen** (`legato mcp --local`): these are their real windows. To do a task there, call
+  `desktop_run_task(task=...)` once; it opens the desktop itself. Do not close windows or change settings unless
+  asked, and ask before anything destructive. On macOS, risky actions wait for the user's Allow in a dialog you
+  cannot answer.
 - **Setup problems:** run `legato doctor --json` in a shell.

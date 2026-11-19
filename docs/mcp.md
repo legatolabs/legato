@@ -18,7 +18,8 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
 - **A desktop container:** needs only Docker. The agent gets its own Linux desktop with a terminal and Firefox, and
   can't touch your screen.
 - **Your own screen:** macOS, Windows, or Linux on X11. The agent moves your real mouse and keyboard; move the mouse
-  into a corner of the screen to stop it.
+  into a corner of the screen to stop it. On macOS, risky actions (Cmd+Q, deleting, sending, installing) wait for your
+  Allow in a macOS dialog, which your agent's model never sees; no answer in 60 s is a no.
 - **Your sandbox:** a few lines of Python that start it and run a command in it ([how](sandboxes.md)).
 - **Claude Desktop:** download [legato.mcpb](https://github.com/legatolabs/legato/releases/latest/download/legato.mcpb)
   and open it, then choose where the desktop runs (docker, local or e2b) in the extension's settings.
@@ -33,7 +34,7 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
 | `desktop_act(desktop_id, action, x, y, text, keys, direction, amount, end_x, end_y)` | click, double_click, triple_click, right_click, type, key, scroll, drag or wait, in pixels of the latest screenshot; returns the settled screenshot and how long the screen took |
 | `desktop_screenshot(desktop_id)` | the current screen |
 | `desktop_shell(desktop_id, command, timeout_s=30)` | runs a shell command on the desktop's computer (the container, the sandbox, or yours with `--local`); returns its output and exit code |
-| `desktop_run_task(desktop_id, task, model, base_url, api_key_env, max_steps)` | hands a whole task to `legato.Harness` with any OpenAI-compatible model (default: Qwen3.8-27B on OpenRouter, key from `OPENROUTER_API_KEY`); returns the run report and the final screen |
+| `desktop_run_task(task, desktop_id=None, model, base_url, api_key_env, max_steps, plain=False)` | hands a whole task to Legato's own loop with any OpenAI-compatible model: the server's `LEGATO_MODEL`, `LEGATO_BASE_URL` and `LEGATO_API_KEY` (default: Qwen3.8-27B on OpenRouter, key from `OPENROUTER_API_KEY`). With `--local` on a Mac it runs the Legato Mac app's setup (`legato.presets.mac`); `plain=True` runs the plain `legato.Harness`. Opens a desktop if none is given; returns the run report and the final screen |
 | `desktop_close(desktop_id)` | stops the desktop |
 
 - **`desktop_act` lets your agent drive.** Use it when your agent's own model (for example Claude in Claude Code) does
@@ -42,4 +43,56 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
   actions, under `DIR/<desktop_id>/`.
 - **`desktop_shell` skips the screen** for what a command does faster: starting apps, reading files, checking results.
 - **`desktop_run_task` delegates.** Use it to offload a whole GUI task to a cheaper open model while your agent keeps
-  working.
+  working. On your own Mac it is the default way to "do X on my computer": one call, and Legato plans several steps
+  a model call, with a shell and AppleScript beside the screen. `legato mcp --drive` leaves it out, so your agent's
+  model does all the clicking.
+
+## OpenCode
+
+Add Legato to `opencode.json` in your project (or `~/.config/opencode/opencode.json` for all of them), and give the
+terminal you run OpenCode in Screen Recording and Accessibility permission (`legato doctor` checks both).
+
+**Hand it whole tasks (the default).** Ask OpenCode to do something on your computer and it calls `desktop_run_task`
+once; Legato runs the task with the model you set here (any OpenAI-compatible endpoint):
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "legato": {
+        "type": "local",
+        "command": ["legato", "mcp", "--local"],
+        "environment": {
+          "LEGATO_MODEL": "qwen/qwen3.8-27b",
+          "LEGATO_BASE_URL": "https://openrouter.ai/api/v1",
+          "LEGATO_API_KEY": "{env:OPENROUTER_API_KEY}"
+        }
+      }
+    }
+  }
+}
+```
+
+**Let OpenCode's model drive.** `--drive` leaves out `desktop_run_task`, and `"codemode": false` keeps the tools on
+the model's own tool list so the screenshots reach it. Use a model that reads images.
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "legato": {
+        "type": "local",
+        "command": ["legato", "mcp", "--local", "--drive"],
+        "codemode": false
+      }
+    }
+  }
+}
+```
+
+- `{env:OPENROUTER_API_KEY}` reads the key from the environment you start OpenCode in, so it stays out of the file.
+  `LEGATO_API_KEY` is only sent to `LEGATO_BASE_URL`; a model server on your machine (`http://localhost:8000/v1`)
+  needs no key.
+- `opencode mcp list` shows whether the server connected.

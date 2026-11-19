@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `legato.presets.mac(env, model, base_url, api_key)`: the Legato Mac app's setup on this Mac (legato-research's mac-2
+  champion): plans, `end_fix`, four screenshots kept, JPEG, a shell and checked AppleScript (Calendar, Reminders,
+  Notes, Finder, System Events) behind the app's command guard (`legato.safety.command_risk`), and
+  `presets.mac_env()`, `legato.local(wait="cells")`. A command or script the person says no to stops the plan.
+- MCP, `--local` on macOS: `desktop_run_task` runs that setup by default (`plain=True` for the plain loop), opens the
+  desktop itself when no `desktop_id` is given, and takes its model from the server's environment (`LEGATO_MODEL`,
+  `LEGATO_BASE_URL`, `LEGATO_API_KEY`, else `OPENROUTER_API_KEY` for OpenRouter). Risky actions, including risky
+  `desktop_shell` commands, wait for the person's Allow in a macOS dialog (`legato.safety.dialog`) that the client's
+  model never sees; no answer is a no. Calls on this computer run one at a time. `legato mcp --drive` leaves
+  `desktop_run_task` out. E2B, docker and your own sandboxes are unchanged. OpenCode setup in `docs/mcp.md`.
 - Plans read labels (`click_text`, `wait_for`, labelled clicks) on Linux too: where macOS Vision is not available,
   `legato.plan` uses RapidOCR if it is installed (`pip install rapidocr-onnxruntime`, CPU). A label also matches a
   line the reader ran together ("Document saved" in "Documentsaved").

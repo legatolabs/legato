@@ -14,6 +14,7 @@ rollouts), `legato mcp` (MCP server). PyPI name `legatolabs`, import name `legat
   - `legato/env.py`: desktops (`attach`: E2B, `shell=`, screenshot/execute); `legato/local.py`: this computer.
   - `legato/providers.py`: `--sandbox` choices (e2b, local, docker, your own function).
   - `legato/settle.py`: waiting for the screen.
+  - `legato/presets.py`: measured setups (`mac`: the Legato Mac app's harness, tools and command guard).
   - `legato/mcp_server.py`: the MCP server; `legato/doctor.py`: `legato doctor`.
   - `legato/rl/`: rollouts and benchmarks.
   - `docker/desktop/`: the desktop image for `--sandbox docker`.
