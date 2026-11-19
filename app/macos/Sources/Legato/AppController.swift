@@ -14,6 +14,7 @@ final class AppController: NSObject {
     let hotkey = HotKey()
     lazy var ghost = GhostCursor()
     lazy var history = HistoryState(base: settings.runsDir)
+    let updater = Updater()
     var hud: HUDController!
     var bar: CommandBarController!
     var statusItem: NSStatusItem!
@@ -114,6 +115,7 @@ final class AppController: NSObject {
         menu.addItem(item("Settings…", #selector(menuSettings), key: ","))
         let missing = Permission.missing
         menu.addItem(item(missing.isEmpty ? "Permissions…" : "Permissions… (\(missing.count) missing)", #selector(menuOnboarding)))
+        if updater.enabled { menu.addItem(item("Check for Updates…", #selector(menuUpdates))) }
         menu.addItem(.separator())
         menu.addItem(item("Quit Legato", #selector(menuQuit), key: "q"))
         statusItem.menu = menu
@@ -141,6 +143,7 @@ final class AppController: NSObject {
     @objc private func menuSettings() { showSettings() }
     @objc private func menuOnboarding() { showOnboarding() }
     @objc private func menuQuit() { NSApp.terminate(nil) }
+    @objc private func menuUpdates() { updater.check() }
 
     func toggleCommandBar() {
         if model.phase == .finished { hud.hide(); model.phase = .idle }

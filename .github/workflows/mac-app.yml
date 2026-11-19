@@ -1,0 +1,73 @@
+# The Mac app for each version tag (v*): Legato-<version>.dmg (its own engine inside, signed with the Developer ID,
+# notarized) and appcast.xml (the Sparkle update feed) on the GitHub release v<version>. The app checks
+# https://github.com/legatolabs/legato/releases/latest/download/appcast.xml for updates.
+#
+# Secrets (Settings -> Secrets and variables -> Actions), added by the founder:
+#   MACOS_CERT_P12        base64 of the Developer ID Application certificate exported from Keychain (.p12):
+#                         base64 -i DeveloperID.p12 | pbcopy
+#   MACOS_CERT_PASSWORD   the password of that export
+#   NOTARY_KEY_P8         base64 of the App Store Connect API key: base64 -i AuthKey_XXXX.p8 | pbcopy
+#   NOTARY_KEY_ID         its Key ID
+#   NOTARY_ISSUER_ID      the Issuer ID on the same page
+#   SPARKLE_PRIVATE_KEY   the update-signing key: generate_keys -x sparkle.key, then the file's one line
+name: mac-app
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build for an existing tag, e.g. 0.2.0 (the release v<version> gets the files)"
+        required: true
+concurrency: mac-app-${{ github.ref }}
+jobs:
+  dmg:
+    runs-on: macos-15
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref }}
+      - name: The tag matches the package version
+        run: |
+          v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "v$v" = "$TAG" || { echo "$TAG != version $v in pyproject.toml"; exit 1; }
+      - name: The Developer ID certificate, in a keychain for this job only
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          K="$RUNNER_TEMP/build.keychain-db"; P="$(openssl rand -base64 24)"
+          security create-keychain -p "$P" "$K"
+          security set-keychain-settings -lut 21600 "$K"
+          security unlock-keychain -p "$P" "$K"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$K" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$P" "$K" >/dev/null
+          security list-keychains -d user -s "$K" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$K" | grep -q "Developer ID Application" \
+            || { echo "no Developer ID Application identity in MACOS_CERT_P12"; exit 1; }
+      - name: Build, sign, notarize, and write the update feed
+        env:
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8" app/macos/release.sh
+          rm -f "$RUNNER_TEMP/notary.p8"
+      - name: On the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${TAG#v}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "" --verify-tag
+          gh release upload "$TAG" "app/macos/dist/Legato-$V.dmg" app/macos/dist/appcast.xml --clobber
+      - name: Remove the job's keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true

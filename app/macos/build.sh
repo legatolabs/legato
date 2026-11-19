@@ -39,7 +39,11 @@ rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/Legato"
 sed -e "s|@VERSION@|$VERSION|" -e "s|@BUILD@|$(date +%Y%m%d%H%M)|" -e "s|@ENGINE_PYTHON@|$PY|" \
-  "$HERE/Info.plist.in" > "$OUT/Contents/Info.plist"
+  -e "s|@FEED_URL@||" -e "s|@ED_KEY@||" "$HERE/Info.plist.in" > "$OUT/Contents/Info.plist"   # no updates on this Mac
+# Sparkle, which the app links (updates are off in this build: no feed)
+mkdir -p "$OUT/Contents/Frameworks"
+ditto "$HERE/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" \
+  "$OUT/Contents/Frameworks/Sparkle.framework"
 
 ICONSET="$HERE/build/AppIcon.iconset"
 rm -rf "$ICONSET" && mkdir -p "$ICONSET"

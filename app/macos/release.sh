@@ -6,9 +6,13 @@
 #   app/macos/release.sh                 # app/macos/dist/Legato-<version>.dmg, notarized
 #   NOTARIZE=0 app/macos/release.sh      # signed, not notarized (a quick check that it builds and runs)
 #
-# Needs: Xcode command line tools, a "Developer ID Application" identity in the keychain (LEGATO_SIGN_ID to pick one),
-# and notarytool credentials saved as a keychain profile (LEGATO_NOTARY_PROFILE, default "legato-notary"):
-#   xcrun notarytool store-credentials legato-notary --key AuthKey_X.p8 --key-id X --issuer Y
+# Also writes dist/appcast.xml: the Sparkle update feed for this version, signed with the update key.
+#
+# Needs: Xcode command line tools; a "Developer ID Application" identity in the keychain (LEGATO_SIGN_ID to pick one);
+# notarization through a keychain profile (LEGATO_NOTARY_PROFILE, default "legato-notary"; made once with
+#   xcrun notarytool store-credentials legato-notary --key AuthKey_X.p8 --key-id X --issuer Y)
+# or, in CI, NOTARY_KEY_PATH + NOTARY_KEY_ID + NOTARY_ISSUER_ID; and Sparkle's update key, in the login keychain
+# (generate_keys made it) or, in CI, SPARKLE_PRIVATE_KEY.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -18,6 +22,10 @@ APP="$DIST/Legato.app"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO/pyproject.toml")"
 DMG="$DIST/Legato-$VERSION.dmg"
 PROFILE="${LEGATO_NOTARY_PROFILE:-legato-notary}"
+FEED_URL="https://github.com/legatolabs/legato/releases/latest/download/appcast.xml"
+DOWNLOADS="https://github.com/legatolabs/legato/releases/download/v$VERSION/"
+ED_KEY="$(cat "$HERE/sparkle-public-key.txt")"
+SPARKLE="$HERE/.build/artifacts/sparkle/Sparkle"
 # the engine's Python: a release of python-build-standalone, checked against its published SHA256SUMS
 PBS_TAG="20261110"
 PBS_FILE="cpython-3.13.18+${PBS_TAG}-aarch64-apple-darwin-install_only_stripped.tar.gz"
@@ -41,7 +49,9 @@ BIN="$(cd "$HERE" && swift build -c release --arch arm64 --show-bin-path)/Legato
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Legato"
 sed -e "s|@VERSION@|$VERSION|" -e "s|@BUILD@|$(date +%Y%m%d%H%M)|" -e "s|@ENGINE_PYTHON@||" \
-  "$HERE/Info.plist.in" > "$APP/Contents/Info.plist"
+  -e "s|@FEED_URL@|$FEED_URL|" -e "s|@ED_KEY@|$ED_KEY|" "$HERE/Info.plist.in" > "$APP/Contents/Info.plist"
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$SPARKLE/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 ICONSET="$DIST/AppIcon.iconset"
 mkdir -p "$ICONSET"
 for s in 16 32 128 256 512; do
@@ -83,6 +93,13 @@ find "$ENGINE" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 | while IFS
 find "$ENGINE/bin" -type f -perm -u+x -print0 | while IFS= read -r -d '' f; do
   if file "$f" | grep -q "Mach-O"; then sign --entitlements "$HERE/engine.entitlements" "$f"; fi
 done
+# Sparkle, inside out as its documentation says (its XPC services, the helper that installs updates, the framework)
+F="$APP/Contents/Frameworks/Sparkle.framework"
+sign "$F/Versions/B/XPCServices/Installer.xpc"
+sign --preserve-metadata=entitlements "$F/Versions/B/XPCServices/Downloader.xpc"
+sign "$F/Versions/B/Autoupdate"
+sign "$F/Versions/B/Updater.app"
+sign "$F"
 sign --entitlements "$HERE/app.entitlements" "$APP"
 codesign --verify --deep --strict --verbose=1 "$APP"
 
@@ -98,10 +115,29 @@ codesign --force --timestamp --sign "$ID" "$DMG"
 
 if [ "${NOTARIZE:-1}" = "1" ]; then
   echo "==> notarizing (a few minutes)"
-  xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait
+  if [ -n "${NOTARY_KEY_PATH:-}" ]; then
+    AUTH=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+  else
+    AUTH=(--keychain-profile "$PROFILE")
+  fi
+  xcrun notarytool submit "$DMG" "${AUTH[@]}" --wait
   xcrun stapler staple "$DMG"
   xcrun stapler staple "$APP"
   spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
   spctl --assess --type execute --verbose=2 "$APP"
 fi
-ls -lh "$DMG" | awk '{print "==> " $NF ", " $5}'
+
+# ---- the update feed: one entry, this version, signed with Sparkle's update key
+echo "==> appcast"
+mkdir -p "$DIST/updates" && cp "$DMG" "$DIST/updates/"
+KEYARGS=()
+if [ -n "${SPARKLE_PRIVATE_KEY:-}" ]; then
+  KEYFILE="$(mktemp)" && chmod 600 "$KEYFILE" && printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEYFILE"
+  KEYARGS=(--ed-key-file "$KEYFILE")
+fi
+"$SPARKLE/bin/generate_appcast" "${KEYARGS[@]}" --download-url-prefix "$DOWNLOADS" --link "https://legato.computer" \
+  -o "$DIST/appcast.xml" "$DIST/updates"
+[ -n "${KEYFILE:-}" ] && rm -f "$KEYFILE"
+rm -rf "$DIST/updates"
+grep -q "sparkle:edSignature" "$DIST/appcast.xml" || { echo "appcast.xml has no update signature"; exit 1; }
+ls -lh "$DMG" "$DIST/appcast.xml" | awk '{print "==> " $NF ", " $5}'
