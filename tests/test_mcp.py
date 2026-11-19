@@ -2,6 +2,7 @@
 import asyncio
 import struct
 import sys
+import time
 import zlib
 from pathlib import Path
 
@@ -244,11 +245,12 @@ def test_risky_actions_ask_the_person_and_the_client_cannot_answer():
 
 def test_this_computer_takes_one_call_at_a_time():
     import threading
-    started, release = threading.Event(), threading.Event()
+    started, seen = threading.Event(), []
 
-    def confirm(q):                                     # the person has not answered yet
+    def confirm(q):                                     # the person reads the dialog for a while, then says no
         started.set()
-        release.wait(5)
+        time.sleep(0.5)
+        seen.extend(e.gui.calls)                        # what ran while the dialog was open
         return False
     e = a_mac(confirm=confirm)
     srv = build_server(lambda res: (None, e))
@@ -261,13 +263,11 @@ def test_this_computer_takes_one_call_at_a_time():
             await asyncio.sleep(0.01)
         click = asyncio.ensure_future(srv.call_tool("desktop_act", {"desktop_id": did, "action": "click",
                                                                     "x": 9, "y": 9}))
-        await asyncio.sleep(0.3)
-        assert e.gui.calls == []                        # the click waits: it cannot press the dialog's Allow
-        release.set()
         await click
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="did not allow"):
             await risky
     asyncio.run(go())
+    assert seen == []                                   # the click waited: it could not press the dialog's Allow
     assert e.gui.calls == [("click", (9, 9))]
 
 
