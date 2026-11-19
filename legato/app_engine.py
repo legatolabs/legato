@@ -471,7 +471,7 @@ def app_env(link: Link, run: "Run", gui: Any = None, wait_scope: str = "screen")
         def __init__(self):
             super().__init__(mac_cmd=True, gui=gui, grabber=_NoGrab(), confirm=self._confirm, wait_scope=wait_scope)
             self.refocus = False                  # the app asks in a panel that never takes the focus
-            # the wait leaves out what moves on its own (a spinner in another window, Spotify's progress bar): with
+            # the wait leaves out what moves on its own (a spinner in another window, a music player's progress bar): with
             # the whole screen exact, those held every action to the 2 s cap (the app's runs on 16-17 Nov)
             self.waiter = Waiter(self._digest, rules=LOCAL_RULES, background=wait_scope == "screen")
 

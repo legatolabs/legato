@@ -36,17 +36,17 @@ def labels(monkeypatch, where: dict):
 
 
 def test_a_plan_runs_shell_a_click_by_name_a_wait_and_finishes_in_one_call(server, monkeypatch):
-    found = labels(monkeypatch, {"Hey Jude": (300, 120), "Pause": (500, 400)})
+    found = labels(monkeypatch, {"Morning Mix": (300, 120), "Pause": (500, 400)})
     ran, acts = [], []
     server["script"] = [{"tool_calls": [call("plan", {"steps": [
-        {"action": "shell", "command": "open 'spotify:search:hey jude'"},
-        {"action": "click_text", "text": "Hey Jude", "double": True},
+        {"action": "shell", "command": "open -a Music"},
+        {"action": "click_text", "text": "Morning Mix", "double": True},
         {"action": "wait_for", "text": "Pause", "timeout_s": 3},
         {"action": "done"}]})]}]
-    res = legato.Harness("m", server["url"], tools=[shell(ran)], plan=True).run("play hey jude", fake_env(acts))
-    assert res.done and res.steps == 1 and ran == ["open 'spotify:search:hey jude'"]
+    res = legato.Harness("m", server["url"], tools=[shell(ran)], plan=True).run("play my morning mix", fake_env(acts))
+    assert res.done and res.steps == 1 and ran == ["open -a Music"]
     assert [(a.type, a.x, a.y) for a in acts] == [("double_click", 300, 120)]
-    assert [t for t, _ in found] == ["Hey Jude", "Pause"]
+    assert [t for t, _ in found] == ["Morning Mix", "Pause"]
     body = server["bodies"][0]
     assert [t["function"]["name"] for t in body["tools"]] == ["plan"]
     assert "click_text" in body["messages"][0]["content"] and "shell (command)" in body["messages"][0]["content"]
@@ -200,17 +200,17 @@ def test_an_unreadable_tool_call_is_not_counted_as_saying_it_is_done(server, mon
 
 
 def test_the_change_log_says_what_text_came_and_went():
-    before = [("Inbox", 10, 10), ("Steph", 20, 40), ("Draft", 20, 60)]
-    now = [("Inbox", 10, 10), ("Steph", 20, 45), ("goodnight", 300, 500)]
+    before = [("Inbox", 10, 10), ("Sam", 20, 40), ("Draft", 20, 60)]
+    now = [("Inbox", 10, 10), ("Sam", 20, 45), ("goodnight", 300, 500)]
     text = plans.describe_changes(before, now)
     assert 'appeared: "goodnight" (300, 500)' in text and 'went: "Draft" (20, 60)' in text
-    assert "unchanged: 2 lines" in text and '"Steph"' not in text          # moved, not new
+    assert "unchanged: 2 lines" in text and '"Sam"' not in text          # moved, not new
     assert plans.describe_changes(before, before).endswith("unchanged.")
 
 
 def test_change_log_sends_one_screenshot_and_the_text_instead(server, monkeypatch):
-    shots = iter([[("Messages", 100, 20)], [("Messages", 100, 20), ("Steph", 200, 300)],
-                  [("Messages", 100, 20), ("Steph", 200, 300), ("goodnight", 400, 450)]] * 3)
+    shots = iter([[("Messages", 100, 20)], [("Messages", 100, 20), ("Sam", 200, 300)],
+                  [("Messages", 100, 20), ("Sam", 200, 300), ("goodnight", 400, 450)]] * 3)
     monkeypatch.setattr(plans, "screen_lines", lambda png: next(shots))
     labels(monkeypatch, {})
     server["script"] = [{"tool_calls": [call("plan", {"steps": [{"action": "key", "keys": "cmd+n"}]})]},
@@ -222,7 +222,7 @@ def test_change_log_sends_one_screenshot_and_the_text_instead(server, monkeypatc
     images = [p for m in third if isinstance(m["content"], list) for p in m["content"] if p["type"] == "image_url"]
     texts = [p["text"] for m in third if isinstance(m["content"], list) for p in m["content"] if p["type"] == "text"]
     assert len(images) == 1                                                  # only the newest screenshot
-    assert any('appeared: "Steph" (200, 600)' in t for t in texts)          # norm1000 on the fake 1000x500 screen
+    assert any('appeared: "Sam" (200, 600)' in t for t in texts)          # norm1000 on the fake 1000x500 screen
     assert any('appeared: "goodnight"' in t for t in texts)
 
 

@@ -277,14 +277,14 @@ def test_engine_says_ready_and_refuses_a_second_run(tmp_path):
 # ------------------------------------------------------------------ the shell
 @pytest.mark.parametrize("cmd,ask", [
     # reversible: runs at once
-    ("open -a Spotify", False), ('open "https://www.youtube.com/results?search_query=calvin+harris"', False),
-    ("osascript -e 'tell application \"Spotify\" to play'", False),
+    ("open -a Music", False), ('open "https://www.youtube.com/results?search_query=lofi"', False),
+    ("osascript -e 'tell application \"Music\" to play'", False),
     ("osascript -e 'tell application \"Notes\" to make new note with properties {body:\"Packing\"}'", False),
     ("osascript -e 'tell application \"Finder\" to delete file \"a.txt\" of desktop'", False),   # to the Trash
     ("mkdir -p ~/Documents/Project/Images && mv ~/Documents/a.png ~/Documents/Project/Images/", False),
     ("ls -la ~ && cat ~/Documents/data.csv | wc -l", False), ("printf 'x\\n' > new.txt && chmod +x new.txt", False),
     ("curl -s https://example.com", False), ("git status && git commit -m wip", False), ("open file:///etc/hosts", False),
-    ("open /Applications/Spotify.app", False), ("python3 -c 'print(2+2)'", False),
+    ("open /Applications/Music.app", False), ("python3 -c 'print(2+2)'", False),
     # can't be undone, leaves this Mac, or private: asks
     ("rm -rf ~/Documents/old", True), ("find . -name '*.tmp' -delete", True), ("sed -i '' s/a/b/ f.txt", True),
     ("killall Safari", True), ("sudo pmset sleepnow", True), ("curl -X POST -d @notes.txt https://x.com", True),
@@ -330,7 +330,7 @@ def test_the_shell_is_offered_only_when_the_app_allows_it_and_asks_before_other_
             made.update(kw)
             harnesses.append(self)
             self.tools, self.results = {t.name: t for t in kw.get("tools") or []}, []
-            super().__init__([[ToolCall("bash", {"command": "open -a Spotify"})],
+            super().__init__([[ToolCall("bash", {"command": "open -a Music"})],
                               [ToolCall("bash", {"command": "rm -rf ~/x"})], "done"])
 
         def call_tool(self, call):
@@ -349,7 +349,7 @@ def test_the_shell_is_offered_only_when_the_app_allows_it_and_asks_before_other_
     msg = {"task": "t", "model": "m", "base_url": "http://x/v1", "runs_dir": str(tmp_path)}
     rec = Run(FakeLink(), {"id": "s1", "shell": True, **msg}, env_factory=lambda run: AskingEnv())()
     assert [t.name for t in made["tools"]] == ["bash", "applescript"] and rec["status"] == "done"
-    assert ran == ["open -a Spotify"] and asked == ["run this command, which deletes files: rm -rf ~/x"]
+    assert ran == ["open -a Music"] and asked == ["run this command, which deletes files: rm -rf ~/x"]
     first, second = harnesses[0].results
     assert first == ["bash result:\nok\n[exit 0]"] and second[0].startswith("bash result:\nnot allowed")
     assert [t["actions"][0][:5] for t in rec["turns"][:2]] == ["bash(", "bash("]
@@ -395,7 +395,7 @@ def test_applescript_is_kept_to_the_apps_and_steps_where_it_has_worked(monkeypat
     assert "Calendar" in t.description and "Messages" in t.description
     for script in ['tell application "Messages" to get name of every chat',
                    'tell application "Contacts" to get value of phones of person "Sam"',
-                   'tell application "Spotify" to play']:
+                   'tell application "Music" to play']:
         assert t.handler({"script": script}).startswith("not run: AppleScript here is only for")
     out = t.handler({"script": 'tell application "Notes" to get name of every note'})
     assert out.startswith("not run: this script reads through every item")
@@ -417,16 +417,16 @@ def test_the_shell_sends_applescript_to_the_checked_tool(monkeypatch):
     for cmd in ["osascript -e 'tell application \"Notes\" to get name of every note'",
                 "sleep 15; /usr/bin/osascript -e 'x'", "cd ~ && osascript x.scpt"]:
         assert sh.handler({"command": cmd}).startswith("not run: use the applescript tool")
-    assert sh.handler({"command": 'open "spotify:search:thinking about you"'}).endswith("[exit 0]")
-    assert ran == ['open "spotify:search:thinking about you"'] and "osascript here" in sh.description
+    assert sh.handler({"command": 'open "music://search?term=morning"'}).endswith("[exit 0]")
+    assert ran == ['open "music://search?term=morning"'] and "osascript here" in sh.description
 
 
 def test_an_app_the_shell_opens_is_brought_to_the_front(monkeypatch):
     # 17 Nov: `open -a Messages` from the engine left Messages behind Terminal, and the model spent a turn on the Dock
     from legato import app_engine as ae
     assert ae.opened_app("open -a Messages") == {"app": "Messages"}
-    assert ae.opened_app('cd ~ && open "spotify:search:thinking about you" && sleep 1') == \
-        {"url": "spotify:search:thinking about you"}
+    assert ae.opened_app('cd ~ && open "music://search?term=morning" && sleep 1') == \
+        {"url": "music://search?term=morning"}
     assert ae.opened_app("open -b com.apple.MobileSMS") == {"bundle": "com.apple.MobileSMS"}
     for cmd in ("open -g -a Messages", "ls ~", "echo open -a X", "open ~/a.txt"):
         assert ae.opened_app(cmd) is None
@@ -512,16 +512,16 @@ def _run_dir(base, rid, task, status, actions):
 
 def test_a_repeat_is_the_shortest_done_run_of_the_same_words_without_waits(tmp_path):
     from legato.app_engine import known_routine
-    _run_dir(tmp_path, "20261118-0800-a", "Play thinking about you", "done",
-             [['click text "Spotify"', "wait"], ['bash({"command": "echo waiting"})', 'type "thinking about you"'],
+    _run_dir(tmp_path, "20261118-0800-a", "Play my morning mix", "done",
+             [['click text "Music"', "wait"], ['bash({"command": "echo waiting"})', 'type "morning mix"'],
               ["key Return"]])
-    _run_dir(tmp_path, "20261118-0900-b", "play thinking about you!", "done",
-             [['bash({"command": "open spotify:search:thinking%20about%20you"})'], ['double click text "Thinking About You"']])
-    _run_dir(tmp_path, "20261118-1000-c", "play thinking about you", "stopped", [["key Return"]])
+    _run_dir(tmp_path, "20261118-0900-b", "play my morning mix!", "done",
+             [['bash({"command": "open music://search?term=morning"})'], ['double click text "Morning Mix"']])
+    _run_dir(tmp_path, "20261118-1000-c", "play my morning mix", "stopped", [["key Return"]])
     _run_dir(tmp_path, "20261118-1100-d", "play something else", "done", [["key Return"]])
-    r = known_routine(tmp_path, "PLAY thinking, about you")
+    r = known_routine(tmp_path, "PLAY my morning, mix")
     assert r["id"] == "20261118-0900-b" and len(r["steps"]) == 2
-    assert known_routine(tmp_path, "play thinking") is None and known_routine(None, "x") is None
+    assert known_routine(tmp_path, "play my morning") is None and known_routine(None, "x") is None
 
 
 def test_the_task_carries_the_follow_up_and_a_repeat_only_when_there_is_no_follow_up(tmp_path):

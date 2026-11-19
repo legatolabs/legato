@@ -320,7 +320,7 @@ def test_the_tool_shape_maps_to_actions_and_known_tools_only():
     assert _named_calls({"content": '{"tool": "bash", "arguments": {"command": "ls"}}'}, ("bash",)) == \
         [("bash", {"command": "ls"})]
     assert _named_calls({"content": '{"tool": "bash", "command": "ls"}'}) == []        # not a tool here
-    assert _named_calls({"content": '{"tool": "spotify", "song": "x"}'}, ("bash",)) == []
+    assert _named_calls({"content": '{"tool": "music", "song": "x"}'}, ("bash",)) == []
     said_and_made = {"content": '{"tool": "bash", "command": "ls"}',
                      "tool_calls": [named("bash", {"command": "ls"})]}
     assert _named_calls(said_and_made, ("bash",)) == [("bash", {"command": "ls"})]     # once

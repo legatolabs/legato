@@ -7,8 +7,8 @@ import ApplicationServices
 /// frontmost.
 @MainActor
 enum AppFocus {
-    /// The running app by bundle id, by name ("Messages", "Messages.app", "/Applications/Spotify.app"), or the app that
-    /// opens `url` ("spotify:search:...", "https://...").
+    /// The running app by bundle id, by name ("Messages", "Messages.app", "/Applications/Music.app"), or the app that
+    /// opens `url` ("music://...", "https://...").
     static func find(name: String?, bundle: String?, url: String?) -> NSRunningApplication? {
         let apps = NSWorkspace.shared.runningApplications
         if let b = bundle?.lowercased(), !b.isEmpty {
