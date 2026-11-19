@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0
+
 - **Legato for Mac** (`app/macos`): a menu-bar app that runs Legato on your own Mac with your own model and key.
   Open it with Fn (hold Fn to say the task), switch models from the command bar (⌘1-⌘4, ⌘K), and watch each step;
   risky actions wait for your yes. Providers: OpenAI, Claude (Anthropic), Gemini, Grok (xAI), OpenRouter, Together AI,

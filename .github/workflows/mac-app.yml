@@ -83,7 +83,8 @@ jobs:
         run: |
           V="${TAG#v}"
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "" --verify-tag
-          gh release upload "$TAG" "app/macos/dist/Legato-$V.dmg" app/macos/dist/appcast.xml --clobber
+          cp "app/macos/dist/Legato-$V.dmg" app/macos/dist/Legato.dmg   # a stable name: releases/latest/download/Legato.dmg
+          gh release upload "$TAG" "app/macos/dist/Legato-$V.dmg" app/macos/dist/Legato.dmg app/macos/dist/appcast.xml --clobber
       - name: Remove the job's keychain
         if: always()
         run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
