@@ -103,13 +103,16 @@ sign "$F"
 sign --entitlements "$HERE/app.entitlements" "$APP"
 codesign --verify --deep --strict --verbose=1 "$APP"
 
-# ---- dmg: the app and a link to /Applications
+# ---- dmg: the install window (app/macos/dmg: the background, the app, an alias to Applications with its icon)
 echo "==> dmg"
+DMGB="$CACHE/dmgbuild-1.6.7"            # its own tools, so nothing runs from inside the signed app
+[ -x "$DMGB/bin/dmgbuild" ] || { python3 -m venv "$DMGB" && "$DMGB/bin/pip" install -q "dmgbuild==1.6.7" pyobjc-framework-Cocoa; }
 STAGE="$DIST/dmg"
 mkdir -p "$STAGE"
-cp -R "$APP" "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
-hdiutil create -quiet -volname "Legato" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+tiffutil -cathidpicheck "$HERE/dmg/background.png" "$HERE/dmg/background@2x.png" -out "$STAGE/background.tiff" >/dev/null
+"$DMGB/bin/python" "$HERE/dmg/make_alias.py" "$STAGE" >/dev/null
+"$DMGB/bin/dmgbuild" -s "$HERE/dmg/settings.py" -D app="$APP" -D alias="$STAGE/Applications" \
+  -D background="$STAGE/background.tiff" "Legato" "$DMG"
 rm -rf "$STAGE"
 codesign --force --timestamp --sign "$ID" "$DMG"
 
