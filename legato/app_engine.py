@@ -296,7 +296,7 @@ def shell_tool(ask, timeout_s: float = 30.0, max_chars: int = 4000, focus=None) 
                     "first), or do this on the screen.")
         why = command_risk(cmd)
         if why and not ask(f"run this command, which {why}: {cmd}"):
-            return "not allowed: the person said no to this command. Do it on the screen, or another way."
+            return "not run: the person said no to this command. Do it on the screen, or another way."
         out = local_shell(cmd, timeout_s)
         target = opened_app(cmd) if focus is not None and out.rstrip().endswith("[exit 0]") else None
         if target:
@@ -387,7 +387,7 @@ def applescript_tool(ask, timeout_s: float = 30.0, apps: tuple = SCRIPT_APPS) ->
                         "create or change an item the task names. To find something, look at the screen.")
             why = command_risk(f"osascript -e {shlex.quote(script)}")
             if why and not ask(f"run this AppleScript, which {why}: {script}"):
-                return "not allowed: the person said no to this script. Do it on the screen, or another way."
+                return "not run: the person said no to this script. Do it on the screen, or another way."
         return inner.handler(args)
     return Tool(inner.name, APPLESCRIPT_APP_HINT, inner.parameters, handler)
 

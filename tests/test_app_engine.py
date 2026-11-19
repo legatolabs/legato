@@ -351,7 +351,7 @@ def test_the_shell_is_offered_only_when_the_app_allows_it_and_asks_before_other_
     assert [t.name for t in made["tools"]] == ["bash", "applescript"] and rec["status"] == "done"
     assert ran == ["open -a Music"] and asked == ["run this command, which deletes files: rm -rf ~/x"]
     first, second = harnesses[0].results
-    assert first == ["bash result:\nok\n[exit 0]"] and second[0].startswith("bash result:\nnot allowed")
+    assert first == ["bash result:\nok\n[exit 0]"] and second[0].startswith("bash result:\nnot run")
     assert [t["actions"][0][:5] for t in rec["turns"][:2]] == ["bash(", "bash("]
 
     made.clear()
@@ -374,7 +374,7 @@ def test_the_applescript_tool_asks_before_a_script_that_cannot_be_undone_and_run
     t = ae.applescript_tool(lambda q: asked.append(q) or False)
     assert t.handler({"script": 'tell application "Reminders" to make new list with properties {name:"L"}'}).startswith("ran")
     out = t.handler({"script": 'tell application "Notes" to delete note "Groceries"'})
-    assert out.startswith("not allowed") and len(asked) == 1 and "run this AppleScript" in asked[0]
+    assert out.startswith("not run") and len(asked) == 1 and "run this AppleScript" in asked[0]
     assert ran == ['tell application "Reminders" to make new list with properties {name:"L"}']
 
 
@@ -528,3 +528,22 @@ def test_the_task_carries_the_follow_up_and_a_repeat_only_when_there_is_no_follo
     from legato.app_engine import FOLLOW_NOTE, REPEAT_NOTE
     assert "“open my github”" in FOLLOW_NOTE.format(task="open my github", result="done")
     assert "1. key Return" in REPEAT_NOTE.format(steps="1. key Return")
+
+
+def test_a_refused_command_or_script_stops_the_plan(monkeypatch):
+    # a "no" must read as a failed step (legato.plan.tool_failed), so a plan cannot call done right after it.
+    # Nothing runs here: the shell is never reached after a no, and the AppleScript runner is a fake.
+    from legato import app_engine as ae
+    from legato import plan as plans
+    monkeypatch.setattr(ae, "local_shell", lambda cmd, t: (_ for _ in ()).throw(AssertionError("must not run")))
+    out = ae.shell_tool(lambda q: False).handler({"command": "rm -rf ~/x"})
+    assert out.startswith("not run:") and plans.tool_failed(out)
+
+    class Inner:
+        name, description, parameters = "applescript", "checked", {}
+
+        def handler(self, args):
+            raise AssertionError("a refused script must not run")
+    monkeypatch.setattr(ae, "applescript", lambda timeout_s=30.0: Inner())
+    out = ae.applescript_tool(lambda q: False).handler({"script": 'tell application "Notes" to delete note "Groceries"'})
+    assert out.startswith("not run:") and plans.tool_failed(out)
