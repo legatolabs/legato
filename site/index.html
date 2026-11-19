@@ -27,7 +27,7 @@
 <link rel="stylesheet" href="/styles.css">
 <script type="application/ld+json">
 {"@context": "https://schema.org", "@graph": [
- {"@type": "Organization", "name": "Legato Labs", "url": "https://legato.computer", "logo": "https://legato.computer/brand/mark.svg",
+ {"@type": "Organization", "name": "Legato", "url": "https://legato.computer", "logo": "https://legato.computer/brand/mark.svg",
   "sameAs": ["https://github.com/legatolabs"], "description": "The runtime for agents that act: the loop between a model and the machine it controls."},
  {"@type": "SoftwareSourceCode", "name": "Legato", "alternateName": ["legatolabs", "Legato computer use", "Legato MCP server"],
   "url": "https://legato.computer", "codeRepository": "https://github.com/legatolabs/legato",
@@ -48,10 +48,11 @@
     <a class="brand" href="/" aria-label="Legato home"><img src="/brand/wordmark.svg" alt="Legato" width="92" height="19"></a>
     <nav class="nav" aria-label="Main">
       <a href="/docs/benchmarks">research</a>
+      <a href="/mac">mac</a>
       <a href="/docs" class="hide-xs">docs</a>
       <a href="https://github.com/legatolabs/legato" rel="noopener" class="hide-sm">github</a>
       <span class="est hide-sm">est. 2026</span>
-      <a class="btn sm" href="#partners">work with us</a>
+      <a class="btn sm" href="/#partners">work with us</a>
     </nav>
   </div>
 </header>
@@ -60,13 +61,13 @@
 <section class="hero x-hero">
   <div class="wrap x-hero-grid">
     <div>
-      <p class="eyebrow">agent infrastructure</p>
       <h1>The runtime for<br><em>agents that act.</em></h1>
       <p class="lead">Inference got fast. Sandboxes got fast. The loop between them didn't. We're building the runtime for computer-use agents and the RL that trains them.</p>
       <div class="cta">
         <a class="btn" href="#partners">work with us</a>
-        <a class="link" href="/docs/benchmarks">research →</a>
+        <a class="btn ghost tip" data-tip="hold fn, say the task" href="https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg">↓ download for mac</a>
       </div>
+      <p class="req">Apple silicon · macOS 14 or later · bring your own model</p>
     </div>
     <figure class="loopfig" aria-label="The agent loop: observe, decide, act, settle. Legato runs it.">
       <svg viewBox="0 0 440 440" role="img" aria-hidden="true">
@@ -85,86 +86,56 @@
   </div>
 </section>
 
-<section id="problem" class="x-sec center">
+<article id="memo" class="memo">
   <div class="wrap">
-    <div class="big">53%</div>
-    <p class="say">of an agent's step time goes to the machine, not the model.</p>
-    <div class="thin" role="img" aria-label="53% machine, 47% model"><i style="width:53%"></i></div>
-    <p class="src">Claude Code, across 434,912 steps from real sessions (Codex: 45%) · <a href="/docs/benchmarks#where-agent-time-goes-public-traces">source</a></p>
-  </div>
-</section>
+    <div class="col">
+      <p>Reinforcement learning has always gone where practice is cheap.</p>
+      <p>It got good at backgammon first, then Go, because a board game costs almost nothing to play again. A program can play itself all night, and by morning it has played more games than a person could in a lifetime.</p>
+      <p>Then it got good at math and code, because there an answer can be checked by another program. Reasoning models were given problems, a way to tell right from wrong, and a great deal of practice, and they kept getting better.</p>
+      <p>The next thing to learn is work. Work is harder in a very unglamorous way: it happens on computers, and computers are slow.</p>
 
-<section id="runtime" class="x-sec">
-  <div class="wrap">
-    <h2 class="c">One runtime between model and machine.</h2>
-    <div class="quad">
-      <div><span class="tag live">shipping</span><b>1.48×</b><span>ready signals, not timers</span></div>
-      <div><span class="tag beta">beta</span><b>70 ms</b><span>model state that stays warm</span></div>
-      <div><span class="tag dev">building</span><b>0.7 s</b><span>fork a machine with its memory</span></div>
-      <div><span class="tag dev">building</span><b>16×</b><span>environments per container</span></div>
+      <h2>The boring bottleneck</h2>
+      <p>Watch an agent do a task on a real machine. It clicks, then waits. A window opens, a page loads, a spreadsheet recalculates, and only then does it find out whether the click did what it meant. A game of Go never made anyone wait for a spinner.</p>
+      <p>So the limit on how fast agents learn to work sits in an odd place: in the machines. How many you can run at once, how quickly each one settles after an action, how cheaply you can rewind one to the moment before a mistake and try again. Whoever makes that cheap gets to train the best agents.</p>
+      <p>The scaling law for agents is a scaling law for environments.</p>
+
+      <h2>Over the shoulder</h2>
+      <p>Most of what a company knows is passed on the way trades used to be, by one person watching another. Nobody wrote down the workaround in the ERP, or why one tab of that spreadsheet must never be sorted. New hires pick it up over someone's shoulder, on a screen share.</p>
+      <p>A machine can watch over a shoulder too. Every day, a company performs its own expertise on screens, step by step, and almost none of it is kept. Recorded, kept private inside the company, and turned into places an agent can practice with the real outcome as the reward, that work becomes a curriculum no lab could assemble: the company's own know-how, taught back to it.</p>
+      <p>We think the most useful enterprise models will be trained this way. They'll learn the job the way everyone else at the company did.</p>
+
+      <h2>What we're building</h2>
+      <p>Both of these ideas run into the same wall. Every rollout an agent learns from has to happen on a machine, and the machine sets the pace. So that's where we've decided to work.</p>
+      <p>There's an old pattern here. When compiling a program took all night, programmers wrote carefully and tried few ideas. When it took seconds, they started experimenting, and software got better much faster. Research has always moved at the speed of its slowest loop.</p>
+      <p>Agent training is about to go through the same change. A faster runtime means more rollouts from the same machines, shorter experiments, and more ideas tried before lunch. Better agents waste fewer steps, so the next round of rollouts is cheaper still. Each turn of the loop pays for part of the next one.</p>
+      <p>Open that bottleneck, and agents get to scale the way the rest of computing has: exponentially.</p>
+      <p class="pull">The road to general agents runs through experience. Experience runs through machines.</p>
+
+      <h2>And then, atoms</h2>
+      <p>A robot is the same loop with the stakes raised: a camera where the screen was, motors where the mouse was, and much less patience for a slow step. It will learn the way agents on screens do, by acting, failing and trying again, and all of that experience has to be made by someone. We'd like the runtime that makes it cheap on screens to be the one robots use too.</p>
+
+      <h2 id="partners">Work with us</h2>
+      <p>If you're training agents that act, or your company has years of its own work sitting on screens, we'd like to hear from you.</p>
+      <form class="wl one" id="wl" novalidate>
+        <input type="email" name="email" required autocomplete="email" placeholder="you@company.com" aria-label="email">
+        <input type="hidden" name="company" value=""><input type="hidden" name="use_case" value=""><input type="hidden" name="name" value="">
+        <button type="submit">talk to us →</button>
+      </form>
+      <p class="formmsg" id="wl-msg" role="status" aria-live="polite"></p>
+      <p class="sign">Legato</p>
     </div>
   </div>
-</section>
-
-<section id="rl" class="x-sec">
-  <div class="wrap">
-    <h2 class="c">Branch a thousand rollouts from step&nbsp;40.</h2>
-    <figure class="branch" aria-label="One trajectory runs to step 40, then forks into many rollouts from a snapshot.">
-      <svg viewBox="0 0 640 230" role="img" aria-hidden="true">
-        <line x1="16" y1="115" x2="300" y2="115" class="trunk"/>
-        <g class="ticks"></g>
-        <circle cx="300" cy="115" r="7" class="fork"/>
-        <text x="300" y="92" text-anchor="middle" class="lab">snapshot</text>
-        <g class="leaves"></g>
-      </svg>
-    </figure>
-    <p class="src c">For teams training computer-use models with RL. <a href="#partners">Design partners →</a></p>
-  </div>
-</section>
-
-<section id="next" class="x-sec">
-  <div class="wrap">
-    <h2 class="c">Then the physical world.</h2>
-    <ol class="road">
-      <li><span class="when">now</span><b>Computer use</b></li>
-      <li><span class="when">building</span><b>RL at scale</b></li>
-      <li><span class="when">next</span><b>Real-time robotics</b></li>
-    </ol>
-  </div>
-</section>
-
-<section id="partners" class="x-sec center">
-  <div class="wrap">
-    <h2 class="c">Build with us.</h2>
-    <form class="wl one" id="wl" novalidate>
-      <input type="email" name="email" required autocomplete="email" placeholder="you@company.com" aria-label="email">
-      <input type="hidden" name="company" value=""><input type="hidden" name="use_case" value=""><input type="hidden" name="name" value="">
-      <button type="submit">talk to us →</button>
-    </form>
-    <p class="formmsg" id="wl-msg" role="status" aria-live="polite"></p>
-  </div>
-</section>
+</article>
 </main>
 
 <footer>
   <div class="wrap">
-    <span>Legato Labs · the runtime for agents that act</span>
-    <nav aria-label="Footer"><a href="/docs/benchmarks">research</a><a href="/docs">docs</a><a href="https://github.com/legatolabs" rel="noopener">github</a><a href="/llms.txt">llms.txt</a><a href="mailto:hello@legato.computer">hello@legato.computer</a></nav>
+    <span>Legato · the runtime for agents that act</span>
+    <nav aria-label="Footer"><a href="/docs/benchmarks">research</a><a href="/mac">mac</a><a href="/docs">docs</a><a href="https://github.com/legatolabs" rel="noopener">github</a><a href="/llms.txt">llms.txt</a><a href="mailto:hello@legato.computer">hello@legato.computer</a></nav>
   </div>
 </footer>
 <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
 <script defer src="/_vercel/insights/script.js"></script>
 <script src="/site.js" defer></script>
-<script>
-(() => {
-  const svg = document.querySelector(".branch svg"); if (!svg) return;
-  const NS = "http://www.w3.org/2000/svg", ticks = svg.querySelector(".ticks"), leaves = svg.querySelector(".leaves");
-  for (let i = 0; i < 20; i++) { const t = document.createElementNS(NS, "line"); const x = 16 + i * 14.2;
-    t.setAttribute("x1", x); t.setAttribute("x2", x); t.setAttribute("y1", 111); t.setAttribute("y2", 119); ticks.appendChild(t); }
-  const N = 26;
-  for (let i = 0; i < N; i++) { const p = document.createElementNS(NS, "path"); const y = 18 + (194 * i) / (N - 1);
-    p.setAttribute("d", `M300,115 C400,115 470,${y} 624,${y}`); p.style.animationDelay = `${(i % 7) * 0.4}s`; leaves.appendChild(p); }
-})();
-</script>
 </body>
 </html>
