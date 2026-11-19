@@ -489,14 +489,14 @@ footer a:hover { color: var(--fg); }
 /* ===================================================================== home: the memo
    The hero, then one reading column. No numbers and no product names here: they live on /docs/benchmarks and /mac. */
 .memo { padding: 40px 0 40px; }
-.memo .col { max-width: 820px; margin: 0 auto; }
-.memo p { font: 18px/1.75 var(--sans); color: var(--fg-2); margin: 0 0 24px; text-align: justify; hyphens: auto; -webkit-hyphens: auto; }
+.memo .col { max-width: 720px; margin: 0 auto; }
+.memo p { font: 18px/1.75 var(--sans); color: var(--fg-2); margin: 0 0 24px; text-wrap: pretty; }
 .memo .col > p:first-child { font-size: 21px; line-height: 1.65; color: var(--fg); }
 .memo p strong { color: var(--fg); font-weight: 500; }
 .memo h2 { font: 400 clamp(30px, 3.4vw, 40px)/1.15 var(--serif); letter-spacing: -0.01em; color: var(--fg); margin: 80px 0 24px; scroll-margin-top: 24px; }
 .memo a { color: var(--fg); text-decoration-color: var(--fg-3); }
 .memo a:hover { text-decoration-color: var(--fg); }
-.memo p.pull { font: 400 clamp(28px, 3vw, 36px)/1.25 var(--serif); color: var(--fg); margin: 48px 0; padding-left: 24px; border-left: 1px solid var(--fg-3); text-align: left; hyphens: manual; -webkit-hyphens: manual; }
+.memo p.pull { font: 400 clamp(28px, 3vw, 36px)/1.25 var(--serif); color: var(--fg); margin: 48px 0; padding-left: 24px; border-left: 1px solid var(--fg-3); }
 .memo .wl { margin: 32px 0 6px; max-width: none; }
 .memo .formmsg { margin-bottom: 0; }
 .memo .sign { font: italic 26px/1.2 var(--serif); color: var(--fg); margin: 72px 0 0; }
