@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Legato for Mac** (`app/macos`): a menu-bar app that runs Legato on your own Mac with your own model and key.
+  Open it with Fn (hold Fn to say the task), switch models from the command bar (⌘1-⌘4, ⌘K), and watch each step;
+  risky actions wait for your yes. Providers: OpenRouter, Anthropic, OpenAI, Gemini, Fireworks, Groq, Together,
+  DeepInfra, Cerebras, xAI, Ollama, LM Studio and any OpenAI-compatible server. `app/macos/release.sh` builds a
+  signed, notarized `.dmg` with its own engine inside; the `mac-app` workflow attaches it and the Sparkle update feed
+  to each release, and the app updates itself.
 - MCP: `--wait-scope app` (with `--local` on macOS) waits on the front app's windows only; `--fixed-wait S` sleeps
   instead of waiting, as a baseline. `benchmarks/mcp_h2h/` compares Claude Code with Legato's MCP against Claude
   Code's built-in computer use (#21); no results yet.

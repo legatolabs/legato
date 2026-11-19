@@ -15,6 +15,8 @@ rollouts), `legato mcp` (MCP server). PyPI name `legatolabs`, import name `legat
   - `legato/providers.py`: `--sandbox` choices (e2b, local, docker, your own function).
   - `legato/settle.py`: waiting for the screen.
   - `legato/mcp_server.py`: the MCP server; `legato/doctor.py`: `legato doctor`.
+  - `app/macos/`: Legato for Mac (Swift, menu bar) and `legato/app_engine.py`, its engine; `build.sh` for this Mac,
+    `release.sh` for a notarized `.dmg` (the `mac-app` workflow runs it on each `v*` tag).
   - `legato/rl/`: rollouts and benchmarks.
   - `docker/desktop/`: the desktop image for `--sandbox docker`.
   - `.claude-plugin/`, `plugin.json`, `mcp.json`, `gemini-extension.json`, `mcpb/`, `server.json`: how editors and
