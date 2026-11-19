@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Legato · open-source computer use for any model and any agent</title>
-<meta name="description" content="Open-source computer-use harness and MCP server: give Claude Code, Codex or Cursor a desktop (a Docker container, your own screen or the cloud), with any OpenAI-compatible model. 1.48x faster than Anthropic's reference loop on the same model.">
+<title>Legato · the runtime for agents that act</title>
+<meta name="description" content="Agents spend more of their time waiting on machines than thinking. Legato is the runtime for the loop between a model and the machine it controls: computer-use agents in production, RL rollouts at scale, and next, robots.">
 <link rel="canonical" href="https://legato.computer/">
 <link rel="alternate" type="text/markdown" href="/docs/index.md">
 <link rel="ai-catalog" href="/.well-known/ai-catalog.json">
@@ -14,8 +14,8 @@
 <meta name="theme-color" content="#0a0a0a">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Legato">
-<meta property="og:title" content="Legato · open-source computer use for any model and any agent">
-<meta property="og:description" content="Open-source computer-use harness for any model. 1.48x faster than Anthropic's reference loop on the same Claude model.">
+<meta property="og:title" content="Legato · the runtime for agents that act">
+<meta property="og:description" content="Agents spend more of their time waiting on machines than thinking. Legato runs the loop between a model and the machine it controls.">
 <meta property="og:url" content="https://legato.computer/">
 <meta property="og:image" content="https://legato.computer/brand/og.png">
 <meta property="og:image:width" content="1200">
@@ -26,195 +26,145 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap">
 <link rel="stylesheet" href="/styles.css">
 <script type="application/ld+json">
-{"@context": "https://schema.org", "@type": "SoftwareSourceCode", "name": "Legato",
- "alternateName": ["legatolabs", "Legato computer use", "Legato MCP server"],
- "url": "https://legato.computer", "codeRepository": "https://github.com/legatolabs/legato",
- "sameAs": ["https://github.com/legatolabs/legato", "https://pypi.org/project/legatolabs/",
-            "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.legatolabs/legato"],
- "programmingLanguage": "Python", "license": "https://www.apache.org/licenses/LICENSE-2.0",
- "applicationCategory": "DeveloperApplication", "operatingSystem": "Linux, macOS, Windows",
- "keywords": "computer use, computer-use agent, MCP server, Claude Code, Codex, Cursor, desktop automation, GUI agent, Qwen, vLLM, OSWorld",
- "description": "Open-source computer-use harness and MCP server (PyPI: legatolabs). Gives Claude Code, Codex or Cursor a desktop (a Docker container, your own screen, any sandbox or E2B) and runs any OpenAI-compatible vision model, waiting for the screen instead of sleeping."}
+{"@context": "https://schema.org", "@graph": [
+ {"@type": "Organization", "name": "Legato Labs", "url": "https://legato.computer", "logo": "https://legato.computer/brand/mark.svg",
+  "sameAs": ["https://github.com/legatolabs"], "description": "The runtime for agents that act: the loop between a model and the machine it controls."},
+ {"@type": "SoftwareSourceCode", "name": "Legato", "alternateName": ["legatolabs", "Legato computer use", "Legato MCP server"],
+  "url": "https://legato.computer", "codeRepository": "https://github.com/legatolabs/legato",
+  "sameAs": ["https://github.com/legatolabs/legato", "https://pypi.org/project/legatolabs/",
+             "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.legatolabs/legato"],
+  "programmingLanguage": "Python", "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "applicationCategory": "DeveloperApplication", "operatingSystem": "Linux, macOS, Windows",
+  "keywords": "computer use, computer-use agent, agent runtime, RL rollouts, MCP server, Claude Code, Codex, Cursor, Qwen, vLLM, OSWorld",
+  "description": "Open-source runtime for computer-use agents (PyPI: legatolabs): a harness and MCP server for any OpenAI-compatible model on any machine, waiting for the screen instead of sleeping."}
+]}
 </script>
 </head>
-<body>
+<body class="home calm">
 <canvas class="waves" aria-hidden="true"></canvas>
 
 <header class="top">
   <div class="wrap">
     <a class="brand" href="/" aria-label="Legato home"><img src="/brand/wordmark.svg" alt="Legato" width="92" height="19"></a>
     <nav class="nav" aria-label="Main">
-      <a href="/docs/benchmarks">Benchmarks</a>
-      <a href="/#projects" class="hide-sm">Projects</a>
-      <a href="/docs">Docs</a>
-      <a href="https://github.com/legatolabs/legato" rel="noopener" class="hide-sm">GitHub</a>
+      <a href="/docs/benchmarks">research</a>
+      <a href="/docs" class="hide-xs">docs</a>
+      <a href="https://github.com/legatolabs/legato" rel="noopener" class="hide-sm">github</a>
       <span class="est hide-sm">est. 2026</span>
+      <a class="btn sm" href="#partners">work with us</a>
     </nav>
   </div>
 </header>
 
 <main>
-<section class="hero">
-  <div class="hero-mark" aria-hidden="true"><img src="/brand/mark.svg" alt="" width="320" height="320"></div>
-  <div class="wrap">
-    <h1>Agents, in<br><em>one motion.</em></h1>
-    <p class="lead">Inference got fast. Sandboxes got fast. The loop between them didn't. We're building the runtime for computer-use agents and the RL that trains them.</p>
-    <div class="cta">
-      <button class="install" type="button" data-copy="pip install legatolabs" aria-label="Copy the install command"><span class="p">$</span> pip install legatolabs <span class="copied" aria-hidden="true">copy</span></button>
-      <a class="link" href="/docs/guides/coding-agent-computer">Give your coding agent a computer →</a>
-      <a class="link dim" href="/docs/benchmarks">Read the results →</a>
+<section class="hero x-hero">
+  <div class="wrap x-hero-grid">
+    <div>
+      <p class="eyebrow">agent infrastructure</p>
+      <h1>The runtime for<br><em>agents that act.</em></h1>
+      <p class="lead">Inference got fast. Sandboxes got fast. The loop between them didn't. We're building the runtime for computer-use agents and the RL that trains them.</p>
+      <div class="cta">
+        <a class="btn" href="#partners">work with us</a>
+        <a class="link" href="/docs/benchmarks">research →</a>
+      </div>
     </div>
-  </div>
-</section>
-
-<section class="metrics" aria-label="Measured results">
-  <div class="wrap grid4">
-    <div><div class="n">1.48×</div><div class="t">faster than Anthropic's reference loop, same Claude model, same success</div></div>
-    <div><div class="n">+19 pts</div><div class="t">success over OSWorld's Qwen agent, same open model, same speed</div></div>
-    <div><div class="n">40–53%</div><div class="t">of OSWorld rollout time was idle under fixed sleeps</div></div>
-    <div><div class="n">0.6 s</div><div class="t">to pause a desktop with its memory, 1.7 s to fork it</div></div>
-  </div>
-</section>
-
-<section id="about" class="doc-block">
-  <div class="wrap two">
-    <div class="label"><span class="hash">#</span> About the lab</div>
-    <div class="body">
-      <p>Legato Labs works on the loop between a model and the machine it operates: screenshot, decide, act, wait for the screen. We publish what we measure, same model and same desktops, with the bars set before each run.</p>
-    </div>
-  </div>
-</section>
-
-
-<section id="figure" class="doc-block">
-  <div class="wrap">
-    <figure class="fig">
-      <video poster="/media/race-poster.jpg" width="1920" height="1080" controls muted loop playsinline preload="none" data-autoplay aria-label="Side-by-side replay: Anthropic's reference loop and Legato, same model and task"><source src="/media/race-claude.mp4" type="video/mp4"><source src="/media/race-claude.webm" type="video/webm"></video>
-      <figcaption><span class="no">Fig. 1</span> Claude Sonnet 5.5 on one office task, played at 5× speed. Same model, same desktop; only the loop differs. Anthropic's reference loop took 151.7 s from the first screenshot to the last model turn, Legato 78.8 s, and both passed. Across 24 tasks Legato was 1.48× faster at the same success rate (<a href="/docs/benchmarks">benchmarks</a>).</figcaption>
+    <figure class="loopfig" aria-label="The agent loop: observe, decide, act, settle. Legato runs it.">
+      <svg viewBox="0 0 440 440" role="img" aria-hidden="true">
+        <defs><path id="ring" d="M220,60 a160,160 0 1,1 -0.01,0"/></defs>
+        <circle cx="220" cy="220" r="160" class="ring"/>
+        <circle cx="220" cy="220" r="160" class="ring-machine"/>
+        <circle cx="220" cy="220" r="110" class="ring-in"/>
+        <g class="st"><circle cx="220" cy="60" r="7"/><text x="220" y="36" text-anchor="middle">observe</text></g>
+        <g class="st"><circle cx="380" cy="220" r="7"/><text x="394" y="225">decide</text></g>
+        <g class="st"><circle cx="220" cy="380" r="7"/><text x="220" y="412" text-anchor="middle">act</text></g>
+        <g class="st"><circle cx="60" cy="220" r="7"/><text x="46" y="225" text-anchor="end">settle</text></g>
+        <circle r="5" class="dot"><animateMotion dur="5.5s" repeatCount="indefinite"><mpath href="#ring"/></animateMotion></circle>
+      </svg>
+      <div class="hero-mark in-loop" aria-hidden="true"><img src="/brand/mark.svg" alt="" width="320" height="320"></div>
     </figure>
   </div>
 </section>
 
-<section id="projects" class="doc-block">
-  <div class="wrap two">
-    <div class="label"><span class="hash">#</span> Current projects</div>
-    <div class="body">
-      <div class="cards">
-        <a class="card" href="https://github.com/legatolabs/legato" rel="noopener">
-          <div class="h"><span>legato</span><span class="tag">open source</span></div>
-          <p>Computer-use harness for any OpenAI-compatible model, on any computer. Apache-2.0.</p>
-        </a>
-        <a class="card" href="/docs/mcp">
-          <div class="h"><span>legato mcp</span><span class="tag">open source</span></div>
-          <p>Your screen, your sandbox or a cloud desktop, for Claude Code, Cursor or any MCP client.</p>
-        </a>
-        <a class="card" href="/docs/rl">
-          <div class="h"><span>legato rl</span><span class="tag">open source</span></div>
-          <p>Graded desktop rollouts for computer-use RL.</p>
-        </a>
-        <a class="card" href="/#cloud">
-          <div class="h"><span>Legato Cloud</span><span class="tag beta">beta</span></div>
-          <p>The model and the desktop side by side: warm caches, forks with memory, hosted open models.</p>
-        </a>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="cloud" class="doc-block">
-  <div class="wrap two">
-    <div class="label"><span class="hash">#</span> Legato Cloud</div>
-    <div class="body">
-      <p>The open-source harness runs on any computer. Legato Cloud runs the model and the desktop side by side, so it saves time the loop alone cannot. Each number is one part, measured; <a href="/docs/benchmarks#legato-cloud-what-the-managed-version-adds">method and raw data</a>.</p>
-      <div class="gains">
-        <div><div class="n">2.3–2.7×</div><div class="t">faster prefill per step: each run's history stays cached on one engine, and the next request is prefilled while the screen settles</div></div>
-        <div><div class="n">1.27×</div><div class="t">faster median task with speculative decoding on the hosted open model</div></div>
-        <div><div class="n">2.0 s</div><div class="t">to fork a running desktop through the API, open apps and memory included</div></div>
-        <div><div class="n">warm pool</div><div class="t">desktops boot ahead of time, so a run rarely waits for one</div></div>
-      </div>
-      <p class="more"><a href="/#access">Request early access →</a></p>
-    </div>
-  </div>
-</section>
-
-<section id="start" class="doc-block">
-  <div class="wrap two">
-    <div class="label"><span class="hash">#</span> Start</div>
-    <div class="body">
-      <div class="panel">
-        <div class="tabs" role="tablist" aria-label="Quickstart">
-          <button role="tab" id="t-py" aria-controls="p-py" aria-selected="true">Python</button>
-          <button role="tab" id="t-mcp" aria-controls="p-mcp" aria-selected="false" tabindex="-1">MCP</button>
-          <button role="tab" id="t-cli" aria-controls="p-cli" aria-selected="false" tabindex="-1">CLI</button>
-        </div>
-        <div class="tabpanel" role="tabpanel" id="p-py" aria-labelledby="t-py">
-<pre><span class="c"># pip install "legatolabs[e2b]"</span>
-<span class="k">import</span> os, legato
-<span class="k">from</span> e2b_desktop <span class="k">import</span> Sandbox
-
-agent = legato.Harness(model=<span class="s">"qwen/qwen3.8-27b"</span>,
-                       base_url=<span class="s">"https://openrouter.ai/api/v1"</span>,
-                       api_key=os.environ[<span class="s">"OPENROUTER_API_KEY"</span>])
-desk = Sandbox.create()     <span class="c"># or legato.local(), or legato.attach(shell=run) for your sandbox</span>
-result = agent.run(<span class="s">"Open the terminal and print the date"</span>, legato.attach(desk))
-print(result.report())   <span class="c"># model, actions, waiting for the screen</span></pre>
-        </div>
-        <div class="tabpanel" role="tabpanel" id="p-mcp" aria-labelledby="t-mcp" hidden>
-<pre><span class="c"># a computer for Claude Code, Cursor or any MCP client</span>
-pip install <span class="s">"legatolabs[mcp,local]"</span>
-claude mcp add legato -- legato mcp --sandbox docker         <span class="c"># a desktop container</span>
-claude mcp add legato -- legato mcp --local                  <span class="c"># your screen</span>
-claude mcp add legato -- legato mcp --sandbox my.py:desktop  <span class="c"># your sandbox</span>
-
-<span class="c"># or the Claude Code plugin (server + skills)</span>
-/plugin install legato --marketplace legatolabs/legato</pre>
-        </div>
-        <div class="tabpanel" role="tabpanel" id="p-cli" aria-labelledby="t-cli" hidden>
-<pre><span class="c"># your own screen and a model on your own GPU: nothing leaves the machine</span>
-pip install <span class="s">"legatolabs[local]"</span>
-legato run <span class="s">"Create a folder named reports on the desktop"</span> --sandbox local \
-    --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1</pre>
-        </div>
-      </div>
-      <p class="more"><a href="/docs">Documentation →</a> <a href="/docs/sandboxes">Bring your own sandbox →</a> <a href="/docs/compare/anthropic-computer-use-demo">Comparisons →</a></p>
-    </div>
-  </div>
+<section id="problem" class="x-sec center">
   <div class="wrap">
-    <figure class="fig fig2">
-      <video poster="/media/claude-code-legato-poster.jpg" width="1920" height="1080" controls muted loop playsinline preload="none" data-autoplay aria-label="Claude Code sees a chart bug in a Legato desktop container, fixes the code and checks the fix"><source src="/media/claude-code-legato.mp4" type="video/mp4"><source src="/media/claude-code-legato.webm" type="video/webm"></video>
-      <figcaption><span class="no">Fig. 2</span> Claude Code with Legato's MCP server, in real time. Told that a revenue chart looks wrong, it opens the dashboard in Firefox inside a desktop container, sees the bars hanging from the top, changes one line and reloads the page to check the fix. Every image is a screenshot the server returned.</figcaption>
-    </figure>
+    <div class="big">53%</div>
+    <p class="say">of an agent's step time goes to the machine, not the model.</p>
+    <div class="thin" role="img" aria-label="53% machine, 47% model"><i style="width:53%"></i></div>
+    <p class="src">Claude Code, across 434,912 steps from real sessions (Codex: 45%) · <a href="/docs/benchmarks#where-agent-time-goes-public-traces">source</a></p>
   </div>
 </section>
 
-<section id="access" class="doc-block">
-  <div class="wrap two">
-    <div class="label"><span class="hash">#</span> Early access</div>
-    <div class="body">
-      <p>Legato Cloud is in private beta with a small number of design partners.</p>
-      <form class="wl" id="wl" novalidate>
-        <div class="row">
-          <label>email<input type="email" name="email" required autocomplete="email" placeholder="you@company.com"></label>
-          <label>company<input name="company" autocomplete="organization"></label>
-        </div>
-        <label>what are you building?<textarea name="use_case" maxlength="1000" placeholder="agents in production, RL rollouts, evals…"></textarea></label>
-        <input type="hidden" name="name" value="">
-        <button type="submit">Request early access →</button>
-        <p class="formmsg" id="wl-msg" role="status" aria-live="polite"></p>
-      </form>
+<section id="runtime" class="x-sec">
+  <div class="wrap">
+    <h2 class="c">One runtime between model and machine.</h2>
+    <div class="quad">
+      <div><span class="tag live">shipping</span><b>1.48×</b><span>ready signals, not timers</span></div>
+      <div><span class="tag beta">beta</span><b>70 ms</b><span>model state that stays warm</span></div>
+      <div><span class="tag dev">building</span><b>0.7 s</b><span>fork a machine with its memory</span></div>
+      <div><span class="tag dev">building</span><b>16×</b><span>environments per container</span></div>
     </div>
+  </div>
+</section>
+
+<section id="rl" class="x-sec">
+  <div class="wrap">
+    <h2 class="c">Branch a thousand rollouts from step&nbsp;40.</h2>
+    <figure class="branch" aria-label="One trajectory runs to step 40, then forks into many rollouts from a snapshot.">
+      <svg viewBox="0 0 640 230" role="img" aria-hidden="true">
+        <line x1="16" y1="115" x2="300" y2="115" class="trunk"/>
+        <g class="ticks"></g>
+        <circle cx="300" cy="115" r="7" class="fork"/>
+        <text x="300" y="92" text-anchor="middle" class="lab">snapshot</text>
+        <g class="leaves"></g>
+      </svg>
+    </figure>
+    <p class="src c">For teams training computer-use models with RL. <a href="#partners">Design partners →</a></p>
+  </div>
+</section>
+
+<section id="next" class="x-sec">
+  <div class="wrap">
+    <h2 class="c">Then the physical world.</h2>
+    <ol class="road">
+      <li><span class="when">now</span><b>Computer use</b></li>
+      <li><span class="when">building</span><b>RL at scale</b></li>
+      <li><span class="when">next</span><b>Real-time robotics</b></li>
+    </ol>
+  </div>
+</section>
+
+<section id="partners" class="x-sec center">
+  <div class="wrap">
+    <h2 class="c">Build with us.</h2>
+    <form class="wl one" id="wl" novalidate>
+      <input type="email" name="email" required autocomplete="email" placeholder="you@company.com" aria-label="email">
+      <input type="hidden" name="company" value=""><input type="hidden" name="use_case" value=""><input type="hidden" name="name" value="">
+      <button type="submit">talk to us →</button>
+    </form>
+    <p class="formmsg" id="wl-msg" role="status" aria-live="polite"></p>
   </div>
 </section>
 </main>
 
 <footer>
   <div class="wrap">
-    <span>working with a small number of design partners</span>
-    <nav aria-label="Footer"><a href="/docs">docs</a><a href="https://github.com/legatolabs" rel="noopener">github</a><a href="/llms.txt">llms.txt</a><a href="mailto:hello@legato.computer">hello@legato.computer</a><span>© <span id="yr">2026</span> legato labs</span></nav>
+    <span>Legato Labs · the runtime for agents that act</span>
+    <nav aria-label="Footer"><a href="/docs/benchmarks">research</a><a href="/docs">docs</a><a href="https://github.com/legatolabs" rel="noopener">github</a><a href="/llms.txt">llms.txt</a><a href="mailto:hello@legato.computer">hello@legato.computer</a></nav>
   </div>
 </footer>
 <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
 <script defer src="/_vercel/insights/script.js"></script>
 <script src="/site.js" defer></script>
+<script>
+(() => {
+  const svg = document.querySelector(".branch svg"); if (!svg) return;
+  const NS = "http://www.w3.org/2000/svg", ticks = svg.querySelector(".ticks"), leaves = svg.querySelector(".leaves");
+  for (let i = 0; i < 20; i++) { const t = document.createElementNS(NS, "line"); const x = 16 + i * 14.2;
+    t.setAttribute("x1", x); t.setAttribute("x2", x); t.setAttribute("y1", 111); t.setAttribute("y2", 119); ticks.appendChild(t); }
+  const N = 26;
+  for (let i = 0; i < N; i++) { const p = document.createElementNS(NS, "path"); const y = 18 + (194 * i) / (N - 1);
+    p.setAttribute("d", `M300,115 C400,115 470,${y} 624,${y}`); p.style.animationDelay = `${(i % 7) * 0.4}s`; leaves.appendChild(p); }
+})();
+</script>
 </body>
 </html>

@@ -58,6 +58,14 @@ official OSWorld-Verified submission.
 
 With fixed sleeps, 40–53% of rollout time was idle.
 
+## Where agent time goes (public traces)
+
+Across 434,912 steps from real Claude Code and Codex sessions (TraceLab, 8,058 sessions), the machine took more of the
+wall-clock than the model: tool calls on the machine were 53% of step time for Claude Code and 45% for Codex,
+time-weighted (waits on a person are left out). With generation five times faster, the machine's share would be 85%
+and 80%. Most steps are quick; builds, tests and polling hold the time. Raw data and the script:
+[benchmarks/results/agent-time](../benchmarks/results/agent-time).
+
 ## Legato Cloud: what the managed version adds
 
 The open-source loop runs anywhere. Legato Cloud also runs the model and the desktop, side by side, so it can save time
