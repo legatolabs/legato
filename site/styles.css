@@ -489,7 +489,7 @@ footer a:hover { color: var(--fg); }
 /* ===================================================================== home: the memo
    The hero, then one reading column. No numbers and no product names here: they live on /docs/benchmarks and /mac. */
 .memo { padding: 40px 0 40px; }
-.memo .col { max-width: 660px; margin: 0 auto; }
+.memo .col { max-width: 720px; margin: 0 auto; }
 .memo p { font: 18px/1.75 var(--sans); color: var(--fg-2); margin: 0 0 24px; }
 .memo .col > p:first-child { font-size: 21px; line-height: 1.65; color: var(--fg); }
 .memo p strong { color: var(--fg); font-weight: 500; }
