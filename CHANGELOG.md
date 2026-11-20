@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Background mode (macOS):** `legato.local(background="TextEdit")` and `legato mcp --background` work in one app's
+  window while you keep using the Mac: the pointer, the front app and the clipboard stay yours (#33). Keys are posted
+  to the app, clicks press, focus or select through Accessibility, and what has no Accessibility equivalent (drags,
+  copy and paste) is not run. New `legato.safety.Unavailable`: the model is told the desktop can't do an action,
+  instead of that the person refused it. Tested on TextEdit, Safari and Chrome.
+
 ## 0.2.0
 
 - **Legato for Mac** (`app/macos`): a menu-bar app that runs Legato on your own Mac with your own model and key.

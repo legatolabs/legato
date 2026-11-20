@@ -67,6 +67,39 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
   ([workflow](https://github.com/legatolabs/legato/blob/main/.github/workflows/local-desktop.yml)). Those screens are
   not Retina, so the Retina scaling is covered only by unit tests.
 
+### In the background, while you keep working (macOS)
+
+`legato.local(background="TextEdit")` works in one app's front window and leaves the rest of the Mac to you: your
+pointer, the app in front and the clipboard stay yours. In the MCP server: `legato mcp --background`, then
+`desktop_open(app="Safari", url=...)`.
+
+```python
+env = legato.local(background="Safari")
+env.open_url("https://example.com")
+agent.run("Sign up with the name Ada Lovelace", env)
+```
+
+- **What the agent sees** is that window only, captured even when other windows cover it. Coordinates are points in
+  the window.
+- **Typing and keys** are posted to that app's process, not to the system. A shortcut that is a menu item (Cmd+S) presses
+  the menu item, since an app in the back never sees its menus' keys; Cmd+A in a field selects its text.
+- **Clicks go through Accessibility,** because a mouse click posted to an app in the back lands nowhere. The element at
+  the point is pressed (buttons, links, checkboxes, menu items), focused (fields), or selected (rows), and in text the
+  insertion point goes to that character; a double or triple click there selects the word or the line.
+- **Scrolling** moves the scroll bar under the point; a page with none (Chrome) scrolls with the arrow keys.
+- **If the app takes the front** (Chrome does when it opens a URL), it is given back to the app you were in.
+- **Not possible in the background,** and reported to the model as "this desktop can't do that": drags, a click on
+  something that can't be pressed, focused or selected (a canvas, an empty area), a click with keys held, copy, cut and
+  paste (the clipboard is yours), and anything outside the app (the Dock, the menu bar, Spotlight, other apps).
+- **Don't use the same app yourself** while it works: its keys go to whatever has the focus in that app. Give it its own
+  app, or its own browser (Chrome while you use Safari).
+- The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it.
+- Your stop signals (a corner, Escape) don't apply, since the mouse and keyboard are yours: stop it from the program
+  that runs it. Risky keys and typed commands still wait for your yes.
+- **Tested** with `tests/test_background.py` (any OS) and, on a Mac, `LEGATO_TEST_BACKGROUND=1 pytest
+  tests/test_background_live.py`: TextEdit, Safari and Chrome in the back while Terminal stays in front, checking
+  after each test that the front app, the pointer and the clipboard are unchanged.
+
 ## A desktop container on this machine
 
 `--sandbox docker` starts a fresh container from `ghcr.io/legatolabs/desktop`: a small Linux desktop with a terminal and

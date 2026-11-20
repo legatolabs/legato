@@ -27,6 +27,11 @@ class Denied(Exception):
     """The person did not allow an action, so it was not run. `Harness.run` tells the model and carries on."""
 
 
+class Unavailable(Denied):
+    """The desktop can't do this action (background mode can't drag, for one), so it was not run. Handled like
+    `Denied`, with its own words to the model."""
+
+
 # ------------------------------------------------------------ what needs a yes
 _NAMES = {"super": "command", "cmd": "command", "win": "command", "meta": "command", "control": "ctrl",
           "option": "alt", "return": "enter", "kp_enter": "enter", "del": "delete"}
