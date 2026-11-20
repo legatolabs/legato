@@ -76,6 +76,12 @@ struct SettingsView: View {
             }
             Section("Behaviour") {
                 Stepper("At most \(settings.maxSteps) turns a task", value: $settings.maxSteps, in: 5...200, step: 5)
+                Picker("At most a task may cost", selection: $settings.maxCost) {
+                    Text("No limit").tag(0.0)
+                    ForEach([0.25, 0.5, 1.0, 2.0, 5.0], id: \.self) { Text(String(format: "$%.2f", $0)).tag($0) }
+                }
+                Text("Counts the cost your provider reports for each model call (OpenRouter does; others may not).")
+                    .font(.system(size: 11)).foregroundColor(.secondary)
                 Picker("Screenshots the model keeps", selection: $settings.imageMax) {
                     Text("4: faster").tag(4)
                     Text("8: more accurate").tag(8)

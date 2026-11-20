@@ -103,6 +103,15 @@ final class EngineClient {
         running = false
     }
 
+    /// Ends an engine that has stopped answering: SIGTERM, then SIGKILL if it is still there 2 s later.
+    /// `onExit` follows, and the next run starts a fresh engine.
+    func kill() {
+        guard let p = process, p.isRunning else { return }
+        p.terminate()
+        let pid = p.processIdentifier
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2) { if p.isRunning { Darwin.kill(pid, SIGKILL) } }
+    }
+
     func send(_ msg: JSON) {
         guard let stdin, running,
               var data = try? JSONSerialization.data(withJSONObject: msg, options: []) else { return }

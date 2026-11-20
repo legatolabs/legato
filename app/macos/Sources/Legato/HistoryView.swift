@@ -157,7 +157,7 @@ struct RunDetail: View {
     }
 
     private var label: String {
-        ["done": "Done", "failed": "Gave up", "stopped": "Stopped", "max_steps": "Out of turns", "error": "Error",
+        ["done": "Done", "failed": "Gave up", "stopped": "Stopped", "max_steps": "Out of turns", "cost_cap": "Cost limit", "error": "Error",
          "running": "Running"][run.status] ?? run.status
     }
 

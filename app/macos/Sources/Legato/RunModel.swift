@@ -13,7 +13,7 @@ final class RunModel: ObservableObject {
     @Published var cost: Double = 0
     @Published var pausedWhy = ""
     @Published var question = ""           // what the agent wants a yes for
-    @Published var status = ""             // done, failed, stopped, error, max_steps
+    @Published var status = ""             // done, failed, stopped, error, max_steps, cost_cap
     @Published var message = ""            // the model's final words, or the error
     @Published var wall: Double = 0
     @Published var runID = ""
@@ -79,6 +79,7 @@ final class RunModel: ObservableObject {
         case "failed": return "The agent gave up"
         case "stopped": return "Stopped"
         case "max_steps": return "Out of turns"
+        case "cost_cap": return "Reached the cost limit"
         case "error": return "Something went wrong"
         default: return status.capitalized
         }

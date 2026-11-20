@@ -26,6 +26,13 @@ final class AppController: NSObject {
     private var pausedWhyNote = ""
     private var watchFrom = Date.distantPast
     private var stopFallback: DispatchWorkItem?
+    private var lastEngineAt = Date()              // the engine's last message: for the watchdog
+    private var watchdog: Timer?
+    private var engineHung: String?                // why the watchdog ended the engine, shown when it exits
+
+    /// A run whose engine says nothing for this long while it should be working is ended. A model call takes at most
+    /// about 250 s (two 60 s attempts and up to 120 s of waiting out a busy server, legato.rl.policy), commands 30 s.
+    static let engineSilenceLimit: TimeInterval = 300
 
     enum AskKind { case click, engine }
 
@@ -76,6 +83,17 @@ final class AppController: NSObject {
         engine.onMessage = { [weak self] msg in self?.handle(msg) }
         engine.onExit = { [weak self] why in self?.engineExited(why) }
         try? engine.start()
+        watchdog = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.checkEngine() }
+
+        // the Mac sleeping or the screen locking mid-run: pause, so nothing is clicked on a screen no one sees
+        let ws = NSWorkspace.shared.notificationCenter
+        for (name, what) in [(NSWorkspace.willSleepNotification, "put the Mac to sleep"),
+                             (NSWorkspace.screensDidSleepNotification, "let the display sleep"),
+                             (NSWorkspace.sessionDidResignActiveNotification, "switched to another user")] {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.pause(what: what) }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: .init("com.apple.screenIsLocked"), object: nil,
+                                                            queue: .main) { [weak self] _ in self?.pause(what: "locked the screen") }
 
         perms.onChange = { [weak self] in
             self?.monitor.install()                 // Input Monitoring may just have been allowed
@@ -87,6 +105,7 @@ final class AppController: NSObject {
     }
 
     func shutdown() {
+        watchdog?.invalidate()
         if model.active { stop() }
         engine.stop()
     }
@@ -197,6 +216,7 @@ final class AppController: NSObject {
             }
         }
         let id = Self.runID()
+        lastEngineAt = Date()
         model.reset(task: task, id: id)
         heldWillAct = nil
         pendingAsk = nil
@@ -209,7 +229,7 @@ final class AppController: NSObject {
         hud.show()
         refreshMenu()
         engine.send(["type": "run", "id": id, "task": task, "context": context.summary, "model": settings.model,
-                     "base_url": settings.baseURL, "api_key": settings.apiKey, "max_steps": settings.maxSteps, "image_max": settings.imageMax, "wait_scope": "screen", "shell": settings.allowShell,
+                     "base_url": settings.baseURL, "api_key": settings.apiKey, "max_steps": settings.maxSteps, "max_cost_usd": settings.maxCost, "image_max": settings.imageMax, "wait_scope": "screen", "shell": settings.allowShell,
                      "runs_dir": settings.runsDir.path, "repeats": settings.repeats,
                      "follow_up": followUp.map { ["task": $0.task, "result": $0.result] } ?? [:]])
     }
@@ -250,6 +270,7 @@ final class AppController: NSObject {
         guard model.phase == .paused else { return }
         model.phase = .thinking
         model.line = "Looking at the screen again…"
+        lastEngineAt = Date()
         monitor.resetMovement()
         watchFrom = Date().addingTimeInterval(0.5)
         if let id = heldWillAct {
@@ -285,6 +306,7 @@ final class AppController: NSObject {
         guard let ask = pendingAsk else { return }
         pendingAsk = nil
         model.phase = .acting
+        lastEngineAt = Date()
         switch ask.kind {
         case .click:
             if yes { go(ask.id, line: model.line) } else {
@@ -311,6 +333,7 @@ final class AppController: NSObject {
 
     // ------------------------------------------------------------ the engine
     private func handle(_ msg: [String: Any]) {
+        lastEngineAt = Date()
         switch msg["type"] as? String {
         case "ready":
             monitor.enginePid = pid_t(msg["pid"] as? Int ?? Int(engine.pid))
@@ -399,9 +422,22 @@ final class AppController: NSObject {
 
     private func engineExited(_ why: String) {
         monitor.enginePid = 0
+        let hung = engineHung
+        engineHung = nil
         if model.active {
-            finished(["status": "error", "error": why + " See Settings → Advanced → Show engine log."])
+            finished(["status": "error", "error": (hung ?? why) + " See Settings → Advanced → Show engine log."])
         }
+    }
+
+    /// The watchdog: a run that should be working but has heard nothing from the engine for too long ends the engine.
+    /// Paused runs and questions waiting for the person don't count: there the app is the one holding things up.
+    private func checkEngine() {
+        guard model.active, engine.running, engineHung == nil,
+              [.starting, .thinking, .acting].contains(model.phase) else { return }
+        let silent = Date().timeIntervalSince(lastEngineAt)
+        guard silent > Self.engineSilenceLimit else { return }
+        engineHung = "The engine stopped responding (nothing for \(Int(silent)) s), so Legato ended it. The next task starts a new one."
+        engine.kill()
     }
 
     private func request(_ m: [String: Any]) {

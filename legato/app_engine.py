@@ -6,8 +6,8 @@ over, the yes/no questions, the key in Keychain and the history view. The engine
 (`Harness.begin/decide/feed`) and the input, which is `legato.local()`'s macOS driver unchanged.
 
 App to engine:
-    {"type": "run", "id", "task", "context", "model", "base_url", "api_key", "max_steps", "image_max", "wait_scope", "shell",
-     "runs_dir"}
+    {"type": "run", "id", "task", "context", "model", "base_url", "api_key", "max_steps", "max_cost_usd", "image_max",
+     "wait_scope", "shell", "runs_dir"}
     {"type": "stop"}
     {"type": "test", "model", "base_url", "api_key"}
     {"type": "reply", "id", ...}                      the answer to a request
@@ -17,6 +17,9 @@ Engine to app:
     {"type": "event", "event": "run_started" | "thinking" | "plan" | "step" | "finished" | "test_result", ...}
     {"type": "request", "id", "method": "capture" | "will_act" | "confirm", ...}   the engine waits for the reply
     {"type": "notify", "method": "acted"}             the action's input events have all been posted
+
+`max_cost_usd` (0 or missing: no cap) ends the run with status "cost_cap" once the model calls' reported cost reaches
+it. Only providers that report a cost (OpenRouter) count toward it.
 
 `will_act` is asked before every action, with the action in screen points (origin top left of the main display).
 The app answers {"go": true}, {"stop": why}, {"deny": why} or {"replan": note}: replan drops the rest of the turn and
@@ -745,6 +748,11 @@ class Run:
                     break
                 if not note and (plan.done or plan.failed):
                     status, message = ("done" if plan.done else "failed"), text
+                    break
+                cap = float(m.get("max_cost_usd") or 0)
+                if cap > 0 and self.record["usage"]["cost_usd"] >= cap:
+                    status, message = "cost_cap", (f"Stopped at ${self.record['usage']['cost_usd']:.2f}, the most a task "
+                                                   f"may cost (${cap:.2f}). You can allow more in Settings.")
                     break
                 h.feed(ep, plan, pngs or [obs.screenshot], results or None, note)
                 seen = (pngs or [obs.screenshot])[-1]

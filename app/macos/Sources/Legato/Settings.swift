@@ -75,6 +75,8 @@ final class AppSettings: ObservableObject {
     @Published var baseURL: String { didSet { d.set(baseURL, forKey: "baseURL") } }
     @Published var model: String { didSet { d.set(model, forKey: "model") } }
     @Published var maxSteps: Int { didSet { d.set(maxSteps, forKey: "maxSteps") } }
+    /// The most one task may cost in USD (0: no limit). Only providers that report a cost (OpenRouter) count.
+    @Published var maxCost: Double { didSet { d.set(maxCost, forKey: "maxCost") } }
     /// Screenshots the model keeps in its prompt. 4: 32% less time and 25% less cost a task than 8, and 5 points
     /// lower on held-out Mac tasks (legato-research EXP-0030). 8 is Legato's default.
     @Published var imageMax: Int { didSet { d.set(imageMax, forKey: "imageMax") } }
@@ -95,12 +97,13 @@ final class AppSettings: ObservableObject {
 
     init() {
         d.register(defaults: ["providerID": ProviderPreset.start.id, "baseURL": ProviderPreset.start.baseURL,
-                              "model": ProviderPreset.start.models[0], "maxSteps": 40, "imageMax": 4, "guardClicks": true, "allowShell": true,
+                              "model": ProviderPreset.start.models[0], "maxSteps": 40, "maxCost": 1.0, "imageMax": 4, "guardClicks": true, "allowShell": true,
                               "ghostCursor": true, "fnKey": true, "holdToTalk": true, "repeats": true, "enginePython": "", "onboarded": false])
         providerID = d.string(forKey: "providerID") ?? "openrouter"
         baseURL = d.string(forKey: "baseURL") ?? ""
         model = d.string(forKey: "model") ?? ""
         maxSteps = d.integer(forKey: "maxSteps")
+        maxCost = d.double(forKey: "maxCost")
         imageMax = d.integer(forKey: "imageMax")
         guardClicks = d.bool(forKey: "guardClicks")
         allowShell = d.bool(forKey: "allowShell")

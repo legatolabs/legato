@@ -96,6 +96,15 @@ def test_a_run_reports_each_turn_and_saves_its_record(tmp_path):
     assert rec["usage"]["prompt"] == 20 and rec["usage"]["cost_usd"] == pytest.approx(0.001)
 
 
+def test_a_run_stops_once_it_has_cost_the_most_the_app_allows(tmp_path):
+    script = [[Action("click", x=1, y=2)], [Action("click", x=3, y=4)], [Action("click", x=5, y=6)], "done"]
+    rec, link, h = run(script, tmp_path=tmp_path, max_cost_usd=0.0015)      # each turn costs 0.001
+    assert rec["status"] == "cost_cap" and rec["steps"] == 2
+    assert "$0.00" in rec["message"] and "Settings" in rec["message"]
+    rec, _, _ = run(script, tmp_path=tmp_path, max_cost_usd=0)               # 0 is no cap
+    assert rec["status"] == "done"
+
+
 def test_the_app_chooses_how_many_screenshots_the_model_keeps(tmp_path, monkeypatch):
     import legato.app_engine as eng
     made = {}
