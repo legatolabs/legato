@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from legato.actions import Action, parse
 from legato.env import Env, png_size
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
-from legato.safety import Denied, Stopped
+from legato.safety import Denied, Stopped, Unavailable
 from legato.tools import Tool, ToolCall
 from legato import plan as plans
 
@@ -71,6 +71,12 @@ try to chain multiple of these calls all into one function calls request.
 DENIED_NOTE = ("The person at this computer did not allow this action, so it was NOT run, and neither were the "
                "actions after it in your last turn: {what}. Do not repeat it. Choose another way, or call fail if "
                "the task cannot be done without it.")
+UNAVAILABLE_NOTE = ("This desktop can't do that action, so it was NOT run, and neither were the actions after it in your "
+                    "last turn: {what}. Do not repeat it. Do it another way, or call fail if there is none.")
+
+
+def _refused(e: Denied) -> str:
+    return (UNAVAILABLE_NOTE if isinstance(e, Unavailable) else DENIED_NOTE).format(what=e)
 
 END_NOTE = ("Your last reply had no action, so nothing happened. If the task is complete, call done; otherwise take "
             "the next step.")
@@ -808,7 +814,8 @@ class Harness:
                 except Stopped as e:              # the person's stop, during a step
                     res.stopped, res.error = True, f"stopped by the person: {e}"
                 except Denied as e:               # the person's no to a step: the rest did not run
-                    note, denied = DENIED_NOTE.format(what=e), f"not allowed: {e}"
+                    note = _refused(e)
+                    denied = f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}"
                     obs = env.observe()
                     pngs, results = [obs.screenshot], []
                 ran = list(plan.actions[: timing.get("plan_ran", 0)])
@@ -826,8 +833,8 @@ class Harness:
                     res.stopped, res.error = True, f"stopped by the person: {e}"
                     break
                 except Denied as e:               # the person's no: nothing ran; the model is told and chooses again
-                    note = DENIED_NOTE.format(what=e)
-                    denied = f"not allowed: {a.describe()}"
+                    note = _refused(e)
+                    denied = f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {a.describe()}"
                     obs = env.observe()
                     pngs.append(obs.screenshot)
                     stale = False

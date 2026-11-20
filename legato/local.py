@@ -493,10 +493,16 @@ class LocalEnv(Env):
 
 
 def local(mac_cmd: bool = True, fixed_wait_s: float | None = None, *,
-          confirm: safety.Confirm | str | None = "auto", wait_scope: str = "screen", **options: Any) -> LocalEnv:
+          confirm: safety.Confirm | str | None = "auto", wait_scope: str = "screen", background: str | None = None,
+          **options: Any) -> LocalEnv:
     """This computer's screen, mouse and keyboard, for `Harness.run`. `confirm(description) -> bool` is asked before
     a risky action (the list is in `legato.safety`). The default, "auto", asks in the terminal when stdin is one and
     asks nothing in an unattended run; `confirm=None` never asks; `confirm=legato.safety.deny` refuses them all.
     wait_scope="app" (macOS): the wait for the screen watches only the front app's windows. `options` go to LocalEnv
-    (wait="screen" | "cells" | "ax" | "ax|cells": what decides that the screen has settled)."""
+    (wait="screen" | "cells" | "ax" | "ax|cells": what decides that the screen has settled).
+    background="TextEdit" (macOS): work in that app's window only, without moving the mouse or taking the screen, so
+    the person can keep using the Mac (`legato.background`)."""
+    if background is not None:
+        from legato.background import BackgroundEnv
+        return BackgroundEnv(background, mac_cmd=mac_cmd, fixed_wait_s=fixed_wait_s, confirm=confirm)
     return LocalEnv(mac_cmd=mac_cmd, fixed_wait_s=fixed_wait_s, confirm=confirm, wait_scope=wait_scope, **options)

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import subprocess
 import sys
 import time
 import uuid
@@ -28,7 +29,7 @@ from typing import Any, Callable
 
 from legato.actions import ALIASES, KINDS, Action, norm_keys
 from legato.env import Env
-from legato.safety import Denied, Stopped
+from legato.safety import Denied, Stopped, Unavailable
 from legato.settle import Waiter, digest
 from legato.tools import local_shell
 
@@ -94,11 +95,13 @@ def to_image(png: bytes, image_format: str = "jpeg", quality: int = 85) -> Image
 
 
 def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_factory, about: str = "",
-                 record: str | None = None, image_format: str = "jpeg") -> _Server:
+                 record: str | None = None, image_format: str = "jpeg",
+                 background: Callable[[str], Env] | None = None) -> _Server:
     """The MCP server. `factory(resolution)` returns (sandbox, env); the default starts an E2B desktop. `about` tells
     the agent what kind of desktop it gets. With `record`, every screenshot the agent gets is saved under
     record/<desktop_id>/, with a log.jsonl of the actions. `image_format`: "jpeg" (default) or "png" for the
-    screenshots the agent gets; recordings stay PNG."""
+    screenshots the agent gets; recordings stay PNG. With `background(app) -> Env`, desktop_open works in one app's
+    window in the background (macOS, `legato.background`) and needs `app`."""
     if image_format not in ("jpeg", "png"):
         raise ValueError("image_format must be 'jpeg' or 'png'")
     srv = _Server("legato", instructions=(
@@ -143,6 +146,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         call can take a few minutes while the desktop image downloads. url: open it in the browser first. app: start
         it first (an app name on macOS, such as "TextEdit"; a command on Linux, such as "gnome-calculator"). With url
         or app the screenshot is taken once the window has drawn."""
+        if background is not None:
+            return open_background(url, app)
         sb, env = factory((width, height))
         did = uuid.uuid4().hex[:12]
         desks[did] = {"sb": sb, "env": env, "wh": (width, height), "opened": time.time()}
@@ -165,6 +170,26 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app)
         return [f"desktop_id: {did} ({w}x{h}){note}", img]
 
+    def open_background(url: str | None, app: str | None) -> list:
+        if not app:
+            raise ToolError('this server works in one app in the background: pass app, such as "TextEdit" or '
+                            '"Safari" (with url to open a page in that browser)')
+        try:
+            env = background(app)
+            if url:
+                env.open_url(url)
+                wait_for_launch(lambda: env.observe().screenshot, digest(env.observe().screenshot))
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            raise ToolError(f"could not open {app} in the background: {e}") from None
+        did = uuid.uuid4().hex[:12]
+        desks[did] = {"sb": None, "env": env, "wh": (0, 0), "opened": time.time()}
+        img = shot(desks[did])
+        w, h = desks[did]["wh"]
+        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app)
+        return [f"desktop_id: {did} ({w}x{h}): {app}'s window, worked in the background. Coordinates are pixels of "
+                "this window. Clicks press, focus or select what is under them; drags and clicks on nothing "
+                "pressable are not possible here, so use the keyboard for those.", img]
+
     @srv.tool()
     def desktop_act(desktop_id: str, action: str, x: int | None = None, y: int | None = None, text: str | None = None,
                     keys: str | None = None, direction: str | None = None, amount: int | None = None,
@@ -186,6 +211,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         except Stopped as e:
             raise ToolError(f"The person at this computer stopped the agent ({e}). Do not act again until they "
                             "ask you to.") from None
+        except Unavailable as e:
+            raise ToolError(f"Not run: this desktop can't do that ({e}).") from None
         except Denied as e:
             raise ToolError(f"Not run: the person at this computer did not allow it ({e}).") from None
         d["wh"] = (obs.width, obs.height)
@@ -265,8 +292,11 @@ def main(argv=None) -> int:
     ap.add_argument("--wait-scope", choices=("screen", "app"), default="screen",
                     help="with --local on macOS: what the wait for the screen watches, all of it (default) or only "
                          "the front app's windows, so another app animating doesn't hold every action to the cap")
+    ap.add_argument("--background", action="store_true",
+                    help="macOS: work in one app's window (desktop_open's app) without moving your mouse or taking "
+                         "the screen, so you can keep using the Mac (docs/sandboxes.md)")
     a = ap.parse_args(argv)
-    spec = "local" if a.local else a.sandbox
+    spec = "local" if a.local or a.background else a.sandbox
     make = providers.load(spec)
     if spec == "local" and a.wait_scope != "screen":
         def make(w, h):  # noqa: F811 - the same desktop, with the wait on the front app's windows
@@ -279,6 +309,11 @@ def main(argv=None) -> int:
         if a.fixed_wait is not None:
             env.fixed_wait_s = a.fixed_wait
         return sb, env
+    bg = None
+    if a.background:
+        def bg(app: str) -> Env:
+            from legato.background import background
+            return background(app, fixed_wait_s=a.fixed_wait)
     build_server(factory, about=providers.about(spec), record=a.record,
-                 image_format=a.image_format).run()
+                 image_format=a.image_format, background=bg).run()
     return 0

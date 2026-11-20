@@ -42,6 +42,9 @@ claude mcp add legato -e E2B_API_KEY=your_key -- legato mcp          # a cloud d
   `legato mcp --image-format png` sends lossless PNG.
 - **On your own Mac, with other apps open:** `legato mcp --local --wait-scope app` waits on the front app's windows
   only, so a chat or video animating elsewhere doesn't hold every action to the wait's cap.
+- **In the background on your Mac:** `legato mcp --background` works in one app's window, which `desktop_open(app=...)`
+  names, without moving your pointer or taking the screen, so you keep using the Mac
+  ([what it can and can't do](sandboxes.md#in-the-background-while-you-keep-working-macos)).
 - **A fixed-sleep baseline:** `legato mcp --fixed-wait 2` sleeps after every action instead of waiting for the screen.
 - **See what the agent did:** `legato mcp --record DIR` saves every screenshot the agent got, with a `log.jsonl` of its
   actions, under `DIR/<desktop_id>/`.
