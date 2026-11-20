@@ -94,11 +94,28 @@
 
 <section class="x-sec mac-points">
   <div class="wrap">
-    <div class="trio">
-      <div><b>Any model.</b><p>Claude, Qwen or any model behind an OpenAI-compatible API, with your own key, kept in your Keychain.</p></div>
-      <div><b>Your apps.</b><p>It works in the apps you already use, with a shell and each app's own scripting beside the screen.</p></div>
-      <div><b>Open source.</b><p>Apache-2.0. Read it, build it, change it. <a href="/docs">Docs →</a></p></div>
+    <p class="eyebrow ways-head">three ways to run it</p>
+    <div class="trio ways">
+      <div>
+        <b>In your own code.</b>
+        <p>The Python harness. Build agents or run RL with any model, on any sandbox.</p>
+        <button class="way-cmd" type="button" data-copy="pip install legatolabs"><code>pip install legatolabs</code><span class="copied">copy</span></button>
+        <a class="way-link" href="/docs">docs →</a>
+      </div>
+      <div>
+        <b>In your coding agent.</b>
+        <p>The MCP server. Claude Code, Cursor or Codex gets a computer to look at and click.</p>
+        <button class="way-cmd" type="button" data-copy='claude mcp add legato -- uvx --from "legatolabs[mcp]" legato mcp --sandbox docker' title='claude mcp add legato -- uvx --from "legatolabs[mcp]" legato mcp --sandbox docker'><code>claude mcp add legato -- uvx --from "legatolabs[mcp]" legato mcp --sandbox docker</code><span class="copied">copy</span></button>
+        <a class="way-link" href="/docs/mcp">MCP docs →</a>
+      </div>
+      <div>
+        <b>On your Mac.</b>
+        <p>The app. Hold Fn, say the task, and watch it work in the apps you already use.</p>
+        <a class="way-cmd" href="https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg"><code>↓ Legato.dmg</code><span class="copied">download</span></a>
+        <a class="way-link" href="https://github.com/legatolabs/legato/releases" rel="noopener">release notes →</a>
+      </div>
     </div>
+    <p class="req ways-foot">Open source, Apache-2.0 · any OpenAI-compatible model, with your own key</p>
   </div>
 </section>
 </main>
