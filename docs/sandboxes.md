@@ -70,8 +70,8 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 ### In the background, while you keep working (macOS)
 
 `legato.local(background="TextEdit")` works in one app's front window and leaves the rest of the Mac to you: your
-pointer, the app in front and the clipboard stay yours. In the MCP server: `legato mcp --background`, then
-`desktop_open(app="Safari", url=...)`.
+pointer, the app in front and the clipboard stay yours. From the command line: `legato run "..." --background Safari`.
+In the MCP server: `legato mcp --background`, then `desktop_open(app="Safari", url=...)`.
 
 ```python
 env = legato.local(background="Safari")
