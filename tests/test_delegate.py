@@ -89,7 +89,8 @@ def test_a_slow_step_calls_the_planner():
                    max_turns_per_step=2)
     res = h.run("t", desktop([]))
     assert res.failed and not res.done and res.planner["by"] == {"start": 1, "slow": 1}
-    assert "not done after 2 turns" in p.client.sent[1]["messages"][1]["content"][0]["text"]
+    state = p.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert "not reported done after 2 turns" in state and "Actions already taken on step 1: click (10, 5); click (20, 10)" in state
 
 
 def test_check_in_every_n_turns():
@@ -128,3 +129,16 @@ def test_a_plan_with_no_steps_fails_and_the_turn_limit_holds():
                    max_turns_per_step=99, every=0)
     res = h.run("t", desktop([]), max_steps=3)
     assert not res.done and not res.failed and "turn limit" in res.error and res.steps == 3
+
+
+def test_the_planner_is_told_what_was_completed_before_a_replan():
+    h, p = harness([plan("continue", ("align slide 3", "right-aligned"), ("align slide 4", "centred")),
+                    plan("continue", ("finish slide 4", "centred")), plan("done")],
+                   [rec([call("step_done", {})]), rec([call("stuck", {"reason": "the text is not selected"})]),
+                    rec([call("step_done", {})])])
+    res = h.run("t", desktop([]))
+    assert res.done
+    replan = p.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert "Completed earlier in this task" in replan and "- align slide 3" in replan
+    end = p.client.sent[2]["messages"][1]["content"][0]["text"]
+    assert "- align slide 3" in end and "- finish slide 4" in end       # the memory survives the re-plan

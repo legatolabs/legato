@@ -39,7 +39,8 @@ Call the `plan` tool:
 - status "done" when the screen shows the task is complete and saved;
 - status "fail" when the task cannot be done on this computer.
 When you are called again, the plan so far and what happened are given: keep what still holds, fix what went wrong, \
-and judge done only from the screen."""
+and judge done only from the screen. Steps listed as completed earlier were done and seen done by the assistant: do \
+not plan them again and do not add steps to re-check them, unless the screen in front of you shows a problem."""
 
 PLAN_TOOL = {"type": "function", "function": {
     "name": "plan", "description": "The plan for the rest of the task, or the task's end.",
@@ -130,13 +131,19 @@ class _State:
     recent: list = field(default_factory=list)    # the executor's latest actions, described
 
 
-def _describe(st: _State, reason: str) -> str:
-    lines = ["Plan so far:"]
+def _describe(st: _State, reason: str, done_log: list | None = None, step_acts: list | None = None) -> str:
+    lines = []
+    if done_log:                    # memory across re-plans: without it the planner re-checks finished work (EXP-0075)
+        lines.append("Completed earlier in this task (seen done by the assistant):")
+        lines += [f"- {d}" for d in done_log[-20:]]
+    lines.append("Plan so far:")
     for k, s in enumerate(st.steps):
         mark = next((m for j, m in st.marks if j == k), None)
         cur = " <- current" if k == st.i else ""
         lines.append(f"{k + 1}. {s['do']} (expect: {s['expect']})" + (f" [{mark}]" if mark else "") + cur)
-    if st.recent:
+    if step_acts is not None and st.i < len(st.steps):
+        lines.append(f"Actions already taken on step {st.i + 1}: " + ("; ".join(step_acts) or "none"))
+    elif st.recent:
         lines.append("The assistant's latest actions: " + "; ".join(st.recent[-8:]))
     lines.append(f"Why you are called now: {reason}")
     return "\n".join(lines)
@@ -187,6 +194,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         st = _State(steps)
         turns = turns_in_step = since_check = 0
         ep = None
+        done_log: list = []                 # steps the executor reported done, across re-plans
+        step_acts: list = []                # actions taken on the current step
         while status == "continue" and not res.stopped:
             if st.i >= len(st.steps):           # the plan ran out: the planner judges the end, or plans more
                 reason_key, reason = "end", "Every step is marked done. Is the task complete and saved?"
@@ -201,6 +210,7 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                            if st.i + 1 < len(st.steps) else "")
                     ep = h.begin(EXECUTOR_TASK.format(task=task, do=s["do"], expect=s["expect"], next=nxt), png)
                     turns_in_step = 0
+                    step_acts = []
                 try:
                     plan = h.decide(ep)
                 except PolicyError as e:
@@ -259,6 +269,7 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                                   "say": " | ".join(plan.reply)[:160]})
                 res.actions += desc
                 st.recent += desc
+                step_acts += desc
                 res.timings.append(timing)
                 if on_step:
                     on_step(turns - 1, ran, timing)
@@ -266,6 +277,7 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                     break
                 if step_done:
                     st.marks.append((st.i, "done"))
+                    done_log.append(st.steps[st.i]["do"])
                     st.i += 1
                     ep = None
                     if p.every and since_check >= p.every and st.i < len(st.steps):
@@ -276,15 +288,16 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                     st.marks.append((st.i, f"stuck: {stuck}"))
                     reason_key, reason = "stuck", f"The assistant is stuck on step {st.i + 1}: {stuck}"
                 elif turns_in_step >= p.max_turns_per_step:
-                    st.marks.append((st.i, f"not done after {turns_in_step} turns"))
-                    reason_key, reason = "slow", f"Step {st.i + 1} is not done after {turns_in_step} assistant turns."
+                    st.marks.append((st.i, f"not reported done after {turns_in_step} turns"))
+                    reason_key, reason = "slow", (f"Step {st.i + 1} has not been reported done after {turns_in_step} "
+                                                  "assistant turns. Its actions so far are listed above.")
                 elif p.every and since_check >= p.every:
                     reason_key, reason = "every", f"A check-in after {since_check} assistant turns."
                 else:
                     h.feed(ep, plan, pngs or [png], results, note)
                     continue
             try:
-                status, steps = call_planner(reason_key, _describe(st, reason))
+                status, steps = call_planner(reason_key, _describe(st, reason, done_log, step_acts))
             except PolicyError as e:
                 res.error = f"planner: {str(e)[:280]}"
                 break
