@@ -22,6 +22,7 @@ rollouts), `legato mcp` (MCP server). PyPI name `legatolabs`, import name `legat
   - `.claude-plugin/`, `plugin.json`, `mcp.json`, `gemini-extension.json`, `mcpb/`, `server.json`: how editors and
     registries install the MCP server. Keep their versions in step with `pyproject.toml` (`tests/test_versions.py`).
   - `docs/`: user docs.
+  - `personas/`: who uses the harness, the MCP and the Mac app, most likely first.
   - `site/`: legato.computer.
 - Rules:
   - Keep public APIs typed.
