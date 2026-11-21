@@ -55,8 +55,13 @@ PLAN_TOOL = {"type": "function", "function": {
 EXECUTOR_TASK = """Overall task (for context; do only your step): {task}
 Your step now: {do}
 When it is done the screen shows: {expect}
-{next}Call `step_done` as soon as the screen shows that. Call `stuck` with the reason if the step cannot be done as \
-written (an unexpected window, a missing item, an error). Do not do later steps."""
+{next}When the action you are sending completes the step and its result is certain without another look (a \
+shortcut, typed text, a plain click), add "step_done": true to that same `computer` call. Otherwise call `step_done` \
+as soon as the screen shows the result. Call `stuck` with the reason if the step cannot be done as written (an \
+unexpected window, a missing item, an error). Do not do later steps."""
+
+STEP_DONE_PROP = {"step_done": {"type": "boolean", "description": "true when this action completes your step and its "
+                                                                  "result needs no look"}}
 
 
 @dataclass
@@ -122,6 +127,17 @@ def _plan_args(rec: dict) -> dict:
     return {}
 
 
+def _flagged_done(rec: dict, names: tuple) -> bool:
+    """The reply ends the step: a `computer` call with "step_done": true, or one whose action is "step_done"."""
+    from legato.harness import _named_calls
+    for name, args in _named_calls(rec, names):
+        if name in ("step_done", "stuck"):
+            continue
+        if args.get("step_done") is True or str(args.get("action", "")).lower() == "step_done":
+            return True
+    return False
+
+
 @dataclass
 class _State:
     steps: list
@@ -158,6 +174,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         if t.name not in h.tools:
             h.tools[t.name] = t
             added.append(t.name)
+    props_before = dict(h.computer_props)
+    h.computer_props = {**h.computer_props, **STEP_DONE_PROP}
     obs = env.observe()
     png = obs.screenshot
 
@@ -219,6 +237,7 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                     step_done = True
                 elif plan.failed:
                     stuck = "the assistant called fail"
+                flagged = _flagged_done(plan.rec, tuple(h.tools))   # "step_done": true on an action, or as an action
                 for a in plan.actions:
                     if isinstance(a, ToolCall):
                         if a.name == "step_done":
@@ -247,6 +266,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                     pngs.append(obs.screenshot)
                     for k in ("act_s", "settle_s", "obs_s"):
                         timing[k] += env.last.get(k, 0.0)
+                if flagged and not stuck and not note and not res.stopped and len(ran) == len(plan.actions):
+                    step_done = True             # every action of the turn ran, and the last one ends the step
                 if ran and not pngs:
                     obs = env.observe()
                     pngs.append(obs.screenshot)
@@ -298,6 +319,7 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             res.failed = True
             res.actions.append("fail")
     finally:
+        h.computer_props = props_before
         for name in added:
             h.tools.pop(name, None)
         res.wall_s = time.monotonic() - t0

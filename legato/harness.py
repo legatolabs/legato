@@ -329,6 +329,7 @@ class Harness:
         # planner: a stronger model plans and checks, this harness's model executes one step at a time with a short
         # context (legato/delegate.py); run() then delegates
         self.planner = planner
+        self.computer_props: dict = {}        # extra properties of the `computer` tool for this run (legato/delegate.py)
         # hedge_after_s: a call with no reply after this many seconds is sent again, and the first reply wins (the
         # provider stalls now and then: 25 calls of 12-66 s with short replies in legato-research EXP-0044/0046)
         self.hedge_after_s = hedge_after_s
@@ -522,6 +523,8 @@ class Harness:
             tools = [plans.plan_tool(self.plan_max, progress=self.progress_note)] if self.native_tools else None
         else:
             tools = [computer_tool(names)] + [t.spec() for t in self.tools.values()] if self.native_tools else None
+            if tools and self.computer_props:
+                tools[0]["function"]["parameters"]["properties"].update(self.computer_props)
         # Claude caches only where asked: OpenRouter's automatic caching (one top-level marker that follows the end of
         # the conversation) stands in for the reference implementation's per-turn breakpoints
         rec = self._chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,

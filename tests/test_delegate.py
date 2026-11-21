@@ -128,3 +128,16 @@ def test_a_plan_with_no_steps_fails_and_the_turn_limit_holds():
                    max_turns_per_step=99, every=0)
     res = h.run("t", desktop([]), max_steps=3)
     assert not res.done and not res.failed and "turn limit" in res.error and res.steps == 3
+
+
+def test_an_action_can_end_its_step_without_a_second_turn():
+    h, p = harness([plan("continue", ("press ctrl+s", "saved"), ("click OK", "closed")), plan("done")],
+                   [rec([act(action="key", keys="ctrl+s", step_done=True)]),
+                    rec([act(action="left_click", coordinate=[5, 5])]), rec([act(action="step_done")])])
+    log = []
+    res = h.run("t", desktop(log))
+    assert res.done and res.steps == 3 and [a.type for a in log] == ["key", "click"]
+    assert [e["done"] for e in res.trace if "planner" not in e] == [True, False, True]
+    props = h.client.sent[0]["tools"][0]["function"]["parameters"]["properties"]
+    assert "step_done" in props and h.computer_props == {}          # offered during the run, removed after
+    assert '"step_done": true' in h.client.sent[0]["messages"][1]["content"][0]["text"]
