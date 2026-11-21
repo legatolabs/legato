@@ -72,6 +72,21 @@ POINT_TOOL = {"type": "function", "function": {
         "required": ["found"]}}}
 
 BUTTONS = {"left": "left_click", "double": "double_click", "right": "right_click", "triple": "triple_click"}
+# Keys that only edit the focused field or move its caret: nothing opens, so what follows needs no settled screen.
+INERT_KEYS = {"backspace", "delete", "home", "end", "left", "right", "up", "down", "tab", "shift+tab", "ctrl+a",
+              "ctrl+c", "ctrl+x", "ctrl+z", "ctrl+left", "ctrl+right", "ctrl+backspace", "ctrl+delete", "ctrl+home",
+              "ctrl+end", "shift+left", "shift+right", "shift+up", "shift+down", "shift+home", "shift+end",
+              "ctrl+shift+left", "ctrl+shift+right", "ctrl+shift+home", "ctrl+shift+end"}
+QUICK_WAIT_S = 0.1
+
+
+def inert(x: dict) -> bool:
+    """A planner action that only edits the focused field: text without a line break, or one of INERT_KEYS."""
+    if "type" in x:
+        return "\n" not in str(x["type"]) and "\r" not in str(x["type"])
+    if "key" in x:
+        return "+".join(k.strip().lower() for k in str(x["key"]).split("+") if k.strip()) in INERT_KEYS
+    return False
 
 
 def _args(rec: dict) -> dict:
@@ -148,8 +163,9 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         ok = a.get("found") is not False and isinstance(c, (list, tuple)) and len(c) >= 2
         return ([float(c[0]), float(c[1])] if ok else None), rec["s"]
 
-    def run_one(x: dict, timing: dict) -> tuple[str, bool]:
-        """Run one planner action. Returns (what happened, whether the batch goes on)."""
+    def run_one(x: dict, timing: dict, quick: bool = False) -> tuple[str, bool]:
+        """Run one planner action. Returns (what happened, whether the batch goes on). quick: the action only edits
+        the focused field and a key or text follows it, so the screen is not waited for (a short fixed pause)."""
         nonlocal png, obs
         if "key" in x or "type" in x or "wait" in x:
             args = ({"action": "key", "keys": str(x["key"])} if "key" in x else
@@ -181,7 +197,15 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         a, why = h._parse(args, ep) if "coordinate" in args else parse_action(args, ep.w, ep.h)
         if a is None:
             return f"invalid action {json.dumps(x)[:80]}: {why}", False
-        obs = env.act(a)
+        if quick:
+            wait_before, env.fixed_wait_s = env.fixed_wait_s, QUICK_WAIT_S
+            try:
+                obs = env.act(a)
+            finally:
+                env.fixed_wait_s = wait_before
+            timing["quick"] = timing.get("quick", 0) + 1
+        else:
+            obs = env.act(a)
         png = obs.screenshot
         for k in ("act_s", "settle_s", "obs_s"):
             timing[k] += env.last.get(k, 0.0)
@@ -201,8 +225,10 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             timing = {"model_s": 0.0, "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
             key, why = "next", "Those actions ran. This is the screen now."
             try:
-                for x in acts:
-                    said, go_on = run_one(x, timing)
+                for i, x in enumerate(acts):
+                    nxt = acts[i + 1] if i + 1 < len(acts) else None
+                    quick = inert(x) and nxt is not None and ("key" in nxt or "type" in nxt)
+                    said, go_on = run_one(x, timing, quick)
                     history.append(said)
                     if not go_on:
                         key, why = "missing", f"The last batch stopped: {said}. This is the screen now."

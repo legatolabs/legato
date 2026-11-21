@@ -92,3 +92,24 @@ def test_drag_scroll_hold_and_the_call_limit():
     h, p = harness([act("continue", {"click": "a"})] * 3, [at(1, 1)] * 3)
     res = h.run("t", desktop([]), max_steps=4)
     assert not res.done and "call limit" in res.error and res.steps + res.planner["calls"] == 4
+
+
+def test_text_and_caret_keys_before_more_keys_do_not_wait_for_the_screen():
+    from legato import point
+    assert point.inert({"type": "Total"}) and point.inert({"key": "Ctrl+A"}) and not point.inert({"type": "x\n"})
+    assert not point.inert({"key": "ctrl+s"}) and not point.inert({"key": "Return"}) and not point.inert({"click": "x"})
+    h, p = harness([act("continue", {"click": "the title"}, {"key": "ctrl+a"}, {"type": "Hello"}, {"key": "Return"},
+                        {"type": "World"}), act("done")], [at(500, 500)])
+    log, env, waits = [], None, []
+    env = desktop(log)
+    real = env.act
+
+    def spy(a):
+        waits.append((a.type, env.fixed_wait_s))
+        return real(a)
+    env.act = spy
+    res = h.run("t", env)
+    assert res.done and len(log) == 5 and env.fixed_wait_s is None
+    # ctrl+a and "Hello" are inert with a key or text after them; Return may open something; the last one is the last
+    assert waits == [("click", None), ("key", 0.1), ("type", 0.1), ("key", None), ("type", None)]
+    assert sum(t.get("quick", 0) for t in res.timings) == 2
