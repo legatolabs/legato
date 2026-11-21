@@ -45,7 +45,11 @@ the open Sheet menu; the slide 4 thumbnail in the left Slides pane; cell B12 in 
 - {{"key": "ctrl+s"}} and {{"type": "text"}}: sent exactly as written to whatever has the keyboard focus.
 - {{"scroll": "<where>", "direction": "down", "amount": 3}}
 - {{"drag": "<what to drag>", "to": "<where to drop it>"}}
-- Add "at": [x, y] to a click, a scroll or a drag (and "to_at" for where a drag ends) when the thing is on the screenshot in front of you: the coordinate of its centre. It is then used directly, which is faster and more exact. Always give the description too. Leave "at" out for a thing that only appears, or moves, after an earlier action in the list (an item of a menu the list opens, a button of a dialog it opens): the assistant finds that one on the screen as it is then. {coords}
+- Add "at": [x, y] to a click, a scroll or a drag (and "to_at" for where a drag ends) when the thing is on the \
+screenshot in front of you: the coordinate of its centre. It is then used directly, which is faster and more exact. \
+Always give the description too. Leave "at" out for a thing that only appears, or moves, after an earlier action in \
+the list (an item of a menu the list opens, a button of a dialog it opens): the assistant finds that one on the \
+screen as it is then. The screenshot is {w}x{h} pixels; "at" is [x, y] in its pixels, from the top-left corner.
 - {{"wait": 5}}: only for something that keeps loading for several seconds. After every action the screen is \
 already waited for until it stops changing, before the next action runs: do not add waits between actions.
 Prefer reliable keyboard shortcuts. Save files in their current format. If something was not found or did not work, \
@@ -60,7 +64,8 @@ ACT_TOOL = {"type": "function", "function": {
             "hold": {"type": "string"}, "key": {"type": "string"}, "type": {"type": "string"},
             "scroll": {"type": "string"}, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
             "amount": {"type": "number"}, "drag": {"type": "string"}, "to": {"type": "string"},
-            "at": {"type": "array", "items": {"type": "number"}}, "to_at": {"type": "array", "items": {"type": "number"}},
+            "at": {"type": "array", "items": {"type": "number"}},
+            "to_at": {"type": "array", "items": {"type": "number"}},
             "wait": {"type": "number"}}}},
         "note": {"type": "string", "description": "one line: why (optional)"}},
         "required": ["status"]}}}
@@ -156,12 +161,11 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         t = time.monotonic()
         seen = png
         ran = "\n".join(f"{i + 1}. {x}" for i, x in enumerate(history[-40:])) or "nothing yet"
-        # pixel coordinates are of the image at the model's size; the 0-1000 scale fits the full screenshot too
-        shot = h._png(ep, png) if h.coords == "pixels" else base64.b64encode(png).decode()
-        msgs = [{"role": "system", "content": PLANNER_SYSTEM.format(max_actions=p.max_steps, coords=COORDS[h.coords])},
+        # the planner sees the screenshot at full size and answers in its pixels, whatever the pointer's convention
+        msgs = [{"role": "system", "content": PLANNER_SYSTEM.format(max_actions=p.max_steps, w=ep.w, h=ep.h)},
                 {"role": "user", "content": [
                     {"type": "text", "text": f"Task: {task}\n\nRun so far:\n{ran}\n\n{why}"},
-                    {"type": "image_url", "image_url": {"url": h._image_url(shot)}}]}]
+                    {"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(png).decode())}}]}]
         rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature, tools=[ACT_TOOL],
                             tool_choice={"type": "function", "function": {"name": "act"}})
         a = _args(rec)
@@ -212,11 +216,12 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         def where(at, target: str) -> list | None:
             """The planner's own coordinate if it gave one and the screen there is as it saw it, else the pointer's."""
             if isinstance(at, (list, tuple)) and len(at) >= 2 and all(isinstance(v, (int, float)) for v in at[:2]):
-                a, _ = h._parse({"action": "left_click", "coordinate": [float(at[0]), float(at[1])]}, ep)
-                why = "off the screen" if a is None or a.x is None else moved(seen, png, a.x, a.y)
+                x, y = float(at[0]), float(at[1])                    # pixels of the full screenshot
+                why = "off the screen" if not (0 <= x < ep.w and 0 <= y < ep.h) else moved(seen, png, x, y)
                 if why is None:
-                    res.trace.append({"aimed": target[:120], "at": [float(at[0]), float(at[1])]})
-                    return [float(at[0]), float(at[1])]
+                    res.trace.append({"aimed": target[:120], "at": [x, y]})
+                    k = (1000 / ep.w, 1000 / ep.h) if h.coords == "norm1000" else (ep.mw / ep.w, ep.mh / ep.h)
+                    return [x * k[0], y * k[1]]                      # in the harness's convention, as the pointer's
                 res.trace.append({"aimed": target[:120], "at": None, "why": why})
             c, s = point(target)
             timing["model_s"] += s
