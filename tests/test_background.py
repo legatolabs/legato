@@ -495,6 +495,7 @@ def test_the_harness_tells_the_model_and_carries_on_after_an_unavailable_action(
 
 
 def test_mcp_background_desktop_needs_an_app_and_reports_the_window(monkeypatch):
+    pytest.importorskip("mcp")
     import asyncio
 
     from legato.mcp_server import build_server

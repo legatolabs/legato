@@ -4,6 +4,17 @@ Open-source computer-use harness for any OpenAI-compatible model: Qwen, DeepSeek
 It drives a desktop with a `computer` tool, waits for the screen instead of sleeping, and bounds every model call.
 Bring your own computer: your own screen (macOS, Windows, Linux), any sandbox you already run, or a cloud desktop.
 
+## Start
+
+```bash
+pip install "legatolabs[local]"     # PyPI name: legatolabs. Import name: legato.
+legato init                         # pick your model and desktop; writes agent.py, a working agent
+python agent.py "Open example.com and check the page title"
+```
+
+Using Claude Code, Cursor or Codex? Ask it: *"Add Legato computer use to this project. Read
+https://legato.computer/llms.txt first."*
+
 ## Give your coding agent a computer
 
 Claude Code, Codex, Cursor or any MCP client gets a desktop to look at and click: a container on your machine (needs
@@ -27,24 +38,21 @@ legatolabs/legato`. One click for other editors (these run the same server with 
 
 ## Build an agent in Python
 
-```bash
-pip install "legatolabs[e2b]"      # PyPI name: legatolabs. Import name: legato.
-```
+The whole loop is one call, `agent.run(task, desktop)`. On a Mac, in one app's window while you keep working:
 
 ```python
 import os, legato
-from e2b_desktop import Sandbox                       # needs E2B_API_KEY
 
 agent = legato.Harness(model="qwen/qwen3.8-27b", base_url="https://openrouter.ai/api/v1",
                        api_key=os.environ["OPENROUTER_API_KEY"])
-desk = Sandbox.create()
-result = agent.run("Open the terminal and print the date", legato.attach(desk))
+desk = legato.local(background="Safari")             # any app by name: "Google Chrome", "TextEdit"...
+result = agent.run("Open example.com and check the page title", desk)
 print(result.report())                                # where the time went
-desk.kill()
 ```
 
-`legato.local()` drives your own screen instead, `legato.providers.docker(w, h)` a desktop container on your
-machine, and `legato.attach(shell=run)` any Linux sandbox you can run a command in, such as a VM
+`legato.local()` drives your whole screen instead (any OS), `legato.providers.docker(w, h)` a desktop container
+on your machine, `legato.attach(Sandbox.create())` an E2B cloud desktop (`legatolabs[e2b]`), and
+`legato.attach(shell=run)` any Linux sandbox you can run a command in, such as a VM
 ([sandboxes](https://legato.computer/docs/sandboxes)). With a model on your own GPU, nothing leaves your machine:
 
 ```bash

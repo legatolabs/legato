@@ -13,6 +13,8 @@ A local model server (`--base-url http://localhost:8000/v1`) needs no key.
   legato rl probe|collect|export|profile ... graded rollouts for RL (see docs/rl.md)
   legato mcp [--local]                       an MCP server: a desktop for any agent (see docs/mcp.md)
   legato doctor [--json]                     what is installed and configured, and how to fix what is missing
+  legato init                                pick a model and a desktop, and write agent.py, a working agent
+  legato                                     what to do first
   legato app-engine                          the engine the Legato Mac app starts (JSON lines on stdin/stdout)
 """
 from __future__ import annotations
@@ -25,6 +27,13 @@ import sys
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv:
+        from legato.start import welcome
+        print(welcome())
+        return 0
+    if argv[:1] == ["init"]:
+        from legato.start import init_main
+        return init_main(argv[1:])
     if argv[:1] == ["rl"]:
         from legato.rl.__main__ import main as rl_main
         return rl_main(argv[1:])
@@ -49,7 +58,7 @@ def main(argv=None) -> int:
         return 2
     ap = argparse.ArgumentParser(prog="legato", epilog="also: legato bench office|h2h ... (benchmarks), "
                                  "legato rl probe|collect|export|profile ... (RL rollouts), legato mcp (MCP server), "
-                                 "legato doctor [--json] (what is installed and configured)")
+                                 "legato doctor [--json] (what is installed and configured), legato init (write a working agent.py)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run one task with the open harness on a fresh sandbox")
     r.add_argument("task")
@@ -62,16 +71,20 @@ def main(argv=None) -> int:
     r.add_argument("--sandbox", default="e2b",
                    help="e2b: a fresh cloud desktop (default); local: this computer (moves your real mouse); or your "
                         "own: path/to/file.py:function or module:function returning a legato Env (docs/sandboxes.md)")
+    r.add_argument("--background", metavar="APP",
+                   help="macOS: work in this app's window (e.g. Safari) without your mouse, so you keep using the Mac")
     r.add_argument("--yes", action="store_true",
                    help="with --sandbox local: do not ask before risky actions (cmd+Delete, a typed rm or sudo...)")
     r.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
     a = ap.parse_args(argv)
     from legato import Harness
     from legato import providers
+    if a.background:
+        a.sandbox = "local"
     if a.sandbox == "local":
         try:
             from legato.local import local
-            env, close = local(confirm=None if a.yes else "auto"), (lambda: None)
+            env, close = local(confirm=None if a.yes else "auto", background=a.background), (lambda: None)
         except ImportError:
             return _fail('Driving this computer needs extra packages. Run: pip install "legatolabs[local]"')
         except Exception as e:                    # no display, or no screen-recording permission

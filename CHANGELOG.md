@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Easy start (#35):** `legato` alone prints what to do first: `legato init`, the three ways to use Legato, and a
+  prompt to give a coding agent. `legato init` asks for the model (OpenRouter, a local server or any OpenAI-compatible
+  URL) and the desktop (on a Mac: background mode in your default browser, or any app), writes a working `agent.py`
+  and lists what is still missing (the key, extras, permissions). `legato run --background APP` works in one app's
+  window. The README starts with a quickstart that runs on your own computer with one key.
 - **Background mode (macOS):** `legato.local(background="TextEdit")` and `legato mcp --background` work in one app's
   window while you keep using the Mac: the pointer, the front app and the clipboard stay yours (#33). Keys are posted
   to the app, clicks press, focus or select through Accessibility, and what has no Accessibility equivalent (drags,
