@@ -7,9 +7,11 @@
 Each planner call sees the task, the screen and what has been run so far, and names the next actions as far ahead as
 it is sure of without seeing the screen in between: clicks and drags on things it describes ("the Save button in the
 dialog"), keys, typed text, scrolls, waits. The harness runs them in order. Keys and text are sent as written. For a
-click, a drag or a scroll the harness's own model (the pointer) is asked one thing: where the described thing is on
-the screenshot in front of it. If it is not there, the rest of the batch is dropped and the planner sees the screen.
-After each batch the planner is called again, and only the planner ends the task.
+click, a drag or a scroll the planner may give the coordinate itself (`at`) when the thing is on the screenshot it is
+looking at; the harness uses it if the screen around that point is still as the planner saw it. Otherwise the
+harness's own model (the pointer) is asked one thing: where the described thing is on the screenshot in front of it.
+If it is not there, the rest of the batch is dropped and the planner sees the screen. After each batch the planner is
+called again, and only the planner ends the task.
 
 Model calls a task = planner calls + pointer calls. Nothing is spent on reporting a step or checking it.
 """
@@ -43,6 +45,7 @@ the open Sheet menu; the slide 4 thumbnail in the left Slides pane; cell B12 in 
 - {{"key": "ctrl+s"}} and {{"type": "text"}}: sent exactly as written to whatever has the keyboard focus.
 - {{"scroll": "<where>", "direction": "down", "amount": 3}}
 - {{"drag": "<what to drag>", "to": "<where to drop it>"}}
+- Add "at": [x, y] to a click, a scroll or a drag (and "to_at" for where a drag ends) when the thing is on the screenshot in front of you: the coordinate of its centre. It is then used directly, which is faster and more exact. Always give the description too. Leave "at" out for a thing that only appears, or moves, after an earlier action in the list (an item of a menu the list opens, a button of a dialog it opens): the assistant finds that one on the screen as it is then. {coords}
 - {{"wait": 5}}: only for something that keeps loading for several seconds. After every action the screen is \
 already waited for until it stops changing, before the next action runs: do not add waits between actions.
 Prefer reliable keyboard shortcuts. Save files in their current format. If something was not found or did not work, \
@@ -57,6 +60,7 @@ ACT_TOOL = {"type": "function", "function": {
             "hold": {"type": "string"}, "key": {"type": "string"}, "type": {"type": "string"},
             "scroll": {"type": "string"}, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
             "amount": {"type": "number"}, "drag": {"type": "string"}, "to": {"type": "string"},
+            "at": {"type": "array", "items": {"type": "number"}}, "to_at": {"type": "array", "items": {"type": "number"}},
             "wait": {"type": "number"}}}},
         "note": {"type": "string", "description": "one line: why (optional)"}},
         "required": ["status"]}}}
@@ -90,6 +94,41 @@ def inert(x: dict) -> bool:
     return False
 
 
+# A coordinate the planner gave is used only when the screen there is as the planner saw it: at most AT_PIXELS pixels
+# changed by over AT_DELTA grey levels in the AT_HALF-px box around it (a blinking caret is about 36 px), and at most
+# AT_SCREEN of the 4x-downscaled screen changed (a new window, dialog or page).
+AT_HALF, AT_PIXELS, AT_DELTA, AT_SCREEN = 40, 64, 24, 0.25
+
+
+def moved(before_png: bytes, after_png: bytes, x: float, y: float) -> str | None:
+    """Why a point chosen on `before_png` (screen pixels) should not be used on `after_png`; None if it can."""
+    import io
+
+    from PIL import Image, ImageChops
+    if before_png is after_png or before_png == after_png:
+        return None
+    try:
+        b0 = Image.open(io.BytesIO(before_png)).convert("L")
+        b1 = Image.open(io.BytesIO(after_png)).convert("L")
+    except Exception:  # noqa: BLE001 - a screenshot that cannot be read cannot vouch for the point
+        return "the screens could not be compared"
+    if b0.size != b1.size:
+        return "the screen size changed"
+
+    def over(d) -> int:
+        return d.point(lambda v: 255 if v > AT_DELTA else 0).histogram()[255]
+    w, h = b0.size
+    x, y = int(x), int(y)
+    box = (max(0, x - AT_HALF), max(0, y - AT_HALF), min(w, x + AT_HALF), min(h, y + AT_HALF))
+    if box[2] > box[0] and box[3] > box[1] and over(ImageChops.difference(b0.crop(box), b1.crop(box))) > AT_PIXELS:
+        return "the screen changed there"
+    sw, sh = max(1, w // 4), max(1, h // 4)
+    s0, s1 = b0.resize((sw, sh), Image.BILINEAR), b1.resize((sw, sh), Image.BILINEAR)
+    if over(ImageChops.difference(s0, s1)) > AT_SCREEN * sw * sh:
+        return "most of the screen changed"
+    return None
+
+
 def _args(rec: dict) -> dict:
     from legato.delegate import _plan_args
     return _plan_args(rec)
@@ -110,14 +149,19 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
     ep = h.begin(task, png)                 # for the sizes: the pointer is shown the screen at the model's size
     history: list[str] = []                 # every action run, with what came of it
     calls = 0
+    seen = png                              # the screen the planner's latest call looked at
 
     def ask_planner(key: str, why: str) -> tuple[str, list]:
+        nonlocal seen
         t = time.monotonic()
+        seen = png
         ran = "\n".join(f"{i + 1}. {x}" for i, x in enumerate(history[-40:])) or "nothing yet"
-        msgs = [{"role": "system", "content": PLANNER_SYSTEM.format(max_actions=p.max_steps)},
+        # pixel coordinates are of the image at the model's size; the 0-1000 scale fits the full screenshot too
+        shot = h._png(ep, png) if h.coords == "pixels" else base64.b64encode(png).decode()
+        msgs = [{"role": "system", "content": PLANNER_SYSTEM.format(max_actions=p.max_steps, coords=COORDS[h.coords])},
                 {"role": "user", "content": [
                     {"type": "text", "text": f"Task: {task}\n\nRun so far:\n{ran}\n\n{why}"},
-                    {"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(png).decode())}}]}]
+                    {"type": "image_url", "image_url": {"url": h._image_url(shot)}}]}]
         rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature, tools=[ACT_TOOL],
                             tool_choice={"type": "function", "function": {"name": "act"}})
         a = _args(rec)
@@ -165,6 +209,20 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         return ([float(c[0]), float(c[1])] if ok else None), rec["s"]
 
     def run_one(x: dict, timing: dict, quick: bool = False) -> tuple[str, bool]:
+        def where(at, target: str) -> list | None:
+            """The planner's own coordinate if it gave one and the screen there is as it saw it, else the pointer's."""
+            if isinstance(at, (list, tuple)) and len(at) >= 2 and all(isinstance(v, (int, float)) for v in at[:2]):
+                a, _ = h._parse({"action": "left_click", "coordinate": [float(at[0]), float(at[1])]}, ep)
+                why = "off the screen" if a is None or a.x is None else moved(seen, png, a.x, a.y)
+                if why is None:
+                    res.trace.append({"aimed": target[:120], "at": [float(at[0]), float(at[1])]})
+                    return [float(at[0]), float(at[1])]
+                res.trace.append({"aimed": target[:120], "at": None, "why": why})
+            c, s = point(target)
+            timing["model_s"] += s
+            res.trace.append({"point": target[:120], "at": c, "s": round(s, 2)})
+            return c
+
         """Run one planner action. Returns (what happened, whether the batch goes on). quick: the action only edits
         the focused field and a key or text follows it, so the screen is not waited for (a short fixed pause)."""
         nonlocal png, obs
@@ -175,9 +233,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             what = None
         else:
             target = str(x.get("click") or x.get("drag") or x.get("scroll") or "")
-            c, s = point(target)
-            timing["model_s"] += s
-            res.trace.append({"point": target[:120], "at": c, "s": round(s, 2)})
+            c = where(x.get("at"), target)
             if c is None:
                 return f'could NOT find "{target}" on the screen; the actions after it were not run', False
             what = target
@@ -189,9 +245,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                 args = {"action": "scroll", "coordinate": c, "direction": str(x.get("direction") or "down"),
                         "amount": x.get("amount") or 3}
             else:
-                c2, s2 = point(str(x.get("to") or ""))
-                timing["model_s"] += s2
-                res.trace.append({"point": str(x.get("to") or "")[:120], "at": c2, "s": round(s2, 2)})
+                c2 = where(x.get("to_at"), str(x.get("to") or ""))
                 if c2 is None:
                     return f'could NOT find "{x.get("to")}" to drop on; the actions after it were not run', False
                 args = {"action": "left_click_drag", "coordinate": c, "end_coordinate": c2}
