@@ -62,7 +62,9 @@ ACT_TOOL = {"type": "function", "function": {
             "amount": {"type": "number"}, "drag": {"type": "string"}, "to": {"type": "string"},
             "at": {"type": "array", "items": {"type": "number"}}, "to_at": {"type": "array", "items": {"type": "number"}},
             "wait": {"type": "number"}}}},
-        "note": {"type": "string", "description": "one line: why (optional)"}},
+        "note": {"type": "string", "description": "one or two lines for your own next call, which sees only the "
+                 "task, the list of actions run (with these notes) and the screen: what you have found out, what is "
+                 "finished, what is left, what did not work"}},
         "required": ["status"]}}}
 
 POINTER_SYSTEM = """You find things on a screenshot of a computer desktop ({w}x{h} pixels). You are given a \
@@ -172,6 +174,9 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             status = "continue" if acts else "fail"
         if status == "continue" and not acts:
             status = "fail"
+        note = " ".join(str(a.get("note") or "").split())[:400]
+        if note:
+            history.append(f"(your note: {note})")
         u = rec.get("usage") or {}
         pl = res.planner
         pl["calls"] += 1

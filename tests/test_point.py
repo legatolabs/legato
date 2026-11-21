@@ -151,3 +151,12 @@ def test_a_coordinate_from_the_planner_is_dropped_when_the_screen_changed_there(
     assert clicks == [(208, 120), (380, 10)]            # the pointer's place under the dialog; the planner's, untouched
     assert {"aimed": "the Name field", "at": None, "why": "the screen changed there"} in res.trace
     assert legato.point.moved(before, after, 380, 10) is None and legato.point.moved(before, after, 200, 100)
+
+
+def test_the_planners_note_is_kept_in_the_list_it_reads_next():
+    first = rec([call("act", {"status": "continue", "actions": [{"key": "ctrl+f"}],
+                              "note": "Column B holds the totals; the sheet has 40 rows."})])
+    h, p = harness([first, act("done")], [])
+    res = h.run("find", desktop([]))
+    again = p.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert res.done and "1. (your note: Column B holds the totals; the sheet has 40 rows.)\n2. key ctrl+f" in again
