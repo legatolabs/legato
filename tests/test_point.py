@@ -136,7 +136,7 @@ def test_a_coordinate_from_the_planner_is_used_without_asking_the_pointer():
     assert res.done and res.steps == 0 and res.planner["calls"] == 2         # no pointer call at all
     assert [(a.type, a.x, a.y) for a in log if a.type == "click"] == [("click", 300, 200)]
     assert {"aimed": "the Bold button in the toolbar", "at": [300.0, 200.0]} in res.trace       # screenshot pixels
-    assert "The screenshot is 1000x500 pixels" in p.client.sent[0]["messages"][0]["content"]
+    assert "The screen now is 1000x500 pixels" in p.client.sent[0]["messages"][0]["content"]
 
 
 def test_a_coordinate_from_the_planner_is_dropped_when_the_screen_changed_there():
@@ -153,3 +153,24 @@ def test_a_coordinate_from_the_planner_is_dropped_when_the_screen_changed_there(
     assert {"aimed": "the Name field", "at": None, "why": "the screen changed there"} in res.trace
     assert {"aimed": "the clock", "at": None, "why": "off the screen"} in res.trace
     assert legato.point.moved(before, after, 380, 10) is None and legato.point.moved(before, after, 200, 100)
+
+
+def test_the_planner_is_shown_screens_from_during_the_batch():
+    from legato.point import pick_frames
+    shots, log = [real_png(400, 200)], []
+
+    def execute(a):
+        log.append(a)
+        shots.append(real_png(400, 200, ((10 * len(log), 10, 10 * len(log) + 8, 18),)))      # every action changes it
+    env = legato.attach(screenshot=lambda: shots[-1], execute=execute)
+    h, p = harness([act("continue", {"key": "ctrl+o"}, {"key": "Return"}, {"key": "ctrl+w"}), act("done")], [])
+    res = h.run("open", env)
+    assert res.done
+    second = p.client.sent[1]["messages"][1]["content"]
+    texts = [c["text"] for c in second if c["type"] == "text"]
+    assert texts[1:] == [f"The screen after action {n} (smaller):" for n in (1, 2)] + ["The screen now:"]
+    assert sum(c["type"] == "image_url" for c in second) == 3 and len(p.client.sent[0]["messages"][1]["content"]) == 2
+    assert res.trace[-1]["frames"] == [1, 2]
+    f = [(i, bytes([i])) for i in range(1, 9)]
+    assert [n for n, _ in pick_frames(f)] == [2, 4, 6]                       # three, spread, never the last
+    assert pick_frames([(1, b"a"), (2, b"a"), (3, b"b")]) == [(2, b"a")]     # a screen the next one repeats is left out
