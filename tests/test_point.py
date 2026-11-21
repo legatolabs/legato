@@ -129,25 +129,27 @@ def real_png(w: int, h: int, boxes: tuple = ()) -> bytes:
 
 
 def test_a_coordinate_from_the_planner_is_used_without_asking_the_pointer():
-    h, p = harness([act("continue", {"click": "the Bold button in the toolbar", "at": [300, 400]}, {"key": "ctrl+s"}),
+    h, p = harness([act("continue", {"click": "the Bold button in the toolbar", "at": [300, 200]}, {"key": "ctrl+s"}),
                     act("done")], [])
     log = []
     res = h.run("bold", desktop(log))
     assert res.done and res.steps == 0 and res.planner["calls"] == 2         # no pointer call at all
     assert [(a.type, a.x, a.y) for a in log if a.type == "click"] == [("click", 300, 200)]
-    assert {"aimed": "the Bold button in the toolbar", "at": [300.0, 400.0]} in res.trace
-    assert "0-1000 scale" in p.client.sent[0]["messages"][0]["content"]
+    assert {"aimed": "the Bold button in the toolbar", "at": [300.0, 200.0]} in res.trace       # screenshot pixels
+    assert "The screenshot is 1000x500 pixels" in p.client.sent[0]["messages"][0]["content"]
 
 
 def test_a_coordinate_from_the_planner_is_dropped_when_the_screen_changed_there():
     before, after = real_png(400, 200), real_png(400, 200, ((150, 50, 250, 150),))    # a dialog opens over the middle
     shots, log = [before], []
     env = legato.attach(screenshot=lambda: shots[-1], execute=lambda a: (log.append(a), shots.append(after)))
-    h, p = harness([act("continue", {"key": "ctrl+o"}, {"click": "the Name field", "at": [500, 500]},
-                        {"click": "the Help menu", "at": [950, 50]}), act("done")], [at(520, 600)])
+    h, p = harness([act("continue", {"key": "ctrl+o"}, {"click": "the Name field", "at": [200, 100]},
+                        {"click": "the Help menu", "at": [380, 10]}, {"click": "the clock", "at": [900, 10]}),
+                    act("done")], [at(520, 600), at(990, 50)])
     res = h.run("open", env)
     clicks = [(a.x, a.y) for a in log if a.type == "click"]
-    assert res.done and res.steps == 1                                       # the pointer was asked for the first only
-    assert clicks == [(208, 120), (380, 10)]            # the pointer's place under the dialog; the planner's, untouched
+    assert res.done and res.steps == 2          # the pointer was asked for the first, and for the one off the screen
+    assert clicks == [(208, 120), (380, 10), (396, 10)]     # the pointer's, the planner's (untouched), the pointer's
     assert {"aimed": "the Name field", "at": None, "why": "the screen changed there"} in res.trace
+    assert {"aimed": "the clock", "at": None, "why": "off the screen"} in res.trace
     assert legato.point.moved(before, after, 380, 10) is None and legato.point.moved(before, after, 200, 100)
