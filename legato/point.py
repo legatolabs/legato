@@ -32,7 +32,9 @@ you say what to do, it finds where. You see the task, the current screen and wha
 Call the `act` tool:
 - status "continue" with the next actions to run in order (at most {max_actions}). Go as far ahead as you are sure of \
 without seeing the screen in between (for example: click a menu, click its item; click a field, select all, type, \
-press Return). Stop the list where you need to see the result.
+press Return). Plan through the menus, dialogs and fields you expect your own actions to open: if a thing you \
+name is not on the screen when its turn comes, the list stops there and nothing after it runs, so a long list is \
+safe. Stop the list only where what to do next depends on what the screen will show.
 - status "done" when the screen shows the task is complete and saved.
 - status "fail" when the task cannot be done on this computer.
 Actions:
