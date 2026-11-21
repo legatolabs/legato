@@ -149,6 +149,7 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
     p: Planner = h.planner
     res, t0 = RunResult(task), time.monotonic()
     res.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cost_usd": 0.0}
+    res.trace = []                          # what happened, call by call: for reading a run afterwards
     added = []
     for t in (Tool("step_done", "the current step's expected result is on the screen", {"type": "object",
                    "properties": {}}, lambda a: "ok"),
@@ -173,6 +174,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         pl["cost_usd"] += u.get("cost") or 0.0
         res.usage["cost_usd"] += u.get("cost") or 0.0
         res.timings.append({"planner_s": time.monotonic() - t, "planner": reason_key})
+        res.trace.append({"planner": reason_key, "status": status, "s": round(time.monotonic() - t, 2),
+                          "steps": [[x["do"][:140], x["expect"][:100]] for x in steps]})
         return status, steps
 
     try:
@@ -251,6 +254,9 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                     png = pngs[-1]
                 res.steps += 1
                 desc = [a.describe() if a else "screenshot" for a in ran]
+                res.trace.append({"step": st.i, "turn": turns_in_step, "acts": [str(x)[:80] for x in desc],
+                                  "done": step_done, "stuck": stuck, "s": round(plan.rec["s"], 2),
+                                  "say": " | ".join(plan.reply)[:160]})
                 res.actions += desc
                 st.recent += desc
                 res.timings.append(timing)

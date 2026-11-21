@@ -64,6 +64,8 @@ def test_plan_steps_then_planner_judges_done():
     assert res.done and not res.failed and [a.type for a in log] == ["click", "key"]
     assert res.planner["calls"] == 2 and res.planner["by"] == {"start": 1, "end": 1}
     assert res.steps == 3 and res.actions[-1] == "done"
+    assert [("planner" in e) for e in res.trace] == [True, False, False, False, True]
+    assert res.trace[0]["steps"][0] == ["click OK", "the dialog is gone"] and res.trace[2]["done"] is True
     first = h.client.sent[0]["messages"][1]["content"][0]["text"]
     assert "Your step now: click OK" in first and "Next step, for context only: press ctrl+s" in first
     assert {t["function"]["name"] for t in h.client.sent[0]["tools"]} >= {"computer", "step_done", "stuck"}
