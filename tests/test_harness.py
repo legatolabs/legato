@@ -384,3 +384,16 @@ def test_progress_note_is_asked_for_and_kept_in_the_history():
     from legato.harness import Episode
     plan = h._decide_plan(rec, msgs, Episode("task", 100, 100, 100, 100))
     assert "Progress: Notes open; next: paste the text" in plan.reply
+
+
+def test_an_action_left_open_before_the_models_closing_tags_is_read():
+    """Qwen3.8-27B sometimes writes the call as text and closes its tags, not the object (legato-research EXP-0075)."""
+    from legato.harness import _text_calls
+    said = 'Click the Save button. {"action": "left_click", "coordinate": [806, 155] </parameter> </function> </tool_call>'
+    assert _text_calls(said) == [("computer", {"action": "left_click", "coordinate": [806, 155]})]
+    drag = ('I will drag it. {"action": "left_click_drag", "coordinate": [289, 541] </parameter> <parameter=end_coordinate> '
+            '[620, 541] </parameter> </function>')
+    assert _text_calls(drag) == [("computer", {"action": "left_click_drag", "coordinate": [289, 541]})]
+    assert _text_calls('Now I will click Export. {"action": "left_click", "coordinate":') == []      # cut off: nothing to run
+    assert _text_calls('{"action": "key", "keys": "ctrl+s"} then {"action": "type", "text": "a" </parameter>') == [
+        ("computer", {"action": "key", "keys": "ctrl+s"}), ("computer", {"action": "type", "text": "a"})]

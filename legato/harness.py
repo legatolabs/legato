@@ -104,7 +104,7 @@ def computer_tool(actions: list[str] | None = None) -> dict:
             "amount": {"type": "integer"}}}}}
 
 
-def _text_calls(text: str, names: tuple = ()) -> list:
+def _text_calls(text: str, names: tuple = (), _retry: bool = False) -> list:
     """(tool name, arguments) pairs written as top-level {...} objects in a reply's text, in order. An object with an
     "action" is a `computer` call; {"name": n, "arguments": {...}} is a call to tool n, if n is in `names`;
     {"tool": n, ...} is a call to tool n with the other fields, or, if n is a screen action, done or fail, a `computer`
@@ -137,6 +137,14 @@ def _text_calls(text: str, names: tuple = ()) -> list:
                     a = a.get("arguments", a) if "action" not in a else a
                     if isinstance(a, dict) and "action" in a:
                         out.append(("computer", a))
+    if depth and start is not None and not _retry:
+        # An object left open before the model's own closing tags, e.g. Qwen3.8-27B's
+        # '{"action": "left_click", "coordinate": [806, 155] </parameter> </function> </tool_call>': the action is
+        # complete but for its braces (legato-research EXP-0075: 12 of 866 executor turns did nothing for this).
+        tail = text[start:]
+        cut = min((tail.find(t) for t in ("</parameter>", "</function>", "</tool_call>") if t in tail), default=-1)
+        if cut > 0:
+            out += _text_calls(tail[:cut].rstrip().rstrip(",") + "}" * depth, names, _retry=True)
     return out
 
 
