@@ -13,6 +13,8 @@ A local model server (`--base-url http://localhost:8000/v1`) needs no key.
   legato rl probe|collect|export|profile ... graded rollouts for RL (see docs/rl.md)
   legato mcp [--local]                       an MCP server: a desktop for any agent (see docs/mcp.md)
   legato doctor [--json]                     what is installed and configured, and how to fix what is missing
+  legato init                                pick a model and a desktop, and write agent.py, a working agent
+  legato                                     what to do first
   legato app-engine                          the engine the Legato Mac app starts (JSON lines on stdin/stdout)
 """
 from __future__ import annotations
@@ -25,6 +27,13 @@ import sys
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv:
+        from legato.start import welcome
+        print(welcome())
+        return 0
+    if argv[:1] == ["init"]:
+        from legato.start import init_main
+        return init_main(argv[1:])
     if argv[:1] == ["rl"]:
         from legato.rl.__main__ import main as rl_main
         return rl_main(argv[1:])
@@ -49,7 +58,7 @@ def main(argv=None) -> int:
         return 2
     ap = argparse.ArgumentParser(prog="legato", epilog="also: legato bench office|h2h ... (benchmarks), "
                                  "legato rl probe|collect|export|profile ... (RL rollouts), legato mcp (MCP server), "
-                                 "legato doctor [--json] (what is installed and configured)")
+                                 "legato doctor [--json] (what is installed and configured), legato init (write a working agent.py)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run one task with the open harness on a fresh sandbox")
     r.add_argument("task")
