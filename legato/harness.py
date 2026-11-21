@@ -30,6 +30,7 @@ import io
 import json
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from legato.actions import Action, parse
 from legato.env import Env, png_size
@@ -37,6 +38,9 @@ from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
 from legato.safety import Denied, Stopped, Unavailable
 from legato.tools import Tool, ToolCall
 from legato import plan as plans
+
+if TYPE_CHECKING:
+    from legato.delegate import Planner
 
 CLAUDE_STYLE_ACTIONS = ["left_click", "right_click", "double_click", "triple_click", "left_click_drag", "type", "key",
                         "scroll", "wait", "done", "fail"]
@@ -252,6 +256,7 @@ class RunResult:
     error: str | None = None
     stopped: bool = False       # the person stopped the run (legato.safety.Stopped): `error` says how
     usage: dict = field(default_factory=lambda: {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0})
+    planner: dict = field(default_factory=dict)   # with a planner: its calls, by trigger, seconds, tokens, cost
 
     def report(self) -> str:
         tot = {k: sum(t.get(k, 0.0) for t in self.timings) for k in ("model_s", "act_s", "settle_s", "obs_s", "tool_s")}
@@ -280,7 +285,7 @@ class Harness:
                  plan_trust_first_click: bool = False, ocr_cache: bool = False,
                  ocr_near: bool = False, strict_done: bool = False, image_format: str = "jpeg", jpeg_quality: int = 85,
                  change_log_lines: int = 15, change_log_turns: int | None = None, progress_note: bool = False,
-                 history_scale: float | None = None):
+                 history_scale: float | None = None, planner: "Planner | None" = None):
         """plan: one `plan` tool whose steps (screen actions, click_text, shell through the `bash` tool in `tools`,
         wait_for, done) run in order until one cannot go on (legato/plan.py). end_fix: a reply with no action gets
         a note to call done if the task is complete, and a second such reply in a row ends the task as done. coords: "norm1000" or "pixels" (default: pixels for Claude, norm1000 otherwise). image_max: screenshots kept
@@ -320,6 +325,9 @@ class Harness:
         # quarter of the image tokens); clicks are on the newest, so they are unaffected
         self.history_scale = history_scale
         self._scaled: dict[tuple, str] = {}
+        # planner: a stronger model plans and checks, this harness's model executes one step at a time with a short
+        # context (legato/delegate.py); run() then delegates
+        self.planner = planner
         # hedge_after_s: a call with no reply after this many seconds is sent again, and the first reply wins (the
         # provider stalls now and then: 25 calls of 12-66 s with short replies in legato-research EXP-0044/0046)
         self.hedge_after_s = hedge_after_s
@@ -788,6 +796,9 @@ class Harness:
 
     def run(self, task: str, env: Env, max_steps: int = 30, on_step=None) -> RunResult:
         """Run `task` on an attached desktop. on_step(turn, actions, timing) is called after each model turn."""
+        if self.planner is not None:
+            from legato.delegate import run_delegated
+            return run_delegated(self, task, env, max_steps=max_steps, on_step=on_step)
         res, t0 = RunResult(task), time.monotonic()
         obs = env.observe()
         ep = self.begin(task, obs.screenshot)
