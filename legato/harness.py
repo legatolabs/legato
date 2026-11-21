@@ -329,6 +329,7 @@ class Harness:
         # planner: a stronger model plans and checks, this harness's model executes one step at a time with a short
         # context (legato/delegate.py); run() then delegates
         self.planner = planner
+        self.on_usage = None                  # called with each pointer call's usage (legato/point.py), for a cost meter
         # hedge_after_s: a call with no reply after this many seconds is sent again, and the first reply wins (the
         # provider stalls now and then: 25 calls of 12-66 s with short replies in legato-research EXP-0044/0046)
         self.hedge_after_s = hedge_after_s
@@ -798,6 +799,9 @@ class Harness:
     def run(self, task: str, env: Env, max_steps: int = 30, on_step=None) -> RunResult:
         """Run `task` on an attached desktop. on_step(turn, actions, timing) is called after each model turn."""
         if self.planner is not None:
+            if self.planner.style == "point":
+                from legato.point import run_pointed
+                return run_pointed(self, task, env, max_steps=max_steps, on_step=on_step)
             from legato.delegate import run_delegated
             return run_delegated(self, task, env, max_steps=max_steps, on_step=on_step)
         res, t0 = RunResult(task), time.monotonic()
