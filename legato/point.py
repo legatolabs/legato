@@ -43,7 +43,8 @@ the open Sheet menu; the slide 4 thumbnail in the left Slides pane; cell B12 in 
 - {{"key": "ctrl+s"}} and {{"type": "text"}}: sent exactly as written to whatever has the keyboard focus.
 - {{"scroll": "<where>", "direction": "down", "amount": 3}}
 - {{"drag": "<what to drag>", "to": "<where to drop it>"}}
-- {{"wait": 1}}
+- {{"wait": 5}}: only for something that keeps loading for several seconds. After every action the screen is \
+already waited for until it stops changing, before the next action runs: do not add waits between actions.
 Prefer reliable keyboard shortcuts. Save files in their current format. If something was not found or did not work, \
 do it another way."""
 
