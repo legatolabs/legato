@@ -15,6 +15,10 @@ called again, and only the planner ends the task. That call also gets up to FRAM
 harness has one after every action), so the planner can see what its actions did and not only where they ended.
 
 Model calls a task = planner calls + pointer calls. Nothing is spent on reporting a step or checking it.
+
+With Harness(progress_note=True) every planner call also writes one line of what is done and what is left, kept in
+the list of actions it reads next (the same option a plan has). `Pointing` is the same thing a step at a time, for a
+caller that runs the actions itself: `legato rl collect --harness legato --harness-opts '{"planner": {...}}'`.
 """
 from __future__ import annotations
 
@@ -70,10 +74,7 @@ ACT_TOOL = {"type": "function", "function": {
             "amount": {"type": "number"}, "drag": {"type": "string"}, "to": {"type": "string"},
             "at": {"type": "array", "items": {"type": "number"}},
             "to_at": {"type": "array", "items": {"type": "number"}},
-            "wait": {"type": "number"}}}},
-        "note": {"type": "string", "description": "one or two lines for your own next call, which sees only the "
-                 "task, the list of actions run (with these notes) and the screen: what you have found out, what is "
-                 "finished, what is left, what did not work"}},
+            "wait": {"type": "number"}}}}},
         "required": ["status"]}}}
 
 POINTER_SYSTEM = """You find things on a screenshot of a computer desktop ({w}x{h} pixels). You are given a \
@@ -163,32 +164,75 @@ def _args(rec: dict) -> dict:
     return _plan_args(rec)
 
 
-def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
-                on_step: Callable | None = None) -> "RunResult":
-    """Harness.run with a planner whose style is "point" (see the module docstring). max_steps counts every model
-    call, the planner's and the pointer's."""
-    from legato.actions import parse as parse_action
-    from legato.harness import COORDS, RunResult
-    p = h.planner
-    res, t0 = RunResult(task), time.monotonic()
-    res.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cost_usd": 0.0}
-    res.trace = []
-    obs = env.observe()
-    png = obs.screenshot
-    ep = h.begin(task, png)                 # for the sizes: the pointer is shown the screen at the model's size
-    history: list[str] = []                 # every action run, with what came of it
-    frames: list[tuple[int, bytes]] = []    # the last batch's screens: (the action's number in history, png)
-    calls = 0
-    seen = png                              # the screen the planner's latest call looked at
+PROGRESS = {"type": "string", "description": "one line: what is done so far and what is left"}
+PROGRESS_NOTE = ("\nEvery call also carries `progress`: one line, what is done so far, what you have checked and "
+                 "what is left. Your next call sees only the task, the list of actions run with these lines, and the "
+                 "screen, so your progress lines are how you keep your place: do not check again what a line says is "
+                 "checked.")
 
-    def ask_planner(key: str, why: str) -> tuple[str, list]:
-        nonlocal seen
-        t = time.monotonic()
-        seen = png
-        first = max(0, len(history) - 40)
-        ran = "\n".join(f"{first + i + 1}. {x}" for i, x in enumerate(history[first:])) or "nothing yet"
-        content = [{"type": "text", "text": f"Task: {task}\n\nRun so far:\n{ran}\n\n{why}"}]
-        shown = pick_frames(frames)
+
+def act_tool(progress: bool = False) -> dict:
+    """The planner's `act` tool (progress: a required one-line `progress`, as Harness(progress_note=True) asks of
+    a plan)."""
+    if not progress:
+        return ACT_TOOL
+    f = dict(ACT_TOOL["function"])
+    f["parameters"] = {**f["parameters"], "properties": {**f["parameters"]["properties"], "progress": PROGRESS},
+                       "required": ["status", "progress"]}
+    return {"type": "function", "function": f}
+
+
+class Pointing:
+    """One task in the planner-and-pointer style, a step at a time, for a caller that runs the actions itself
+    (run_pointed below for Harness.run; legato.rl's rollout loop):
+
+        s = Pointing(harness, task, png)
+        while True:
+            actions = s.next(png)                 # run these now, in order; [] when the task has ended
+            if not actions:
+                break                             # s.status is "done" or "fail", or s.error says why it stopped
+            for a in actions:
+                png = <run a and wait for the screen>
+                s.ran(png)
+
+    next() calls the planner when no planned action is left, and gives back the planned actions up to the next one
+    that has to be looked for on a screen nobody has yet: that one starts the following next(). max_calls counts
+    every model call, the planner's and the pointer's."""
+
+    def __init__(self, h: "Harness", task: str, png: bytes, max_calls: int = 30):
+        self.h, self.p, self.task, self.max_calls = h, h.planner, task, max_calls
+        self.ep = h.begin(task, png)            # for the sizes: the pointer is shown the screen at the model's size
+        self.history: list[str] = []            # every action run, with what came of it
+        self.frames: list[tuple[int, bytes]] = []   # the last batch's screens: (the action's number in history, png)
+        self.pending: list[dict] = []           # planned actions not yet given out
+        self.running: list[tuple] = []          # given out and not yet run: (Action, what it is on, its plan entry)
+        self.quick: list[bool] = []             # for the actions next() last gave: no settled screen is needed after
+        self.status, self.error = "continue", None
+        self.why = ("start", "Nothing has been run yet.")
+        self.seen = png                         # the screen the planner's latest call looked at
+        self.pointer_calls = 0
+        self.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cost_usd": 0.0}
+        self.pointer = {"s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
+        self.trace: list[dict] = []
+        self.calls: list[tuple] = []            # (request, record) of every model call made by the latest next()
+
+    @property
+    def ended(self) -> bool:
+        return self.status != "continue" or self.error is not None
+
+    def _spent(self) -> bool:
+        if self.pointer_calls + self.planner["calls"] >= self.max_calls:
+            self.error = f"model call limit ({self.max_calls})"
+        return self.error is not None
+
+    def _plan(self, png: bytes) -> None:
+        h, p, t = self.h, self.p, time.monotonic()
+        key, why = self.why
+        self.seen = png
+        first = max(0, len(self.history) - 40)
+        ran = "\n".join(f"{first + i + 1}. {x}" for i, x in enumerate(self.history[first:])) or "nothing yet"
+        content = [{"type": "text", "text": f"Task: {self.task}\n\nRun so far:\n{ran}\n\n{why}"}]
+        shown = pick_frames(self.frames)
         for n, f in shown:
             url = h._image_url(base64.b64encode(small_png(f)).decode())
             content += [{"type": "text", "text": f"The screen after action {n} (smaller):"},
@@ -197,10 +241,13 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             content.append({"type": "text", "text": "The screen now:"})
         # the planner sees the screen now at full size and answers in its pixels, whatever the pointer's convention
         content.append({"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(png).decode())}})
-        msgs = [{"role": "system", "content": PLANNER_SYSTEM.format(max_actions=p.max_steps, w=ep.w, h=ep.h)},
+        system = PLANNER_SYSTEM.format(max_actions=p.max_steps, w=self.ep.w, h=self.ep.h)
+        msgs = [{"role": "system", "content": system + (PROGRESS_NOTE if h.progress_note else "")},
                 {"role": "user", "content": content}]
-        rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature, tools=[ACT_TOOL],
+        rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature,
+                            tools=[act_tool(h.progress_note)],
                             tool_choice={"type": "function", "function": {"name": "act"}})
+        self.calls.append(({"messages": msgs, "max_tokens": p.max_tokens, "temperature": p.temperature}, rec))
         a = _args(rec)
         status = str(a.get("status") or "").lower()
         acts = [x for x in a.get("actions") or [] if isinstance(x, dict) and
@@ -209,76 +256,77 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             status = "continue" if acts else "fail"
         if status == "continue" and not acts:
             status = "fail"
-        note = " ".join(str(a.get("note") or "").split())[:400]
-        if note:
-            history.append(f"(your note: {note})")
-        u = rec.get("usage") or {}
-        pl = res.planner
+        progress = " ".join(str(a.get("progress") or "").split())[:400]
+        if progress and h.progress_note:
+            self.history.append(f"(progress: {progress})")
+        u, pl, dt = rec.get("usage") or {}, self.planner, time.monotonic() - t
         pl["calls"] += 1
         pl["by"][key] = pl["by"].get(key, 0) + 1
-        pl["s"] += time.monotonic() - t
+        pl["s"] += dt
         pl["prompt"] += u.get("prompt") or 0
         pl["completion"] += u.get("completion") or 0
         pl["cost_usd"] += u.get("cost") or 0.0
-        res.usage["cost_usd"] += u.get("cost") or 0.0
-        res.timings.append({"planner_s": time.monotonic() - t, "planner": key})
-        res.trace.append({"planner": key, "status": status, "s": round(time.monotonic() - t, 2),
-                          "frames": [n for n, _ in shown],
-                          "steps": [[json.dumps(x, ensure_ascii=False)[:150], ""] for x in acts]})
-        return status, acts
+        self.trace.append({"planner": key, "status": status, "s": round(dt, 2), "frames": [n for n, _ in shown],
+                           "steps": [[json.dumps(x, ensure_ascii=False)[:150], ""] for x in acts]})
+        self.frames.clear()
+        self.status, self.pending = status, (acts if status == "continue" else [])
+        self.why = ("next", "Those actions ran. This is the screen now.")
 
-    def point(target: str) -> tuple[list | None, float]:
-        """The pointer's coordinate for `target` on the current screen (in the harness's coords), or None."""
-        nonlocal calls
+    def _point(self, target: str, png: bytes) -> list | None:
+        """The pointer's coordinate for `target` on this screen (in the harness's coords), or None."""
+        from legato.harness import COORDS
+        h, ep = self.h, self.ep
         msgs = [{"role": "system", "content": POINTER_SYSTEM.format(w=ep.mw, h=ep.mh, coords=COORDS[h.coords])},
                 {"role": "user", "content": [
                     {"type": "text", "text": f"Find: {target}"},
                     {"type": "image_url", "image_url": {"url": h._image_url(h._png(ep, png))}}]}]
-        rec = h._chat(msgs, max_tokens=min(h.max_tokens or 300, 300), temperature=h.temperature, tools=[POINT_TOOL],
-                      tool_choice="auto")
-        calls += 1
-        res.steps += 1
+        max_tokens = min(h.max_tokens or 300, 300)
+        rec = h._chat(msgs, max_tokens=max_tokens, temperature=h.temperature, tools=[POINT_TOOL], tool_choice="auto")
+        self.calls.append(({"messages": msgs, "max_tokens": max_tokens, "temperature": h.temperature}, rec))
+        self.pointer_calls += 1
         u = rec.get("usage") or {}
         for k in ("prompt", "completion", "cached"):
-            res.usage[k] += u.get(k) or 0
-        res.usage["cost_usd"] += u.get("cost") or 0.0
+            self.pointer[k] += u.get(k) or 0
+        self.pointer["cost_usd"] += u.get("cost") or 0.0
+        self.pointer["s"] += rec.get("s") or 0.0
         if getattr(h, "on_usage", None):
             h.on_usage(u)
         a = _args(rec)
         c = a.get("coordinate")
         ok = a.get("found") is not False and isinstance(c, (list, tuple)) and len(c) >= 2
-        return ([float(c[0]), float(c[1])] if ok else None), rec["s"]
+        c = [float(c[0]), float(c[1])] if ok else None
+        self.trace.append({"point": target[:120], "at": c, "s": round(rec.get("s") or 0.0, 2)})
+        return c
 
-    def run_one(x: dict, timing: dict, quick: bool = False) -> tuple[str, bool]:
-        def where(at, target: str) -> list | None:
-            """The planner's own coordinate if it gave one and the screen there is as it saw it, else the pointer's."""
-            if isinstance(at, (list, tuple)) and len(at) >= 2 and all(isinstance(v, (int, float)) for v in at[:2]):
-                x, y = float(at[0]), float(at[1])                    # pixels of the full screenshot
-                why = "off the screen" if not (0 <= x < ep.w and 0 <= y < ep.h) else moved(seen, png, x, y)
-                if why is None:
-                    res.trace.append({"aimed": target[:120], "at": [x, y]})
-                    k = (1000 / ep.w, 1000 / ep.h) if h.coords == "norm1000" else (ep.mw / ep.w, ep.mh / ep.h)
-                    return [x * k[0], y * k[1]]                      # in the harness's convention, as the pointer's
-                res.trace.append({"aimed": target[:120], "at": None, "why": why})
-            c, s = point(target)
-            timing["model_s"] += s
-            res.trace.append({"point": target[:120], "at": c, "s": round(s, 2)})
-            return c
+    def _where(self, at, target: str, png: bytes) -> list | None:
+        """The planner's own coordinate if it gave one and the screen there is as it saw it, else the pointer's."""
+        h, ep = self.h, self.ep
+        if isinstance(at, (list, tuple)) and len(at) >= 2 and all(isinstance(v, (int, float)) for v in at[:2]):
+            x, y = float(at[0]), float(at[1])                        # pixels of the full screenshot
+            why = "off the screen" if not (0 <= x < ep.w and 0 <= y < ep.h) else moved(self.seen, png, x, y)
+            if why is None:
+                self.trace.append({"aimed": target[:120], "at": [x, y]})
+                k = (1000 / ep.w, 1000 / ep.h) if h.coords == "norm1000" else (ep.mw / ep.w, ep.mh / ep.h)
+                return [x * k[0], y * k[1]]                          # in the harness's convention, as the pointer's
+            self.trace.append({"aimed": target[:120], "at": None, "why": why})
+        if self._spent():
+            return None
+        return self._point(target, png)
 
-        """Run one planner action. Returns (what happened, whether the batch goes on). quick: the action only edits
-        the focused field and a key or text follows it, so the screen is not waited for (a short fixed pause)."""
-        nonlocal png, obs
+    def _action(self, x: dict, png: bytes) -> tuple:
+        """A planned action as a legato Action: (action, what it is on, None), or (None, None, why not)."""
+        from legato.actions import parse as parse_action
+        h, ep = self.h, self.ep
         if "key" in x or "type" in x or "wait" in x:
             args = ({"action": "key", "keys": str(x["key"])} if "key" in x else
                     {"action": "type", "text": str(x["type"])} if "type" in x else
                     {"action": "wait", "amount": x.get("wait") or 1})
             what = None
         else:
-            target = str(x.get("click") or x.get("drag") or x.get("scroll") or "")
-            c = where(x.get("at"), target)
+            what = str(x.get("click") or x.get("drag") or x.get("scroll") or "")
+            c = self._where(x.get("at"), what, png)
             if c is None:
-                return f'could NOT find "{target}" on the screen; the actions after it were not run', False
-            what = target
+                return None, None, f'could NOT find "{what}" on the screen; the actions after it were not run'
             if "click" in x:
                 args = {"action": BUTTONS.get(str(x.get("button") or "left").lower(), "left_click"), "coordinate": c}
                 if x.get("hold"):
@@ -287,77 +335,122 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                 args = {"action": "scroll", "coordinate": c, "direction": str(x.get("direction") or "down"),
                         "amount": x.get("amount") or 3}
             else:
-                c2 = where(x.get("to_at"), str(x.get("to") or ""))
+                c2 = self._where(x.get("to_at"), str(x.get("to") or ""), png)
                 if c2 is None:
-                    return f'could NOT find "{x.get("to")}" to drop on; the actions after it were not run', False
+                    return None, None, f'could NOT find "{x.get("to")}" to drop on; the actions after it were not run'
                 args = {"action": "left_click_drag", "coordinate": c, "end_coordinate": c2}
         a, why = h._parse(args, ep) if "coordinate" in args else parse_action(args, ep.w, ep.h)
         if a is None:
-            return f"invalid action {json.dumps(x)[:80]}: {why}", False
-        if quick:
-            wait_before, env.fixed_wait_s = env.fixed_wait_s, QUICK_WAIT_S
-            try:
-                obs = env.act(a)
-            finally:
-                env.fixed_wait_s = wait_before
-            timing["quick"] = timing.get("quick", 0) + 1
-        else:
-            obs = env.act(a)
-        png = obs.screenshot
-        for k in ("act_s", "settle_s", "obs_s"):
-            timing[k] += env.last.get(k, 0.0)
-        res.actions.append(a.describe())
-        return (f'{a.describe()} on "{what}"' if what else a.describe()), True
+            return None, None, f"invalid action {json.dumps(x)[:80]}: {why}"
+        return a, what, None
+
+    def next(self, png: bytes) -> list:
+        """The actions to run now on the screen `png`, in order. [] when the task has ended (status, error)."""
+        self.calls, self.quick = [], []
+        while not self.ended and not self.running:
+            if not self.pending:
+                if self._spent():
+                    break
+                self._plan(png)
+                continue
+            while self.pending:
+                x = self.pending[0]
+                if self.running and any(k in x for k in ("click", "drag", "scroll")):
+                    break                       # it has to be found on the screen the earlier ones leave
+                a, what, why = self._action(x, png)
+                if a is None:
+                    if self.error is None:      # not found: the rest of the batch is dropped and the planner looks
+                        self.history.append(why)
+                        self.why = ("missing", f"The last batch stopped: {why}. This is the screen now.")
+                    self.pending = []
+                    break
+                self.pending.pop(0)
+                self.running.append((a, what, x))
+        for i, (_a, _what, x) in enumerate(self.running):
+            nxt = self.running[i + 1][2] if i + 1 < len(self.running) else None
+            self.quick.append(inert(x) and nxt is not None and ("key" in nxt or "type" in nxt))
+        return [a for a, _what, _x in self.running]
+
+    def ran(self, png: bytes) -> str:
+        """The first action next() gave has run and this is the screen after it. Returns its line in the history."""
+        a, what, _x = self.running.pop(0)
+        said = f'{a.describe()} on "{what}"' if what else a.describe()
+        self.history.append(said)
+        self.frames.append((len(self.history), png))
+        return said
+
+    def refused(self, said: str) -> None:
+        """The first action next() gave was not run (not allowed, not possible): the planner looks again."""
+        self.running, self.pending = [], []
+        self.history.append(said)
+        self.why = ("denied", "The last action was not allowed and was not run. This is the screen now.")
+
+
+def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
+                on_step: Callable | None = None) -> "RunResult":
+    """Harness.run with a planner whose style is "point" (see the module docstring). max_steps counts every model
+    call, the planner's and the pointer's."""
+    from legato.harness import RunResult
+    res, t0 = RunResult(task), time.monotonic()
+    obs = env.observe()
+    png = obs.screenshot
+    s = Pointing(h, task, png, max_calls=max_steps)
+    res.planner, res.trace = s.planner, s.trace
+
+    def account() -> float:
+        """Books the model calls the latest next() made; returns the pointer's seconds among them."""
+        model_s = 0.0
+        for _req, rec in s.calls:
+            res.usage["cost_usd"] += (rec.get("usage") or {}).get("cost") or 0.0
+        n = s.planner["calls"] - len([t for t in res.timings if "planner" in t])
+        for _ in range(n):
+            res.timings.append({"planner_s": s.planner["s"] / max(1, s.planner["calls"]), "planner": "call"})
+        for k in ("prompt", "completion", "cached"):
+            res.usage[k] = s.pointer[k]
+        model_s, res.steps = s.pointer["s"] - account.seen, s.pointer_calls
+        account.seen = s.pointer["s"]
+        return model_s
+    account.seen = 0.0
 
     try:
-        try:
-            status, acts = ask_planner("start", "Nothing has been run yet.")
-        except PolicyError as e:
-            res.error = f"planner: {str(e)[:280]}"
-            return res
-        while status == "continue":
-            if calls + res.planner["calls"] >= max_steps:
-                res.error = f"model call limit ({max_steps})"
-                break
-            timing = {"model_s": 0.0, "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
-            key, why = "next", "Those actions ran. This is the screen now."
-            frames.clear()
+        while not res.stopped:
             try:
-                for i, x in enumerate(acts):
-                    nxt = acts[i + 1] if i + 1 < len(acts) else None
-                    quick = inert(x) and nxt is not None and ("key" in nxt or "type" in nxt)
-                    said, go_on = run_one(x, timing, quick)
-                    history.append(said)
-                    if go_on:
-                        frames.append((len(history), png))
-                    if not go_on:
-                        key, why = "missing", f"The last batch stopped: {said}. This is the screen now."
-                        break
+                actions = s.next(png)
+            except PolicyError as e:
+                res.error = (f"planner: {str(e)[:280]}" if not s.planner["calls"] or not s.running else str(e)[:300])
+                account()
+                break
+            timing = {"model_s": account(), "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
+            if not actions:
+                break
+            try:
+                for a, quick in zip(actions, list(s.quick)):
+                    if quick:      # it only edits the focused field and a key or text follows: a short fixed pause
+                        wait_before, env.fixed_wait_s = env.fixed_wait_s, QUICK_WAIT_S
+                        try:
+                            obs = env.act(a)
+                        finally:
+                            env.fixed_wait_s = wait_before
+                        timing["quick"] = timing.get("quick", 0) + 1
+                    else:
+                        obs = env.act(a)
+                    png = obs.screenshot
+                    for k in ("act_s", "settle_s", "obs_s"):
+                        timing[k] += env.last.get(k, 0.0)
+                    res.actions.append(a.describe())
+                    s.ran(png)
             except Stopped as e:
                 res.stopped, res.error = True, f"stopped by the person: {e}"
             except Denied as e:
-                history.append(f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}")
-                key, why = "denied", "The last action was not allowed and was not run. This is the screen now."
+                s.refused(f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}")
                 obs = env.observe()
                 png = obs.screenshot
-            except PolicyError as e:
-                res.error = str(e)[:300]
-                break
             res.timings.append(timing)
             if on_step:
-                on_step(res.planner["calls"] - 1, [], timing)
-            if res.stopped:
-                break
-            if calls + res.planner["calls"] >= max_steps:
-                res.error = f"model call limit ({max_steps})"
-                break
-            try:
-                status, acts = ask_planner(key, why)
-            except PolicyError as e:
-                res.error = f"planner: {str(e)[:280]}"
-                break
+                on_step(s.planner["calls"] - 1, [], timing)
+        res.error = res.error or s.error
         if not res.error:
-            res.done, res.failed = status == "done", status == "fail"
+            res.done, res.failed = s.status == "done", s.status == "fail"
             res.actions.append("done" if res.done else "fail")
     finally:
         res.wall_s = time.monotonic() - t0

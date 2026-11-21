@@ -176,10 +176,38 @@ def test_the_planner_is_shown_screens_from_during_the_batch():
     assert pick_frames([(1, b"a"), (2, b"a"), (3, b"b")]) == [(2, b"a")]     # a screen the next one repeats is left out
 
 
-def test_the_planners_note_is_kept_in_the_list_it_reads_next():
+def test_progress_lines_are_kept_in_the_list_the_planner_reads_next():
     first = rec([call("act", {"status": "continue", "actions": [{"key": "ctrl+f"}],
-                              "note": "Column B holds the totals; the sheet has 40 rows."})])
-    h, p = harness([first, act("done")], [])
+                              "progress": "Column B holds the totals; nothing saved yet."})])
+    p = Planner("big", "http://x/v1", client=Scripted([first, act("done")]), style="point")
+    h = legato.Harness("small", "http://x/v1", planner=p, progress_note=True)     # Legato's own option, as in plans
+    h.client = Scripted([])
     res = h.run("find", desktop([]))
-    again = p.client.sent[1]["messages"][1]["content"][0]["text"]
-    assert res.done and "1. (your note: Column B holds the totals; the sheet has 40 rows.)\n2. key ctrl+f" in again
+    sent = p.client.sent
+    assert res.done and "1. (progress: Column B holds the totals; nothing saved yet.)\n2. key ctrl+f" in \
+        sent[1]["messages"][1]["content"][0]["text"]
+    assert "progress" in sent[0]["tools"][0]["function"]["parameters"]["required"]
+    assert "your progress lines are how you keep your place" in sent[0]["messages"][0]["content"]
+    h2, p2 = harness([first, act("done")], [])                                    # without it: no field, no line
+    assert h2.run("find", desktop([])).done and "progress" not in p2.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert "progress" not in p2.client.sent[0]["tools"][0]["function"]["parameters"]["properties"]
+
+
+def test_a_step_at_a_time_gives_the_actions_up_to_the_next_thing_to_find():
+    from legato.point import Pointing
+    h, p = harness([act("continue", {"click": "the Name field", "at": [200, 100]}, {"key": "ctrl+a"}, {"type": "Ada"},
+                        {"click": "the OK button in the dialog"}, {"key": "Return"}), act("done")], [at(500, 500)])
+    png = desktop([]).observe().screenshot
+    s = Pointing(h, "rename", png, max_calls=10)
+    first = s.next(png)
+    assert [a.type for a in first] == ["click", "key", "type"] and s.quick == [False, True, False]
+    assert len(s.calls) == 1 and h.client.sent == []           # one planner call; its own coordinate needed no pointer
+    for _ in first:
+        s.ran(png)
+    second = s.next(png)                                      # the button is looked for on the screen as it is now
+    assert [(a.type, a.x, a.y) for a in second[:1]] == [("click", 500, 250)] and second[1].keys == "Return"
+    assert len(s.calls) == 1 and len(h.client.sent) == 1
+    for _ in second:
+        s.ran(png)
+    assert s.next(png) == [] and s.status == "done" and s.planner["calls"] == 2 and s.pointer_calls == 1
+    assert s.history[3].endswith('on "the OK button in the dialog"') and len(s.history) == 5

@@ -384,3 +384,32 @@ def test_progress_note_is_asked_for_and_kept_in_the_history():
     from legato.harness import Episode
     plan = h._decide_plan(rec, msgs, Episode("task", 100, 100, 100, 100))
     assert "Progress: Notes open; next: paste the text" in plan.reply
+
+
+def test_collect_with_a_planner_and_a_pointer(server, tmp_path, monkeypatch):
+    from legato.rl import DesktopConfig, HarnessConfig, PolicyConfig, collect
+    from legato.rl.trajectory import read_rollouts
+
+    def named(name: str, args: dict) -> dict:
+        return {"type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+    server["script"] = [
+        {"tool_calls": [named("act", {"status": "continue", "actions": [
+            {"key": "ctrl+o"}, {"click": "the Open button in the dialog"}, {"key": "Return"}]})]},     # the planner
+        {"tool_calls": [named("point", {"found": True, "coordinate": [500, 500]})]},                    # the pointer
+        {"tool_calls": [named("act", {"status": "done"})]}]                                             # the planner
+    monkeypatch.setenv("PLANNER_KEY", "k")
+    opts = {"coords": "norm1000", "max_calls": 12,
+            "planner": {"model": "big", "base_url": server["url"], "api_key_env": "PLANNER_KEY", "style": "point"}}
+    collect([{"task_id": "t0", "domain": "office", "reward": 1.0}],
+            PolicyConfig(server["url"], "small", version="planned", logprobs=False, token_ids=False), tmp_path,
+            desktops=1, group=1, max_steps=40, desktop=DesktopConfig(backend="fake"),
+            harness=HarnessConfig(name="legato", options=opts), start_stagger_s=0.0)
+    r = read_rollouts(tmp_path)[0]
+    assert r["status"] == "ok" and r["reward"] == 1.0 and r["n_steps"] == 3
+    acts = [[x["action"] for x in st["actions"]] for st in r["steps"]]
+    assert acts == [["pyautogui.hotkey('ctrl', 'o')"], ["pyautogui.click(4, 4)", "pyautogui.press('enter')"], ["DONE"]]
+    assert [st["model"]["calls"] for st in r["steps"]] == [1, 1, 1]
+    notes = [st["harness"] for st in r["steps"]]
+    assert notes[-1]["planner_calls"] == 2 and notes[-1]["pointer_calls"] == 1 and notes[-1]["end"] == "done"
+    assert [m["model"] for m in server["bodies"]] == ["big", "small", "big"]
+    assert "planner" in notes[0]["trace"][0] and "point" in notes[1]["trace"][0]

@@ -45,7 +45,15 @@ export_steps("runs/step-41", "runs/step-41/train.jsonl")
 - **Your own:** a class with `reset`, `wait_after_reset`, `observe`, `act`, `wait_before_eval`, `evaluate` and `close`
   (see `collect.OSWorldDesktop`).
 
-The harness is OSWorld's QwenAgent, with its model call routed through `legato.rl.policy`.
+The harness is OSWorld's QwenAgent, with its model call routed through `legato.rl.policy`. `--harness legato` runs
+`legato.Harness`. With a planner in its options, a strong model names the actions and `--model` only finds things on
+the screen:
+
+```bash
+legato rl collect ... --harness legato --max-steps 150 --harness-opts '{"coords": "norm1000", "max_calls": 50,
+    "planner": {"model": "openai/gpt-6.1-terra", "base_url": "https://openrouter.ai/api/v1",
+                "api_key_env": "OPENROUTER_API_KEY", "style": "point"}}'
+```
 
 ## Knobs
 
