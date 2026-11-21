@@ -211,3 +211,19 @@ def test_a_step_at_a_time_gives_the_actions_up_to_the_next_thing_to_find():
         s.ran(png)
     assert s.next(png) == [] and s.status == "done" and s.planner["calls"] == 2 and s.pointer_calls == 1
     assert s.history[3].endswith('on "the OK button in the dialog"') and len(s.history) == 5
+
+
+def test_a_pointer_without_tool_calls_answers_in_text():
+    from legato.point import _point_args
+    p = Planner("big", "http://x/v1", client=Scripted([act("continue", {"click": "the Save button"}), act("done")]),
+                style="point")
+    h = legato.Harness("tiny", "http://x/v1", planner=p, native_tools=False)
+    h.client = Scripted([rec(content='{"found": true, "coordinate": [500, 500]}')])
+    log = []
+    res = h.run("save", desktop(log))
+    sent = h.client.sent[0]
+    assert res.done and [(a.x, a.y) for a in log] == [(500, 250)]
+    assert "tools" not in sent and "Answer with JSON only" in sent["messages"][0]["content"]
+    assert _point_args(rec(content="click(start_box='(412,96)')")) == {"found": True, "coordinate": [412.0, 96.0]}
+    assert _point_args(rec(content="<point>412 96</point>"))["coordinate"] == [412.0, 96.0]
+    assert _point_args(rec(content="It is not on the screen.")) == {"found": False} and _point_args(rec(content="?")) == {}

@@ -81,6 +81,9 @@ POINTER_SYSTEM = """You find things on a screenshot of a computer desktop ({w}x{
 description of one thing. Call the `point` tool with the coordinate of its centre, or with found false if it is not \
 on the screen. {coords}"""
 
+POINTER_TEXT = ("\nAnswer with JSON only, nothing else: {{\"found\": true, \"coordinate\": [x, y]}} or "
+                "{{\"found\": false}}.")       # for a model without tool calls: Harness(native_tools=False)
+
 POINT_TOOL = {"type": "function", "function": {
     "name": "point", "description": "Where the described thing is on the screenshot.",
     "parameters": {"type": "object", "properties": {
@@ -162,6 +165,20 @@ def moved(before_png: bytes, after_png: bytes, x: float, y: float) -> str | None
 def _args(rec: dict) -> dict:
     from legato.delegate import _plan_args
     return _plan_args(rec)
+
+
+def _point_args(rec: dict) -> dict:
+    """The pointer's answer: its tool call or JSON, else the first [x, y] or (x, y) pair in its text (a small
+    grounding model often answers in its own notation, e.g. click(start_box='(412,96)') or <point>412 96</point>)."""
+    import re
+    a = _args(rec)
+    if a:
+        return a
+    text = str(rec.get("content") or "")
+    if re.search(r"not (found|there|visible|on the screen)|\bfound\W+false", text, re.I):
+        return {"found": False}
+    m = re.search(r"[\[(<>]\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*[\])<>]", text)
+    return {"found": True, "coordinate": [float(m.group(1)), float(m.group(2))]} if m else {}
 
 
 PROGRESS = {"type": "string", "description": "one line: what is done so far and what is left"}
@@ -276,12 +293,16 @@ class Pointing:
         """The pointer's coordinate for `target` on this screen (in the harness's coords), or None."""
         from legato.harness import COORDS
         h, ep = self.h, self.ep
-        msgs = [{"role": "system", "content": POINTER_SYSTEM.format(w=ep.mw, h=ep.mh, coords=COORDS[h.coords])},
+        system = POINTER_SYSTEM.format(w=ep.mw, h=ep.mh, coords=COORDS[h.coords])
+        if not h.native_tools:
+            system = system.replace("Call the `point` tool with", "Give") + POINTER_TEXT.format()
+        msgs = [{"role": "system", "content": system},
                 {"role": "user", "content": [
                     {"type": "text", "text": f"Find: {target}"},
                     {"type": "image_url", "image_url": {"url": h._image_url(h._png(ep, png))}}]}]
         max_tokens = min(h.max_tokens or 300, 300)
-        rec = h._chat(msgs, max_tokens=max_tokens, temperature=h.temperature, tools=[POINT_TOOL], tool_choice="auto")
+        tools = {"tools": [POINT_TOOL], "tool_choice": "auto"} if h.native_tools else {}
+        rec = h._chat(msgs, max_tokens=max_tokens, temperature=h.temperature, **tools)
         self.calls.append(({"messages": msgs, "max_tokens": max_tokens, "temperature": h.temperature}, rec))
         self.pointer_calls += 1
         u = rec.get("usage") or {}
@@ -291,7 +312,7 @@ class Pointing:
         self.pointer["s"] += rec.get("s") or 0.0
         if getattr(h, "on_usage", None):
             h.on_usage(u)
-        a = _args(rec)
+        a = _point_args(rec)
         c = a.get("coordinate")
         ok = a.get("found") is not False and isinstance(c, (list, tuple)) and len(c) >= 2
         c = [float(c[0]), float(c[1])] if ok else None
