@@ -128,3 +128,16 @@ def test_a_plan_with_no_steps_fails_and_the_turn_limit_holds():
                    max_turns_per_step=99, every=0)
     res = h.run("t", desktop([]), max_steps=3)
     assert not res.done and not res.failed and "turn limit" in res.error and res.steps == 3
+
+
+def test_direct_steps_are_sent_without_the_executor():
+    steps = {"status": "continue", "steps": [{"do": "click the title", "expect": "a caret in the title"},
+                                             {"direct": [{"key": "ctrl+a"}, {"type": "Hello"}, {"key": "ctrl+s"}]}]}
+    h, p = harness([rec([call("plan", steps)]), plan("done")],
+                   [rec([act(action="left_click", coordinate=[500, 500]), call("step_done", {})])])
+    log = []
+    res = h.run("t", desktop(log))
+    assert res.done and res.steps == 1                              # one executor call for four actions
+    assert [(a.type, a.keys or a.text) for a in log[1:]] == [("key", "ctrl+a"), ("type", "Hello"), ("key", "ctrl+s")]
+    assert res.trace[2]["direct"] == ["key ctrl+a", 'type "Hello"', "key ctrl+s"]
+    assert "[sent]" in p.client.sent[1]["messages"][1]["content"][0]["text"]

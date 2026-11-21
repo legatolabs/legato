@@ -38,6 +38,10 @@ Call the `plan` tool:
 - status "continue" with the steps still to do (at most {max_steps}), when the task is not finished;
 - status "done" when the screen shows the task is complete and saved;
 - status "fail" when the task cannot be done on this computer.
+A step that is only keystrokes, with the keyboard focus certain from the step before it (a shortcut in the app in \
+front, text into the field the step before clicked), may be given as `direct` instead of `do`: a list of \
+{{"key": "ctrl+s"}} and {{"type": "text"}} items that are sent exactly as written, without the assistant looking. Use \
+`do` for anything that needs the pointer, a look at the screen, or a choice.
 When you are called again, the plan so far and what happened are given: keep what still holds, fix what went wrong, \
 and judge done only from the screen."""
 
@@ -47,8 +51,10 @@ PLAN_TOOL = {"type": "function", "function": {
         "status": {"type": "string", "enum": ["continue", "done", "fail"]},
         "steps": {"type": "array", "items": {"type": "object", "properties": {
             "do": {"type": "string", "description": "one concrete step"},
-            "expect": {"type": "string", "description": "what the screen shows when the step is done"}},
-            "required": ["do", "expect"]}},
+            "expect": {"type": "string", "description": "what the screen shows when the step is done"},
+            "direct": {"type": "array", "description": "instead of do/expect: keystrokes sent as written",
+                       "items": {"type": "object", "properties": {"key": {"type": "string"},
+                                                                  "type": {"type": "string"}}}}}}},
         "note": {"type": "string", "description": "one line: why (optional)"}},
         "required": ["status"]}}}
 
@@ -91,13 +97,33 @@ class Planner:
                                tool_choice={"type": "function", "function": {"name": "plan"}})
         args = _plan_args(rec)
         status = str(args.get("status") or "").lower()
-        steps = [{"do": str(s.get("do", "")).strip(), "expect": str(s.get("expect", "")).strip()}
-                 for s in args.get("steps") or [] if isinstance(s, dict) and str(s.get("do", "")).strip()]
+        steps = []
+        for s in args.get("steps") or []:
+            if not isinstance(s, dict):
+                continue
+            direct = _direct(s.get("direct"))
+            if direct:                      # keystrokes the harness sends itself (no executor call)
+                steps.append({"do": "send " + ", ".join(f"{k} {v!r}" for k, v in direct), "expect": "", "direct": direct})
+            elif str(s.get("do", "")).strip():
+                steps.append({"do": str(s["do"]).strip(), "expect": str(s.get("expect", "")).strip()})
         if status not in ("continue", "done", "fail"):
             status = "continue" if steps else "fail"
         if status == "continue" and not steps:
             status = "fail"
         return status, steps[: self.max_steps], rec
+
+
+def _direct(items) -> list:
+    """[("key", "ctrl+s"), ("type", "text")] from a step's `direct` list; [] when it is missing or malformed."""
+    out = []
+    for it in items if isinstance(items, list) else []:
+        if isinstance(it, dict) and isinstance(it.get("key"), str) and it["key"].strip():
+            out.append(("key", it["key"].strip()))
+        elif isinstance(it, dict) and isinstance(it.get("type"), str) and it["type"]:
+            out.append(("type", it["type"]))
+        else:
+            return []
+    return out
 
 
 def _plan_args(rec: dict) -> dict:
@@ -158,8 +184,10 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         if t.name not in h.tools:
             h.tools[t.name] = t
             added.append(t.name)
+    from legato.env import png_size
     obs = env.observe()
     png = obs.screenshot
+    ep_w, ep_h = png_size(png)
 
     def call_planner(reason_key: str, state: str) -> tuple[str, list]:
         t = time.monotonic()
@@ -193,6 +221,28 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             elif turns >= max_steps:
                 res.error = f"executor turn limit ({max_steps})"
                 break
+            elif st.steps[st.i].get("direct"):       # the planner's own keystrokes: sent as written, no executor call
+                from legato.actions import parse
+                sent = []
+                try:
+                    for kind, val in st.steps[st.i]["direct"]:
+                        a, _why = parse({"action": "key", "keys": val} if kind == "key" else
+                                        {"action": "type", "text": val}, ep_w, ep_h)
+                        if a is None:
+                            continue
+                        obs = env.act(a)
+                        png = obs.screenshot
+                        sent.append(a.describe())
+                except (Stopped, Denied) as e:
+                    res.stopped, res.error = True, f"stopped at a direct step: {e}"
+                    break
+                res.actions += sent
+                st.recent += sent
+                res.trace.append({"step": st.i, "direct": sent})
+                st.marks.append((st.i, "sent"))
+                st.i += 1
+                ep = None
+                continue
             else:
                 reason_key = reason = None
                 if ep is None:
