@@ -71,16 +71,20 @@ def main(argv=None) -> int:
     r.add_argument("--sandbox", default="e2b",
                    help="e2b: a fresh cloud desktop (default); local: this computer (moves your real mouse); or your "
                         "own: path/to/file.py:function or module:function returning a legato Env (docs/sandboxes.md)")
+    r.add_argument("--background", metavar="APP",
+                   help="macOS: work in this app's window (e.g. Safari) without your mouse, so you keep using the Mac")
     r.add_argument("--yes", action="store_true",
                    help="with --sandbox local: do not ask before risky actions (cmd+Delete, a typed rm or sudo...)")
     r.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
     a = ap.parse_args(argv)
     from legato import Harness
     from legato import providers
+    if a.background:
+        a.sandbox = "local"
     if a.sandbox == "local":
         try:
             from legato.local import local
-            env, close = local(confirm=None if a.yes else "auto"), (lambda: None)
+            env, close = local(confirm=None if a.yes else "auto", background=a.background), (lambda: None)
         except ImportError:
             return _fail('Driving this computer needs extra packages. Run: pip install "legatolabs[local]"')
         except Exception as e:                    # no display, or no screen-recording permission

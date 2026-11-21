@@ -1,10 +1,11 @@
-"""The first run: `legato` alone says what to do, and `legato init` writes an agent.py that runs."""
+"""The first run: `legato` alone says what to do, `legato init` writes an agent.py that runs, `legato run --background`."""
 import sys
 
 import pytest
 
 import legato
 from legato import start
+import legato.local  # noqa: F401  (loads the module)
 from legato.__main__ import main
 from legato.harness import RunResult
 
@@ -131,3 +132,15 @@ def test_missing_names_the_key(monkeypatch):
 def test_default_browser_off_a_mac(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     assert start.default_browser() is None
+
+
+def test_run_background_works_in_one_app(monkeypatch, capsys):
+    seen = {}
+
+    def fake_local(**kw):
+        seen.update(kw)
+        raise RuntimeError("stop here")
+    monkeypatch.setattr(sys.modules["legato.local"], "local", fake_local)   # legato.local is also the function
+    assert main(["run", "a task", "--model", "m", "--base-url", "http://localhost:8000/v1", "--background", "Safari"]) == 2
+    assert seen["background"] == "Safari"
+    assert "stop here" in capsys.readouterr().err
