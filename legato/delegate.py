@@ -74,6 +74,7 @@ class Planner:
     timeout_s: float = 240.0
     retries: int = 2
     client: Any = None                   # anything with .chat(messages, ...) -> record; built from the fields if None
+    style: str = "steps"                 # "steps": the executor does each step (this module); "point": legato/point.py
 
     def __post_init__(self) -> None:
         if self.client is None:
