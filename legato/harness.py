@@ -257,6 +257,7 @@ class RunResult:
     stopped: bool = False       # the person stopped the run (legato.safety.Stopped): `error` says how
     usage: dict = field(default_factory=lambda: {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0})
     planner: dict = field(default_factory=dict)   # with a planner: its calls, by trigger, seconds, tokens, cost
+    trace: list = field(default_factory=list)     # with a planner: each planner call and executor turn, in order
 
     def report(self) -> str:
         tot = {k: sum(t.get(k, 0.0) for t in self.timings) for k in ("model_s", "act_s", "settle_s", "obs_s", "tool_s")}
