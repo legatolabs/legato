@@ -113,3 +113,12 @@ def test_text_and_caret_keys_before_more_keys_do_not_wait_for_the_screen():
     # ctrl+a and "Hello" are inert with a key or text after them; Return may open something; the last one is the last
     assert waits == [("click", None), ("key", 0.1), ("type", 0.1), ("key", None), ("type", None)]
     assert sum(t.get("quick", 0) for t in res.timings) == 2
+
+
+def test_the_planners_note_is_kept_in_the_list_it_reads_next():
+    first = rec([call("act", {"status": "continue", "actions": [{"key": "ctrl+f"}],
+                              "note": "Column B holds the totals; the sheet has 40 rows."})])
+    h, p = harness([first, act("done")], [])
+    res = h.run("find", desktop([]))
+    again = p.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert res.done and "1. (your note: Column B holds the totals; the sheet has 40 rows.)\n2. key ctrl+f" in again
