@@ -113,3 +113,37 @@ def test_text_and_caret_keys_before_more_keys_do_not_wait_for_the_screen():
     # ctrl+a and "Hello" are inert with a key or text after them; Return may open something; the last one is the last
     assert waits == [("click", None), ("key", 0.1), ("type", 0.1), ("key", None), ("type", None)]
     assert sum(t.get("quick", 0) for t in res.timings) == 2
+
+
+def real_png(w: int, h: int, boxes: tuple = ()) -> bytes:
+    import io
+
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", (w, h), (240, 240, 240))
+    d = ImageDraw.Draw(im)
+    for box in boxes:
+        d.rectangle(box, fill=(20, 20, 20))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_the_planner_is_shown_screens_from_during_the_batch():
+    from legato.point import pick_frames
+    shots, log = [real_png(400, 200)], []
+
+    def execute(a):
+        log.append(a)
+        shots.append(real_png(400, 200, ((10 * len(log), 10, 10 * len(log) + 8, 18),)))      # every action changes it
+    env = legato.attach(screenshot=lambda: shots[-1], execute=execute)
+    h, p = harness([act("continue", {"key": "ctrl+o"}, {"key": "Return"}, {"key": "ctrl+w"}), act("done")], [])
+    res = h.run("open", env)
+    assert res.done
+    second = p.client.sent[1]["messages"][1]["content"]
+    texts = [c["text"] for c in second if c["type"] == "text"]
+    assert texts[1:] == ["The screen after action 1:", "The screen after action 2:", "The screen now:"]
+    assert sum(c["type"] == "image_url" for c in second) == 3 and len(p.client.sent[0]["messages"][1]["content"]) == 2
+    assert res.trace[-1]["frames"] == [1, 2]
+    f = [(i, bytes([i])) for i in range(1, 9)]
+    assert [n for n, _ in pick_frames(f)] == [2, 4, 6]                       # three, spread, never the last
+    assert pick_frames([(1, b"a"), (2, b"a"), (3, b"b")]) == [(2, b"a")]     # a screen the next one repeats is left out

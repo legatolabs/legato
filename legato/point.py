@@ -9,7 +9,9 @@ it is sure of without seeing the screen in between: clicks and drags on things i
 dialog"), keys, typed text, scrolls, waits. The harness runs them in order. Keys and text are sent as written. For a
 click, a drag or a scroll the harness's own model (the pointer) is asked one thing: where the described thing is on
 the screenshot in front of it. If it is not there, the rest of the batch is dropped and the planner sees the screen.
-After each batch the planner is called again, and only the planner ends the task.
+After each batch the planner is called again, and only the planner ends the task. That call also gets up to FRAMES
+screens from during the batch (the harness has one after every action), so the planner can see what its actions did
+and not only where they ended.
 
 Model calls a task = planner calls + pointer calls. Nothing is spent on reporting a step or checking it.
 """
@@ -34,6 +36,7 @@ Call the `act` tool:
 without seeing the screen in between (for example: click a menu, click its item; click a field, select all, type, \
 press Return). Stop the list where you need to see the result.
 - status "done" when the screen shows the task is complete and saved.
+After a list has run you may be shown screens from during it, each labelled with the action it followed, before the screen as it is now. Check on them that every action did what you meant (the right thing was selected, the right dialog opened) before you go on or say done; redo what went wrong.
 - status "fail" when the task cannot be done on this computer.
 Actions:
 - {{"click": "<what to click>"}}, with "button": "double", "right" or "triple" when it is not a plain click, and \
@@ -79,6 +82,24 @@ INERT_KEYS = {"backspace", "delete", "home", "end", "left", "right", "up", "down
               "ctrl+end", "shift+left", "shift+right", "shift+up", "shift+down", "shift+home", "shift+end",
               "ctrl+shift+left", "ctrl+shift+right", "ctrl+shift+home", "ctrl+shift+end"}
 QUICK_WAIT_S = 0.1
+FRAMES, FRAME_SIDE = 3, 1024       # screens from during the last batch shown to the planner, and their longest side
+
+
+def pick_frames(frames: list, n: int = FRAMES) -> list:
+    """Up to n of a batch's screens, (action number, png) each, spread evenly, without the last one (the planner gets
+    that as the screen now) and without screens identical to the one after them."""
+    mid = [f for f, nxt in zip(frames, frames[1:]) if f[1] != nxt[1]]
+    if len(mid) <= n:
+        return mid
+    return [mid[round((i + 1) * (len(mid) + 1) / (n + 1)) - 1] for i in range(n)]
+
+
+def small_png(png: bytes, side: int = FRAME_SIDE) -> bytes:
+    from legato.env import png_size
+    from legato.harness import resize_png
+    w, h = png_size(png)
+    k = side / max(w, h)
+    return png if k >= 1 else resize_png(png, (max(1, round(w * k)), max(1, round(h * k))))
 
 
 def inert(x: dict) -> bool:
@@ -109,15 +130,23 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
     png = obs.screenshot
     ep = h.begin(task, png)                 # for the sizes: the pointer is shown the screen at the model's size
     history: list[str] = []                 # every action run, with what came of it
+    frames: list[tuple[int, bytes]] = []    # the last batch's screens: (the action's number in history, png)
     calls = 0
 
     def ask_planner(key: str, why: str) -> tuple[str, list]:
         t = time.monotonic()
-        ran = "\n".join(f"{i + 1}. {x}" for i, x in enumerate(history[-40:])) or "nothing yet"
+        first = max(0, len(history) - 40)
+        ran = "\n".join(f"{first + i + 1}. {x}" for i, x in enumerate(history[first:])) or "nothing yet"
+        content = [{"type": "text", "text": f"Task: {task}\n\nRun so far:\n{ran}\n\n{why}"}]
+        shown = pick_frames(frames)
+        for n, f in shown:
+            content += [{"type": "text", "text": f"The screen after action {n}:"},
+                        {"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(small_png(f)).decode())}}]
+        if shown:
+            content.append({"type": "text", "text": "The screen now:"})
+        content.append({"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(png).decode())}})
         msgs = [{"role": "system", "content": PLANNER_SYSTEM.format(max_actions=p.max_steps)},
-                {"role": "user", "content": [
-                    {"type": "text", "text": f"Task: {task}\n\nRun so far:\n{ran}\n\n{why}"},
-                    {"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(png).decode())}}]}]
+                {"role": "user", "content": content}]
         rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature, tools=[ACT_TOOL],
                             tool_choice={"type": "function", "function": {"name": "act"}})
         a = _args(rec)
@@ -139,6 +168,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         res.usage["cost_usd"] += u.get("cost") or 0.0
         res.timings.append({"planner_s": time.monotonic() - t, "planner": key})
         res.trace.append({"planner": key, "status": status, "s": round(time.monotonic() - t, 2),
+                          "frames": [n for n, _ in shown],
                           "steps": [[json.dumps(x, ensure_ascii=False)[:150], ""] for x in acts]})
         return status, acts
 
@@ -225,12 +255,15 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                 break
             timing = {"model_s": 0.0, "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
             key, why = "next", "Those actions ran. This is the screen now."
+            frames.clear()
             try:
                 for i, x in enumerate(acts):
                     nxt = acts[i + 1] if i + 1 < len(acts) else None
                     quick = inert(x) and nxt is not None and ("key" in nxt or "type" in nxt)
                     said, go_on = run_one(x, timing, quick)
                     history.append(said)
+                    if go_on:
+                        frames.append((len(history), png))
                     if not go_on:
                         key, why = "missing", f"The last batch stopped: {said}. This is the screen now."
                         break
