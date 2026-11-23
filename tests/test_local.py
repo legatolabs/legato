@@ -168,6 +168,18 @@ def test_mac_types_numbers_and_single_letters_as_keys():
     assert [c[1][0] for c in e.gui.calls if c[0] == "write"] == ["3", "12/12/2026", "PM"]
 
 
+def test_mac_types_a_sum_as_keys():
+    e = env(mac=True)                     # Calculator ignores a pasted sum that ends in "="
+    pasted = []
+    e.paste = pasted.append
+    for text in ("1269*5693=", "12+7=", "(2+3)*4=", "3.5*2", "1,234-5"):
+        e.act(Action("type", text=text))
+    for text in ("a+b=", "2 + 2", "--1", "x=1"):      # letters, spaces and "--" are still pasted
+        e.act(Action("type", text=text))
+    assert pasted == ["a+b=", "2 + 2", "--1", "x=1"]
+    assert [c[1][0] for c in e.gui.calls if c[0] == "write"] == ["1269*5693=", "12+7=", "(2+3)*4=", "3.5*2", "1,234-5"]
+
+
 def test_click_with_a_held_key():
     from legato.actions import parse
     from legato.env import xdotool_cmds
