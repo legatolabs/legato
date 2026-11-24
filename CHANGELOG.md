@@ -6,14 +6,38 @@
   `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
   starting it, and keeps the path absolute.
 
-## 0.3.0
+## 0.3.1
 
-One agent, four ways in, and one command to set it up.
-
+- **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
+  updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
+  a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs
+  the run loop (the app is found in about a second) and allows 30 s.
+  In the MCP server, which runs tools on worker threads, the list could stay stale even so: apps are now also looked
+  up by bundle id, which is always fresh (`desktop_open` on an app that isn't running: 1.6 s).
+- **Background mode keeps working when macOS's window capture stalls.** With its capture service busy (a screen
+  recorder running, several captures at once), `CGWindowListCreateImageFromArray` can hang 30 s and return nothing on
+  every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
+  stall the window is taken with `screencapture` for the next five minutes (its sheets and menus are left out then).
+  A run that fails mid-way prints one line, not a traceback.
+- **The MCP server passes a desktop's failure to the client with its reason** (the MCP library otherwise shows only
+  "Error executing tool"). The MCP docs say what `desktop_close` and `desktop_shell` do in the background.
+- **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on
+  stderr, so coding agents can read why.
+- **Set-up page:** clearer for coding agents. Save the choice even when a key in the environment already makes it
+  ready; a key in the environment is read from its variable, not saved; `--mcp none` with `--yes`, then add only
+  the client you are; Safari when the default browser is another one; what to do when an app is slow to open.
+- `legato setup` says where Legato will work, and, for a local model server that doesn't answer, which servers to
+  start (not "check the key"). Models docs: the local example works in one app's window instead of the whole screen,
+  and says Ollama and LM Studio aren't tested end to end yet. `/docs/terminal` redirects to `/docs/python`.
 - **Planner notes and shell:** `Planner(..., style="point", notes=True)` lets the planner keep notes that are given
   back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
   the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
   (`shell_name` says which shell that is).
+
+## 0.3.0
+
+One agent, four ways in, and one command to set it up.
+
 - **`legato setup`:** choose the model (checked with one call) and where it works, add Legato to the coding agents it
   finds (Claude Code, Codex, Cursor, Claude Desktop), and watch a first task. `--yes` and `--json` for coding agents;
   a key can come on stdin (`--api-key -`). Saved to `~/.config/legato/config.json`, readable by you only.

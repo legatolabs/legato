@@ -1,0 +1,21 @@
+{
+ "name": "t42",
+ "model": "openai/gpt-6.2-sol",
+ "excel_s": 7.2,
+ "done": true,
+ "steps": 1,
+ "cost_usd": 0.0043317,
+ "check": {
+  "cells": 81,
+  "right": 81,
+  "charts": "0",
+  "passed": true,
+  "wrong": [],
+  "value_per_share": 30.33
+ },
+ "go_at_video_s": 3.0,
+ "game_first_run_s": 9.07,
+ "game_crashed_first": false,
+ "game_runs": 1,
+ "clean": true
+}

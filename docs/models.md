@@ -14,13 +14,17 @@ Other models are untested; please open an issue with what you find.
 
 ## On your own GPU
 
-Serve an open vision model with vLLM (or SGLang) and point Legato at it. A local server needs no API key.
+Serve an open vision model with vLLM and point Legato at it. A local server needs no API key, and nothing leaves the
+machine.
 
 ```bash
 vllm serve Qwen/Qwen3.5-9B --enable-auto-tool-choice --tool-call-parser hermes --max-model-len 32768
-legato run "Rename the screenshots on the desktop by date" --sandbox local \
+legato run "On Wikipedia, look up the Eiffel Tower and tell me how tall it is" --app Safari \
     --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
 ```
+
+vLLM is the server we test with. Ollama (`http://localhost:11434/v1`) and LM Studio (`http://localhost:1234/v1`) serve
+the same API and `legato setup` finds them, but we haven't tested them end to end yet.
 
 ## Settings
 

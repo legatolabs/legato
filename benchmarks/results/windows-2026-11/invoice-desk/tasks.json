@@ -1,0 +1,7 @@
+{
+ "rule": "Do it through the desktop with the mouse and keyboard, not with a shell or a script. Do not ask questions. When it is finished, reply with the single word DONE.",
+ "tasks": [
+  {"id": "invoice-desk", "instruction": "The file invoices.txt on the Desktop lists three invoices. Enter each one into the Invoice Desk program (its shortcut is on the Desktop) and save each.",
+   "setup_file": "C:\\bench\\showcase\\setup.ps1", "check_file": "C:\\bench\\showcase\\check.ps1"}
+ ]
+}

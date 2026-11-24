@@ -21,4 +21,4 @@ from legato.tools import Tool
 
 __all__ = ["Action", "Env", "Harness", "Obs", "Planner", "RunResult", "Tool", "Waiter", "agent_for", "attach",
            "computer_tool", "config", "local", "parse", "providers", "run", "tools", "wrap"]
-__version__ = "0.3.0"
+__version__ = "0.3.1"
