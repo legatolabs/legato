@@ -6,8 +6,10 @@ reset_s, act_s, fail_reset_every (raise on every Nth reset, to exercise infrastr
 (raise on every Nth action: a desktop that fails mid-rollout). A task's reward comes from task["reward"], else the
 reward setting, else 0: a number, or a list indexed by the attempt number (e.g. [1, 0] gives a group rewards 1, 0, 1,
 0, so its advantages are not 0). An action "DONE" or "FAIL" ends the episode.
-FakeHarness sends one small multimodal request per step and acts on the reply: a reply containing "DONE" ends the
-episode.
+The reward is not measured: it is the number you wrote, and every rollout records `"reward_source": "fake"`.
+FakeHarness is for testing the wiring only: it sends one small multimodal request per step and ignores what the reply
+says to do (every action is the same click; a reply containing "DONE" ends the episode). `legato rl collect --backend
+fake` uses legato.Harness by default, whose actions are the model's own.
 """
 from __future__ import annotations
 
@@ -70,6 +72,7 @@ class FakeDesktop:
         self.cfg, self.f = cfg, dict(cfg.fake or {})
         self.n_reset = self.n_act = self.n_acts = 0      # n_acts: over the desktop's life; n_act: this task's
         self.task, self.instruction = {}, ""
+        self.reward_source = "fake"                      # not measured: the number in the task file or --fake-opts
 
     def reset(self, task: dict) -> dict:
         self.n_reset += 1
