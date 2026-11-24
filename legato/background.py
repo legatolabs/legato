@@ -53,6 +53,7 @@ SHIFTED = '~!@#$%^&*()_+{}|:"<>?'
 TEXT_ROLES = {"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXSecureTextField"}
 STOP_ROLES = {"AXWindow", "AXApplication", "AXWebArea", "AXScrollArea", "AXSheet", "AXDialog"}
 PRESS = ("AXPress", "AXPick", "AXConfirm")
+HIDES = re.compile(r"(cmd|command|super|meta)(\+(alt|option))?\+[hm]")   # hide the app, minimize the window
 
 
 class MacApp:
@@ -90,6 +91,15 @@ class MacApp:
                 return pid
             time.sleep(0.2)
         raise RuntimeError(f"{self.name} did not start (is it installed?)")
+
+    def unhide(self) -> bool:
+        """Show the app again if it was hidden (cmd+H), without bringing it to the front. True if it was hidden."""
+        from AppKit import NSRunningApplication
+        a = NSRunningApplication.runningApplicationWithProcessIdentifier_(self.pid)
+        if a is not None and a.isHidden():
+            a.unhide()
+            return True
+        return False
 
     def reopen(self) -> None:
         """Ask the app for a window, as clicking its Dock icon would, without bringing it to the front."""
@@ -253,7 +263,9 @@ class BackgroundEnv(LocalEnv):
                 self.size = (int(self.win["w"]), int(self.win["h"]))
                 return self.win
             if attempt == 0:
-                self.m.reopen()
+                unhide = getattr(self.m, "unhide", None)      # hidden with cmd+H: show it again, not in front
+                if not (unhide and unhide()):
+                    self.m.reopen()
                 for _ in range(25):
                     time.sleep(0.2)
                     if any(w["layer"] == 0 for w in self.m.windows()):
@@ -284,6 +296,9 @@ class BackgroundEnv(LocalEnv):
 
     # ------------------------------------------------------------ acting
     def act(self, action: Action):
+        if action.type == "key" and action.keys and HIDES.fullmatch(action.keys.lower().replace("ctrl", "cmd")):
+            raise safety.Unavailable(f"{action.keys} would hide or minimize {self.app}'s window, the one this agent "
+                                     "works in")
         before = self.m.front_pid()
         try:
             return super().act(action)

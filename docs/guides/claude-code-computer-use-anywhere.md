@@ -6,7 +6,7 @@ claude.ai, in an interactive session, and one session at a time
 doesn't show up in `/mcp`, add Legato's MCP server instead. It is open source and works wherever Claude Code runs:
 
 ```bash
-pip install "legatolabs[mcp]"
+pip install legatolabs
 claude mcp add legato -- legato mcp --sandbox docker
 ```
 

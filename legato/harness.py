@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -108,7 +109,7 @@ def computer_tool(actions: list[str] | None = None) -> dict:
             "amount": {"type": "integer"}}}}}
 
 
-def _text_calls(text: str, names: tuple = ()) -> list:
+def _text_calls(text: str, names: tuple = (), _retry: bool = False) -> list:
     """(tool name, arguments) pairs written as top-level {...} objects in a reply's text, in order. An object with an
     "action" is a `computer` call; {"name": n, "arguments": {...}} is a call to tool n, if n is in `names`;
     {"tool": n, ...} is a call to tool n with the other fields, or, if n is a screen action, done or fail, a `computer`
@@ -141,6 +142,14 @@ def _text_calls(text: str, names: tuple = ()) -> list:
                     a = a.get("arguments", a) if "action" not in a else a
                     if isinstance(a, dict) and "action" in a:
                         out.append(("computer", a))
+    if depth and start is not None and not _retry:
+        # An object left open before the model's own closing tags, e.g. Qwen3.8-27B's
+        # '{"action": "left_click", "coordinate": [806, 155] </parameter> </function> </tool_call>': the action is
+        # complete but for its braces (legato-research EXP-0075: 12 of 866 executor turns did nothing for this).
+        tail = text[start:]
+        cut = min((tail.find(t) for t in ("</parameter>", "</function>", "</tool_call>") if t in tail), default=-1)
+        if cut > 0:
+            out += _text_calls(tail[:cut].rstrip().rstrip(",") + "}" * depth, names, _retry=True)
     return out
 
 
@@ -255,6 +264,7 @@ class RunResult:
     wall_s: float = 0.0
     error: str | None = None
     stopped: bool = False       # the person stopped the run (legato.safety.Stopped): `error` says how
+    answer: str = ""            # what the model said when it ended (the answer to "find out ..." tasks)
     usage: dict = field(default_factory=lambda: {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0})
     planner: dict = field(default_factory=dict)   # with a planner: its calls, by trigger, seconds, tokens, cost
     trace: list = field(default_factory=list)     # with a planner: each planner call and executor turn, in order
@@ -275,7 +285,8 @@ class RunResult:
 class Harness:
     """A computer-use agent loop for any OpenAI-compatible model."""
 
-    def __init__(self, model: str, base_url: str, api_key: str = "", *, coords: str | None = None,
+    def __init__(self, model: str | None = None, base_url: str | None = None, api_key: str | None = None, *,
+                 coords: str | None = None,
                  image_max: int | None = 8, fold: int = 4, max_batch: int | None = 3, step_timeout_s: float = 60.0,
                  retries: int = 1, temperature: float = 0.0, max_tokens: int = 4096, native_tools: bool = True,
                  system: str | None = None, screenshot_each_action: bool = False, end_on_text: bool = False,
@@ -299,6 +310,17 @@ class Harness:
         upload is most of a hosted call's wait for its first token (legato-research EXP-0052: a call 1.57 s against
         3.11 s at median through OpenRouter, the next action unchanged; EXP-0053: on 27 Mac tasks a call 2.28 against
         3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless."""
+        if model is None or base_url is None or api_key is None:     # what `legato setup` saved
+            from legato import config
+            cfg = config.load()
+            if model is None and base_url is None:
+                model, base_url = cfg.model or None, cfg.base_url or None
+            elif base_url is None:
+                base_url = cfg.base_url or None
+            if not model or not base_url:
+                raise ValueError(cfg.missing() or "pass model= and base_url=, or run legato setup")
+            if api_key is None:                     # the saved key goes only to the saved server
+                api_key = cfg.key if base_url.rstrip("/") == cfg.base_url.rstrip("/") else ""
         if image_format not in ("png", "jpeg"):
             raise ValueError("image_format must be 'png' or 'jpeg'")
         coords = coords or ("pixels" if is_claude(model) else "norm1000")
@@ -359,7 +381,8 @@ class Harness:
             self.tools[t.name] = t
 
     @classmethod
-    def reference(cls, model: str, base_url: str, api_key: str = "", **kw) -> "Harness":
+    def reference(cls, model: str | None = None, base_url: str | None = None, api_key: str | None = None,
+                  **kw) -> "Harness":
         """Anthropic's computer-use reference loop (see the module docstring)."""
         opts = dict(image_max=None, max_batch=None, max_tokens=4096, system=REFERENCE_SYSTEM,
                     screenshot_each_action=True, end_on_text=True, screenshot_action=True, profile="reference")
@@ -886,6 +909,7 @@ class Harness:
             if not note:                          # a "done" after an action that was not allowed does not count
                 res.done, res.failed = plan.done, plan.failed
                 if plan.done or plan.failed:
+                    res.answer = _answer(plan.rec, plan.actions)
                     break
             self.feed(ep, plan, pngs or [obs.screenshot], results, note)
             seen = (pngs or [obs.screenshot])[-1]
@@ -893,6 +917,25 @@ class Harness:
         return res
 
 
+def _answer(rec: dict, actions: list) -> str:
+    """What the model said when it ended: the text of its done (or fail) step, else its reply without the tool calls
+    some models write into it."""
+    said = [a.text for a in actions if isinstance(a, Action) and a.done and a.text]
+    if not said:
+        try:
+            said = [st["text"] for st in plans.plan_steps(rec) or []
+                    if st.get("action") in ("done", "fail") and isinstance(st.get("text"), str) and st["text"].strip()]
+        except Exception:  # noqa: BLE001 - an odd reply: fall back to its text
+            said = []
+    if said:
+        return said[-1].strip()[:2000]
+    text = rec.get("content") if isinstance(rec.get("content"), str) else ""
+    text = re.sub(r"<tool_call>.*?(</tool_call>|$)|<function.*?(</function>|$)|```(?:json)?\s*\{.*?\}\s*```", "",
+                  text, flags=re.S)
+    text = "\n".join(line for line in text.splitlines() if not line.strip().startswith('{"'))
+    return text.strip()[:2000]
+
+
 def _parse_pixels(args: dict, w: int, h: int) -> tuple[Action | None, str]:
     """Pixel coordinates of a w x h screenshot onto the same w x h screen."""
-    return Harness("m", "http://x/v1", coords="pixels", model_size=None)._parse(args, Episode("", w, h, w, h))
+    return Harness("m", "http://x/v1", "", coords="pixels", model_size=None)._parse(args, Episode("", w, h, w, h))

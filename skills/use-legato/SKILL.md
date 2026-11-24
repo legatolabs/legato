@@ -1,38 +1,41 @@
 ---
 name: use-legato
-description: Run a computer-use task on a desktop with Legato (any OpenAI-compatible vision model; this computer, any sandbox, or E2B). Use when an agent must click, type and read a GUI.
+description: Set up Legato or run a computer-use task with it (any OpenAI-compatible vision model; one app's window on a Mac in the background, this screen, a Docker desktop, any sandbox). Use when the user asks to set up Legato, or when a task needs clicks, typing and reading on a real GUI.
 license: Apache-2.0
 ---
 
 # Use Legato
 
-1. Install the package: `pip install "legatolabs[e2b]"`. The PyPI name is `legatolabs`; the import is `import legato`.
-2. Set the keys in the environment: the model key (for example `OPENROUTER_API_KEY`) and `E2B_API_KEY`.
-3. Run a task:
+**Not set up yet?** Follow https://legato.computer/setup.md. In short: `pip install legatolabs` (or
+`uv tool install legatolabs`), then `legato setup --json` to see what is missing. A model key already in the
+environment is used; otherwise ask the user for one and pass it on stdin
+(`printf '%s' "$KEY" | legato setup --yes --provider openrouter --api-key -`). Never invent a key.
 
-```python
-import os, legato
-from e2b_desktop import Sandbox
+**Run a task** with the saved model and desktop:
 
-agent = legato.Harness(model="qwen/qwen3.8-27b", base_url="https://openrouter.ai/api/v1",
-                       api_key=os.environ["OPENROUTER_API_KEY"])
-desk = Sandbox.create()
-try:
-    result = agent.run("Open the terminal and print the date", legato.attach(desk), max_steps=30)
-    print(result.done, result.report())
-finally:
-    desk.kill()
+```bash
+legato run "On Wikipedia, look up the Eiffel Tower and tell me how tall it is" --json
 ```
 
-Or from a shell: `legato run "TASK" --model MODEL --base-url URL --json`. It prints one JSON object.
+It prints one JSON object: `done`, `answer` (what the model found), `actions`, `wall_s`. On a Mac it works in one
+app's window in the background (the app the task names, else the browser; `--app NAME` to choose), so the user keeps
+using the Mac. `--screen` uses the whole screen, `--sandbox docker` a desktop container.
+
+From Python:
+
+```python
+import legato
+result = legato.run("Open example.com and tell me the page's heading")
+print(result.done, result.answer, result.report())
+```
 
 ## Notes
 
-- **This computer:** `legato.local()` (`pip install "legatolabs[local]"`). It moves the real mouse; moving the mouse into a screen corner stops it.
-- **Other sandboxes:** `legato.attach(shell=fn_running_a_command_returning_stdout)` for any Linux sandbox with X, python3, xdotool and scrot; otherwise `legato.attach(screenshot=fn_returning_png_bytes, execute=fn_taking_legato_Action)`.
-- **Coordinates:** Claude models use pixels automatically. Other models use a 0–1000 grid. Pass `coords=` for a model you have not checked.
-- **Cut-off turns:** if `result.report()` shows them, raise `max_tokens`.
-- **MCP:** to let a coding agent drive a desktop itself: `legato mcp --sandbox docker` (a desktop container; needs only Docker; the safest choice), `legato mcp --local` (this computer), `legato mcp --sandbox file.py:function` (your sandbox), or `legato mcp` for E2B (`pip install "legatolabs[mcp,local]"` or `[mcp,e2b]`).
-- **No cloud account?** `--sandbox docker` runs a Linux desktop container locally; apps on the host are at `http://host.docker.internal:PORT` inside it.
-- **Docs:** https://legato.computer/llms.txt
-- **Setup problems:** `legato doctor --json` reports which sandboxes (docker, local, e2b), extras and model keys are ready, with the fix for each.
+- **Choosing each part:** `legato.Harness(model=..., base_url=..., api_key=...).run(task, desktop)`, with
+  `legato.local()`, `legato.local(background="Safari")`, `legato.providers.docker(w, h)` or
+  `legato.attach(shell=fn)` as the desktop. PyPI name `legatolabs`, import `legato`.
+- **Coordinates:** Claude models use pixels automatically; other models a 0-1000 grid. Pass `coords=` for a model you
+  have not checked. Raise `max_tokens` if `result.report()` shows cut-off turns.
+- **Driving a desktop yourself** (instead of handing over the task): the `legato` MCP server's `desktop_*` tools;
+  `legato setup --mcp claude` adds it.
+- **Setup problems:** `legato doctor --json` reports what is installed and set up, with the fix for each.

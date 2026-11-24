@@ -1,5 +1,8 @@
 # Examples
 
+The shortest program is `legato.run("your task")`, with the model and desktop `legato setup` saved
+([terminal and Python](https://legato.computer/docs/python)). These choose each part themselves.
+
 | file | what it shows | needs |
 |---|---|---|
 | [docker_desktop.py](docker_desktop.py) | a desktop container on this machine, any OpenAI-compatible model | Docker, `OPENROUTER_API_KEY` |

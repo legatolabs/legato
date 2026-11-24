@@ -413,3 +413,16 @@ def test_collect_with_a_planner_and_a_pointer(server, tmp_path, monkeypatch):
     assert notes[-1]["planner_calls"] == 2 and notes[-1]["pointer_calls"] == 1 and notes[-1]["end"] == "done"
     assert [m["model"] for m in server["bodies"]] == ["big", "small", "big"]
     assert "planner" in notes[0]["trace"][0] and "point" in notes[1]["trace"][0]
+
+
+def test_an_action_left_open_before_the_models_closing_tags_is_read():
+    """Qwen3.8-27B sometimes writes the call as text and closes its tags, not the object (legato-research EXP-0075)."""
+    from legato.harness import _text_calls
+    said = 'Click the Save button. {"action": "left_click", "coordinate": [806, 155] </parameter> </function> </tool_call>'
+    assert _text_calls(said) == [("computer", {"action": "left_click", "coordinate": [806, 155]})]
+    drag = ('I will drag it. {"action": "left_click_drag", "coordinate": [289, 541] </parameter> <parameter=end_coordinate> '
+            '[620, 541] </parameter> </function>')
+    assert _text_calls(drag) == [("computer", {"action": "left_click_drag", "coordinate": [289, 541]})]
+    assert _text_calls('Now I will click Export. {"action": "left_click", "coordinate":') == []      # cut off: nothing to run
+    assert _text_calls('{"action": "key", "keys": "ctrl+s"} then {"action": "type", "text": "a" </parameter>') == [
+        ("computer", {"action": "key", "keys": "ctrl+s"}), ("computer", {"action": "type", "text": "a"})]
