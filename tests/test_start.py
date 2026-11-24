@@ -21,9 +21,17 @@ def quiet(monkeypatch):
 def test_legato_alone_says_what_to_do(capsys):
     assert main([]) == 0
     out = capsys.readouterr().out
-    assert "legato init" in out and "legato doctor" in out
-    assert "claude mcp add legato -- legato mcp --background" in out
-    assert "https://legato.computer/llms.txt" in out             # the prompt for a coding agent
+    assert "legato setup" in out and 'legato run "' in out and "legato mcp" in out and "legato doctor" in out
+    assert "Not set up yet" in out
+    assert "Set up Legato for me: https://legato.computer/setup" in out        # the prompt for a coding agent
+
+
+def test_legato_alone_shows_the_saved_choice(capsys):
+    from legato import config
+    config.save(config.Config(provider="openrouter", model="qwen/qwen3.8-27b", base_url="https://openrouter.ai/api/v1",
+                              api_key="k", desktop="background", app="Notes"))
+    assert main([]) == 0
+    assert "Set up: qwen/qwen3.8-27b · background (Notes)" in capsys.readouterr().out
 
 
 def test_init_writes_an_agent_that_compiles(tmp_path, quiet, monkeypatch, capsys):
@@ -137,13 +145,18 @@ def test_default_browser_off_a_mac(monkeypatch):
 def test_run_background_works_in_one_app(monkeypatch, capsys):
     seen = {}
 
-    def fake_local(**kw):
-        seen.update(kw)
+    def fake_background(app, **kw):
+        seen["app"] = app
         raise RuntimeError("stop here")
-    monkeypatch.setattr(sys.modules["legato.local"], "local", fake_local)   # legato.local is also the function
+    import legato.background
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(legato.background, "background", fake_background)
     assert main(["run", "a task", "--model", "m", "--base-url", "http://localhost:8000/v1", "--background", "Safari"]) == 2
-    assert seen["background"] == "Safari"
+    assert seen["app"] == "Safari"
     assert "stop here" in capsys.readouterr().err
+    assert main(["run", "write a note in Notes", "--model", "m", "--base-url", "http://localhost:8000/v1",
+                 "--app", "TextEdit"]) == 2
+    assert seen["app"] == "TextEdit"
 
 
 # ------------------------------------------------------------ a missing package or sandbox: one line, no traceback

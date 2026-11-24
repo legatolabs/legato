@@ -1,7 +1,7 @@
-"""The first run: `legato` with no arguments says what to do next, and `legato init` writes a working agent.
+"""The first run: `legato` with no arguments says what to do next, and `legato init` writes a working agent.py.
 
-    legato init                                   # asks for the model and the desktop, writes agent.py
-    legato init --yes --model qwen/qwen3.8-27b    # no questions: the defaults, or what the flags say
+    legato init                                   # your saved model and desktop (legato setup), or asks
+    legato init --yes --model qwen/qwen3.8-27b    # no questions: the flags, the saved choice, or the defaults
 """
 from __future__ import annotations
 
@@ -25,25 +25,29 @@ DESKTOPS = {
 }
 TESTED_APPS = ("Safari", "Google Chrome", "TextEdit")   # background mode is tested on these (tests/test_background_live.py)
 DOCS = "https://legato.computer/docs"
-AGENT_PROMPT = "Add Legato computer use to this project. Read https://legato.computer/llms.txt first."
+SETUP_URL = "https://legato.computer/setup"
+AGENT_PROMPT = f"Set up Legato for me: {SETUP_URL}"
 
 
 def welcome() -> str:
-    from legato import __version__
-    return f"""legato {__version__}: computer use for any model. Bring a model; Legato makes it use a computer.
+    from legato import __version__, config
+    cfg = config.load()
+    desk = cfg.desktop or config.default_desktop()
+    if cfg.ready:
+        now = f"Set up: {cfg.model} · {desk}" + (f" ({cfg.app})" if cfg.app else "") + "   (legato setup to change)"
+    else:
+        now = "Not set up yet: start with legato setup."
+    return f"""legato {__version__}: a fast computer-use agent for any model.
 
-Start here:
-  legato init       pick your model and desktop, and get agent.py, a working agent to run or copy from
-  legato doctor     what is installed and set up, and the fix for anything missing
+  legato setup        choose your model and where it works, then watch a first task (about two minutes)
+  legato run "..."    do a task, e.g. legato run "Find the next train from SF to San Jose on caltrain.com"
+  legato mcp          a computer for Claude Code, Codex or Cursor (legato setup adds it to them)
+  legato doctor       what is set up, and the fix for anything that is not
+  legato init         write agent.py, to call Legato from your own Python
 
-Three ways to use it:
-  In your code      agent.run(task, desktop): legato init writes an example
-  In Claude Code    claude mcp add legato -- legato mcp --background   (Cursor, Codex: {DOCS}/mcp)
-  One task          legato run "your task" --model M --base-url URL --sandbox local
+{now}
 
-Using Claude Code, Cursor or Codex? Ask it:
-  "{AGENT_PROMPT}"
-
+In Claude Code, Codex or Cursor? Tell it: "{AGENT_PROMPT}"
 Docs: {DOCS}"""
 
 
@@ -63,7 +67,8 @@ def default_browser() -> str | None:
 
 def agent_source(model: str, base_url: str, key_env: str, desktop: str, app: str | None) -> str:
     """agent.py: the whole loop in a few lines, to run as it is or copy into your own code."""
-    key = f'os.environ.get("{key_env}", "")' if key_env else '""'
+    key = (f'os.environ.get("{key_env}", "")' if key_env else '""') if key_env is not None else \
+        "None"   # the key legato setup saved for this server
     if desktop == "background":
         open_desk, close_desk = f'desk = legato.local(background="{app}")   # works in {app}\'s window; you keep the Mac', ""
     elif desktop == "local":
@@ -167,14 +172,20 @@ def _init(argv) -> int:
         print(f"legato: {out} exists; pass --force to overwrite it, or --out another.py", file=sys.stderr)
         return 2
 
+    from legato import config
+    saved = config.load(use_env=False)
+    use_saved = saved.ready and not (a.provider or a.base_url or a.model)
     provider = a.provider or ("custom" if a.base_url else "openrouter")
-    if asking and not (a.provider or a.base_url):
+    if asking and not (a.provider or a.base_url or use_saved):
         provider = _ask("Which model?", list(PROVIDERS), "openrouter", lambda p: PROVIDERS[p][3])
     base_url, key_env, model, _ = PROVIDERS[provider]
+    if use_saved:                                   # what legato setup chose
+        base_url, model = saved.base_url, saved.model
+        key_env = None if saved.api_key else saved.api_key_env
     base_url = a.base_url or base_url
     key_env = a.api_key_env if a.api_key_env is not None else key_env
     model = a.model or model
-    if asking:
+    if asking and not use_saved:
         if not a.base_url and provider != "openrouter":
             base_url = _text("Base URL (OpenAI-compatible, ends in /v1)", base_url)
         if not a.model:
@@ -187,7 +198,9 @@ def _init(argv) -> int:
 
     mac = sys.platform == "darwin"
     choices = [d for d in DESKTOPS if mac or d != "background"]
-    desktop = a.desktop or ("background" if mac else "local")
+    desktop = a.desktop or {"screen": "local"}.get(saved.desktop, saved.desktop) or ("background" if mac else "local")
+    if desktop not in DESKTOPS:
+        desktop = "local"
     if asking and not a.desktop:
         desktop = _ask("Which desktop?", choices, desktop, lambda d: DESKTOPS[d])
     if desktop == "background" and not mac:
@@ -195,7 +208,7 @@ def _init(argv) -> int:
         return 2
     app = None
     if desktop == "background":
-        app = a.app or default_browser() or "Safari"
+        app = a.app or saved.app or default_browser() or "Safari"
         if asking and not a.app:
             app = _text("Which app should it work in? (any app, by name)", app)
         if app not in TESTED_APPS:

@@ -1,20 +1,22 @@
-"""Legato as an MCP server: give any agent (Claude Code, Cursor, your own) a desktop with Legato's ready-wait.
+"""Legato as an MCP server: give any agent (Claude Code, Codex, Cursor, your own) a computer, with Legato's wait
+for the screen after every action.
 
-    pip install "legatolabs[e2b,mcp]"
-    claude mcp add legato -e E2B_API_KEY=... -- legato mcp          # Claude Code, cloud desktops
-    claude mcp add legato -- legato mcp --local                      # this computer (pip install "legatolabs[local,mcp]")
+    legato setup                                   # adds it to the coding agents it finds, with your desktop
+    claude mcp add legato -- legato mcp            # by hand: the desktop legato setup saved (on a Mac, default:
+                                                   # one app's window in the background, so you keep the Mac)
+    claude mcp add legato -- legato mcp --sandbox docker   # a desktop container (needs Docker)
+    claude mcp add legato -- legato mcp --local            # this computer's whole screen
     claude mcp add legato -- legato mcp --sandbox my_desktop.py:desktop   # your own sandbox (docs/sandboxes.md)
-    # Cursor and others: {"mcpServers": {"legato": {"command": "legato", "args": ["mcp"], "env": {"E2B_API_KEY": "..."}}}}
 
 Tools:
-- desktop_open: start an E2B desktop (with --local: this computer's screen) and return its first screenshot. With url or
-  app, it starts that first and returns once its window has drawn.
+- desktop_open: open a desktop and return its first screenshot. With url or app, it starts that first and returns
+  once its window has drawn.
 - desktop_act: click, type, press keys, scroll or drag. The tool returns once the screen has stopped changing, with
   the new screenshot. Coordinates are pixels of the last screenshot.
 - desktop_screenshot: the current screen.
 - desktop_shell: run a shell command on the desktop's computer and get its output and exit code.
-- desktop_run_task: hand a whole task to `legato.Harness` with a model of your choice (for example an open model on
-  OpenRouter) and get back its report and the final screen.
+- desktop_run_task: hand a whole task to Legato's own agent (your saved model, or one you name) and get back its
+  report and the final screen.
 - desktop_close: stop the desktop.
 """
 from __future__ import annotations
@@ -141,11 +143,13 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
 
     @srv.tool()
     def desktop_open(width: int = 1280, height: int = 800, url: str | None = None, app: str | None = None) -> list:
-        """Open a desktop and return its id and first screenshot: a fresh cloud desktop (E2B), or this computer's
-        screen when the server runs with --local, or your own sandbox with --sandbox. With --sandbox docker, the first
-        call can take a few minutes while the desktop image downloads. url: open it in the browser first. app: start
-        it first (an app name on macOS, such as "TextEdit"; a command on Linux, such as "gnome-calculator"). With url
-        or app the screenshot is taken once the window has drawn."""
+        """Open a desktop and return its id and first screenshot. Which desktop depends on how the server was
+        started (the server's instructions say): one app's window on the person's Mac in the background, their whole
+        screen, a desktop container, a cloud desktop or their own sandbox. With --sandbox docker, the first call can
+        take a few minutes while the desktop image downloads. url: open it in the browser first. app: start it first
+        (an app name on macOS, such as "TextEdit"; in the background, the app to work in, default the browser; a
+        command on Linux, such as "gnome-calculator"). With url or app the screenshot is taken once the window has
+        drawn."""
         if background is not None:
             return open_background(url, app)
         sb, env = factory((width, height))
@@ -172,8 +176,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
 
     def open_background(url: str | None, app: str | None) -> list:
         if not app:
-            raise ToolError('this server works in one app in the background: pass app, such as "TextEdit" or '
-                            '"Safari" (with url to open a page in that browser)')
+            from legato import config
+            app = config.pick_app("")                       # the saved app, else the browser
         try:
             env = background(app)
             if url:
@@ -246,18 +250,28 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return out
 
     @srv.tool()
-    def desktop_run_task(desktop_id: str, task: str, model: str = "qwen/qwen3.8-27b",
-                         base_url: str = "https://openrouter.ai/api/v1", api_key_env: str = "OPENROUTER_API_KEY",
-                         max_steps: int = 30) -> list:
-        """Hand a whole task to Legato's harness with the given model (any OpenAI-compatible endpoint; the key is read
-        from the environment variable named by api_key_env). Returns the run report and the final screen."""
-        from legato.harness import Harness
+    def desktop_run_task(desktop_id: str, task: str, model: str | None = None, base_url: str | None = None,
+                         api_key_env: str | None = None, max_steps: int = 40) -> list:
+        """Hand a whole task to Legato's own agent and get back what it found, its report and the final screen. It
+        uses the model saved by `legato setup` unless you name one (model, base_url: any OpenAI-compatible endpoint;
+        the key is read from the environment variable api_key_env). Good for long GUI chores while you keep working."""
+        from legato import config
+        from legato.agent import agent_for
         d = get(desktop_id)
-        agent = Harness(model=model, base_url=base_url, api_key=os.environ.get(api_key_env, ""))
-        res = agent.run(task, d["env"], max_steps=max_steps)
+        key = os.environ.get(api_key_env, "") if api_key_env else None
+        if model and not base_url and not config.load().base_url:
+            base_url = "https://openrouter.ai/api/v1"
+            key = key if key is not None else os.environ.get("OPENROUTER_API_KEY", "")
+        try:
+            agent = agent_for(d["env"], model=model, base_url=base_url, api_key=key)
+        except ValueError as e:
+            raise ToolError(f"no model for desktop_run_task: {e}") from None
+        from legato.agent import ANSWER_NOTE
+        res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps)
         img = shot(d)
-        keep(desktop_id, "run_task", d["png"], task=task, model=model, done=res.done, actions=res.actions[-50:])
-        return [res.report() + "\nactions: " + "; ".join(res.actions[-20:]), img]
+        keep(desktop_id, "run_task", d["png"], task=task, model=agent.model, done=res.done, actions=res.actions[-50:])
+        answer = f"answer: {res.answer}\n" if res.answer else ""
+        return [answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]), img]
 
     @srv.tool()
     def desktop_close(desktop_id: str) -> str:
@@ -278,9 +292,11 @@ def main(argv=None) -> int:
 
     from legato import providers
     ap = argparse.ArgumentParser(prog="legato mcp", description="MCP server: a desktop for any agent")
-    ap.add_argument("--sandbox", default="e2b",
-                    help="e2b (default), local (this computer), or your own: path/to/file.py:function or "
-                         "module:function, a function (width, height) returning a legato Env (see docs/sandboxes.md)")
+    ap.add_argument("--sandbox", default=None,
+                    help="docker (a desktop container), e2b (a cloud desktop), local (this screen), or your own: "
+                         "path/to/file.py:function or module:function returning a legato Env (docs/sandboxes.md). "
+                         "Default: the desktop legato setup saved; with none saved, the background on a Mac and this "
+                         "screen elsewhere")
     ap.add_argument("--local", action="store_true", help="the same as --sandbox local (moves your real mouse)")
     ap.add_argument("--record", metavar="DIR", help="save every screenshot the agent gets, with a log of its actions, "
                                                    "under DIR/<desktop_id>/")
@@ -296,6 +312,11 @@ def main(argv=None) -> int:
                     help="macOS: work in one app's window (desktop_open's app) without moving your mouse or taking "
                          "the screen, so you can keep using the Mac (docs/sandboxes.md)")
     a = ap.parse_args(argv)
+    if not (a.local or a.background or a.sandbox):        # what legato setup saved
+        from legato import config
+        saved = config.load().desktop or config.default_desktop()
+        a.background = saved == "background" and sys.platform == "darwin"
+        a.sandbox = {"screen": "local", "background": "local"}.get(saved, saved)
     spec = "local" if a.local or a.background else a.sandbox
     make = providers.load(spec)
     if spec == "local" and a.wait_scope != "screen":
@@ -314,6 +335,6 @@ def main(argv=None) -> int:
         def bg(app: str) -> Env:
             from legato.background import background
             return background(app, fixed_wait_s=a.fixed_wait)
-    build_server(factory, about=providers.about(spec), record=a.record,
+    build_server(factory, about=providers.about("background" if a.background else spec), record=a.record,
                  image_format=a.image_format, background=bg).run()
     return 0
