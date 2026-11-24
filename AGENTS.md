@@ -1,7 +1,9 @@
 # AGENTS.md
 
-Legato is a computer-use harness: `legato.Harness` (the agent loop), `legato.attach` (desktops), `legato rl` (RL
-rollouts), `legato mcp` (MCP server). PyPI name `legatolabs`, import name `legato`.
+Legato is a fast computer-use agent for any model, with four ways in that share one agent: the Mac app
+(`app/macos`), `legato run` (terminal), `legato mcp` (MCP server for coding agents) and the Python package
+(`legato.run`, `legato.Harness`, `legato.attach`). `legato setup` saves the model and desktop the last three use.
+`legato rl` runs RL rollouts. PyPI name `legatolabs`, import name `legato`.
 
 ## Work on this repo
 
@@ -11,6 +13,8 @@ rollouts), `legato mcp` (MCP server). PyPI name `legatolabs`, import name `legat
 - Site: `cd site && npm ci && node build.mjs`. It renders `docs/*.md` into `site/dist`.
 - Layout:
   - `legato/harness.py`: the loop.
+  - `legato/config.py`: the saved model and desktop; `legato/setup.py`: `legato setup`; `legato/agent.py`: the agent
+    each desktop gets (`agent_for`) and `legato.run`, which `legato run` and `desktop_run_task` use too.
   - `legato/env.py`: desktops (`attach`: E2B, `shell=`, screenshot/execute); `legato/local.py`: this computer.
   - `legato/providers.py`: `--sandbox` choices (e2b, local, docker, your own function).
   - `legato/settle.py`: waiting for the screen.
@@ -21,7 +25,8 @@ rollouts), `legato mcp` (MCP server). PyPI name `legatolabs`, import name `legat
   - `docker/desktop/`: the desktop image for `--sandbox docker`.
   - `.claude-plugin/`, `plugin.json`, `mcp.json`, `gemini-extension.json`, `mcpb/`, `server.json`: how editors and
     registries install the MCP server. Keep their versions in step with `pyproject.toml` (`tests/test_versions.py`).
-  - `docs/`: user docs.
+  - `docs/`: user docs. `docs/setup.md` is what "Set up Legato for me: https://legato.computer/setup" reads; keep
+    its steps runnable by a coding agent.
   - `personas/`: who uses the harness, the MCP and the Mac app, most likely first.
   - `site/`: legato.computer.
 - Rules:

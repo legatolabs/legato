@@ -10,7 +10,7 @@ Pick the desktop, then add the server to your client. The safest default is a co
 needs only Docker and keeps the agent off your real screen.
 
 ```bash
-pip install "legatolabs[mcp,local]"
+pip install legatolabs
 
 claude mcp add legato -- legato mcp --sandbox docker        # Claude Code
 codex mcp add legato -- legato mcp --sandbox docker         # Codex CLI

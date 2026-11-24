@@ -7,6 +7,14 @@
   "trailingSlash": false,
   "rewrites": [
     {
+      "source": "/setup",
+      "destination": "/docs/setup"
+    },
+    {
+      "source": "/setup.md",
+      "destination": "/docs/setup.md"
+    },
+    {
       "source": "/api/waitlist",
       "destination": "/api/waitlist"
     },
