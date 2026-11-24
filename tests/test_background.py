@@ -558,3 +558,21 @@ def test_a_hidden_app_is_shown_again_not_reopened():
     m.unhide = unhide
     env = BackgroundEnv("TextEdit", mac=m, confirm=None)
     assert env.window()["id"] == 7 and shown and m.reopened == 0
+
+
+def test_an_app_that_is_not_open_yet_is_waited_for_with_the_run_loop(monkeypatch):
+    """NSWorkspace only sees an app opened after the first look if the run loop runs: the wait must pump it, not
+    sleep (a first run with Safari closed failed with "Safari did not start")."""
+    import legato.background as bg
+    looks, pumps = iter([None, None, 4321]), []
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.name, app.flag = "Safari", "-a"
+    monkeypatch.setattr(bg.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(app, "_find", lambda: next(looks))
+    monkeypatch.setattr(bg, "_pump", lambda s: pumps.append(s))
+    assert app._launch(5) == 4321 and pumps == [0.2, 0.2]
+    looks = iter([])
+    monkeypatch.setattr(app, "_find", lambda: None)
+    monkeypatch.setattr(bg.time, "monotonic", iter([0.0, 0.0, 9.0]).__next__)
+    with pytest.raises(RuntimeError, match="did not open within 5 s"):
+        app._launch(5)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legatolabs"
-version = "0.3.0"
+version = "0.3.1"
 description = "A fast, open-source computer-use agent for any model: your Mac in the background, your screen, any sandbox, or your coding agent (MCP)."
 readme = "README.md"
 requires-python = ">=3.10"

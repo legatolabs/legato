@@ -56,12 +56,20 @@ PRESS = ("AXPress", "AXPick", "AXConfirm")
 HIDES = re.compile(r"(cmd|command|super|meta)(\+(alt|option))?\+[hm]")   # hide the app, minimize the window
 
 
+def _pump(seconds: float) -> None:
+    """Wait while letting AppKit catch up. NSWorkspace's list of running apps is only refreshed by the run loop, so in
+    a plain `time.sleep` loop an app opened after the first look is never seen (it was: "Safari did not start" with
+    Safari running)."""
+    from Foundation import NSDate, NSRunLoop
+    NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(seconds))
+
+
 class MacApp:
     """The few macOS calls background mode needs, for one app. Tests swap in a fake with the same methods.
 
     Coordinates here are screen points, origin at the top left of the main display. Elements are AXUIElements."""
 
-    def __init__(self, app: str, launch_s: float = 15.0):
+    def __init__(self, app: str, launch_s: float = 30.0):
         try:
             import ApplicationServices as AS
             import Quartz
@@ -89,8 +97,8 @@ class MacApp:
         while time.monotonic() < end:
             if pid := self._find():
                 return pid
-            time.sleep(0.2)
-        raise RuntimeError(f"{self.name} did not start (is it installed?)")
+            _pump(0.2)
+        raise RuntimeError(f"{self.name} did not open within {wait_s:.0f} s (is it installed?)")
 
     def unhide(self) -> bool:
         """Show the app again if it was hidden (cmd+H), without bringing it to the front. True if it was hidden."""

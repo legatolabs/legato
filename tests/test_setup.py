@@ -194,3 +194,11 @@ def test_a_thinking_model_that_answers_nothing_is_not_called_blind(no_machine, m
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     assert main(["setup", "--yes", "--desktop", "screen"]) == 0
     assert "vision model" not in capsys.readouterr().out
+
+
+def test_legato_run_json_prints_json_when_it_cannot_start(capsys):
+    """Agents parse `legato run --json`: a failure before the task starts is one JSON object too, plus the stderr line."""
+    assert main(["run", "Say hello", "--json"]) == 2
+    out, err = capsys.readouterr()
+    got = json.loads(out.strip().splitlines()[-1])
+    assert got["done"] is False and "legato setup" in got["error"] and "legato setup" in err

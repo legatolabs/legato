@@ -1,13 +1,25 @@
 # Changelog
 
-## 0.3.0
+## 0.3.1
 
-One agent, four ways in, and one command to set it up.
-
+- **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
+  updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
+  a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs
+  the run loop (the app is found in about a second) and allows 30 s.
+- **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on
+  stderr, so coding agents can read why.
+- **Set-up page:** clearer for coding agents. Save the choice even when a key in the environment already makes it
+  ready; a key in the environment is read from its variable, not saved; `--mcp none` with `--yes`, then add only
+  the client you are; Safari when the default browser is another one; what to do when an app is slow to open.
 - **Planner notes and shell:** `Planner(..., style="point", notes=True)` lets the planner keep notes that are given
   back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
   the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
   (`shell_name` says which shell that is).
+
+## 0.3.0
+
+One agent, four ways in, and one command to set it up.
+
 - **`legato setup`:** choose the model (checked with one call) and where it works, add Legato to the coding agents it
   finds (Claude Code, Codex, Cursor, Claude Desktop), and watch a first task. `--yes` and `--json` for coding agents;
   a key can come on stdin (`--api-key -`). Saved to `~/.config/legato/config.json`, readable by you only.

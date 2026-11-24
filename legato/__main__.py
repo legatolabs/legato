@@ -95,6 +95,7 @@ def run_main(argv) -> int:
                     help="on this computer: do not ask before risky actions (cmd+Delete, a typed rm or sudo...)")
     ap.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
     a = ap.parse_args(argv)
+    fail = lambda msg: _fail(msg, a.json)                # with --json, the error as JSON too
     cfg = config.load()
     if a.model or a.base_url:
         cfg = config.Config(model=a.model or cfg.model, base_url=a.base_url or cfg.base_url,
@@ -104,24 +105,24 @@ def run_main(argv) -> int:
     elif a.api_key_env:
         cfg.api_key, cfg.api_key_env = "", a.api_key_env
     if cfg.missing():
-        return _fail(cfg.missing())
+        return fail(cfg.missing())
     desktop = "background" if a.app else "screen" if a.screen else a.sandbox
     if (desktop or cfg.desktop) == "e2b":
         try:
             import e2b_desktop  # noqa: F401
         except ImportError:
-            return _fail('E2B Desktop is not installed. Run: pip install "legatolabs[e2b]"')
+            return fail('E2B Desktop is not installed. Run: pip install "legatolabs[e2b]"')
         if not os.environ.get("E2B_API_KEY"):
-            return _fail("E2B_API_KEY is not set. Get a key at https://e2b.dev and export it, or use --screen.")
+            return fail("E2B_API_KEY is not set. Get a key at https://e2b.dev and export it, or use --screen.")
     label = (f"--sandbox {a.sandbox}" if a.sandbox else f"{a.app}'s window" if a.app else "this screen" if a.screen
              else "the desktop")
     from legato.agent import agent_for, open_desktop
     try:
         env, close, what = open_desktop(desktop, task=a.task, app=a.app, confirm=None if a.yes else "auto", cfg=cfg)
     except ImportError as e:
-        return _fail(f"cannot start {label}: a package is missing ({e}). Run: pip install -U legatolabs")
+        return fail(f"cannot start {label}: a package is missing ({e}). Run: pip install -U legatolabs")
     except (RuntimeError, OSError, ValueError, AttributeError) as e:     # Docker stopped, no screen permission, ...
-        return _fail(f"cannot start {label}: {e}")
+        return fail(f"cannot start {label}: {e}")
     say = (lambda *_: None) if a.json else print
     import time
     t0 = time.monotonic()
@@ -134,7 +135,7 @@ def run_main(argv) -> int:
         from legato.agent import ANSWER_NOTE
         res = agent.run(a.task + ANSWER_NOTE, env, max_steps=a.max_steps, on_step=show)
     except ValueError as e:
-        return _fail(str(e))
+        return fail(str(e))
     finally:
         close()
     if a.json:
@@ -148,8 +149,10 @@ def run_main(argv) -> int:
     return 0 if res.done else 1
 
 
-def _fail(msg: str) -> int:
+def _fail(msg: str, as_json: bool = False) -> int:
     print(f"legato: {msg}", file=sys.stderr)
+    if as_json:
+        print(json.dumps({"done": False, "failed": True, "answer": "", "error": msg}))
     return 2
 
 
