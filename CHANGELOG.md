@@ -4,7 +4,7 @@
 
 One agent, four ways in, and one command to set it up.
 
-- **Planner notes and shell:** `Planner(..., style="point", notes=True)` lets the planner keep notes that are given
+- **Planner notes and shell:** a planner with `style="point"` keeps notes (`notes=False` turns them off). It can write notes that are given
   back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
   the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
   (`shell_name` says which shell that is).
