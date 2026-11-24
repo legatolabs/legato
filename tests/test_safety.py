@@ -212,6 +212,7 @@ def test_doctor_reports_permissions(monkeypatch, capsys):
     from legato import doctor
     monkeypatch.setattr(doctor, "_docker", lambda: {"ok": False, "fix": "x"})
     monkeypatch.setattr(doctor, "_has", lambda m: True)
+    monkeypatch.setattr(doctor, "window_capture", lambda app, perms: {"ok": None, "state": "not checked", "fix": None})
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(safety, "permissions", lambda: {
         "accessibility": {"ok": True, "fix": None},
