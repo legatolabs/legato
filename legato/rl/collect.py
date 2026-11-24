@@ -38,7 +38,10 @@ PHASE_WAIT = {"after_reset": 60.0, "before_eval": 20.0}   # OSWorld's fixed wait
 
 @dataclass
 class DesktopConfig:
-    backend: str = "osworld"          # "osworld" (Docker/QEMU VMs on this host) or "fake" (tests, trainer dev)
+    backend: str = "osworld"          # "osworld" (Docker/QEMU VMs on a Linux host with KVM), "fake" (no VMs: wiring
+                                      # and tests), "local" (this computer's screen, legato.rl.local) or your own class:
+                                      # "path/to/file.py:Class" or "module:Class" (see Desktop)
+    options: dict = field(default_factory=dict)   # keyword arguments for your own class, or for "local"
     osworld_path: str = ""            # an OSWorld checkout (desktop_env, mm_agents, evaluation_examples)
     ready_signal: bool = True         # wait for the screen instead of fixed sleeps
     fast_reset: bool = True           # keep the VM up and restore task state, instead of a snapshot revert
@@ -69,6 +72,96 @@ class CollectError(RuntimeError):
     def __init__(self, message: str, summary: dict):
         super().__init__(message)
         self.summary = summary
+
+
+NEEDS_LINUX = ("OSWorld runs its desktops as VMs on a Linux host with KVM"
+               + ("" if sys.platform.startswith("linux") else f", so it cannot run on this machine ({sys.platform})")
+               + "; to try legato rl without VMs pass --backend fake (docs/rl.md, \"Try it in two minutes\")")
+
+
+class Desktop:
+    """The interface of a desktop backend, and a base class with the optional parts filled in. Subclass it (or write
+    any class with these methods) and pass it as `--backend path/to/file.py:Class` or
+    `DesktopConfig(backend="module:Class", options={...})`; each worker process builds its own with `Class(**options)`.
+
+    An action is what the harness produced: with `--harness legato` or `reference`, a `Code` (pyautogui code as a
+    string, with the parsed `legato.Action` in `.action`); with `qwen`, QwenAgent's pyautogui code. "DONE" and "FAIL"
+    end the episode: return done=True for them."""
+
+    instruction: str = ""                 # the task as the policy is told it; set it in reset()
+    reward_source: str = ""               # where evaluate()'s number comes from, written on every rollout
+
+    def reset(self, task: dict) -> dict | None:
+        """Put the environment in the task's start state and set self.instruction. `task` is the task's object from
+        tasks.json, plus "_attempt". May return timing ({"total_s": ...})."""
+        raise NotImplementedError
+
+    def observe(self) -> dict:
+        """{"screenshot": PNG bytes} of the screen now."""
+        raise NotImplementedError
+
+    def act(self, action: Any) -> tuple[dict, bool, dict | None]:
+        """Run one action; return (the observation after it, done, timing or None)."""
+        raise NotImplementedError
+
+    def evaluate(self) -> float:
+        """The reward of the attempt that just ended."""
+        raise NotImplementedError
+
+    def wait_after_reset(self) -> dict | None:
+        return None
+
+    def wait_before_eval(self) -> dict | None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+class Code(str):
+    """An action as pyautogui code (what OSWorld runs), carrying the parsed legato.Action it came from."""
+    action: Any = None
+
+
+BUILTIN_BACKENDS = ("osworld", "fake", "local")
+
+
+def load_backend(spec: str) -> type:
+    """The class named by `path/to/file.py:Class` or `module:Class`. Raises SetupError, in one line, when it cannot
+    be loaded."""
+    where, sep, name = spec.rpartition(":")
+    if not sep or not where or not name:
+        raise SetupError(f"--backend {spec}: use osworld, fake, local, path/to/file.py:Class or module:Class")
+    try:
+        if where.endswith(".py"):
+            path = Path(where).expanduser().resolve()
+            if not path.is_file():
+                raise SetupError(f"--backend {spec}: no file {path}")
+            mod_spec = importlib.util.spec_from_file_location(f"legato_rl_backend_{path.stem}", path)
+            mod = importlib.util.module_from_spec(mod_spec)
+            sys.modules[mod_spec.name] = mod
+            mod_spec.loader.exec_module(mod)
+        else:
+            if "" not in sys.path and os.getcwd() not in sys.path:
+                sys.path.insert(0, os.getcwd())          # a module beside the tasks file, as `python -m` would find it
+            mod = importlib.import_module(where)
+    except SetupError:
+        raise
+    except Exception as e:  # noqa: BLE001  the user's file: say what it raised, in one line
+        raise SetupError(f"--backend {spec}: cannot import {where}: {type(e).__name__}: {str(e)[:200]}") from e
+    cls = getattr(mod, name, None)
+    if cls is None:
+        raise SetupError(f"--backend {spec}: {where} has no {name}")
+    missing = [m for m in ("reset", "observe", "act", "evaluate") if not callable(getattr(cls, m, None))]
+    if missing:
+        raise SetupError(f"--backend {spec}: {name} has no {', '.join(missing)} (the interface: legato.rl.Desktop)")
+    return cls
+
+
+def resolve_backend(spec: str) -> str:
+    """A backend spec the worker processes can load from any directory: a file's path made absolute."""
+    where, sep, name = spec.rpartition(":")
+    return f"{Path(where).expanduser().resolve()}:{name}" if sep and where.endswith(".py") else spec
 
 
 SPAWN_GUARD = ('each worker process imports your script again (the "spawn" start method, the default on macOS and '
@@ -110,14 +203,19 @@ def _importable(name: str, path: str) -> bool:
 
 def preflight(desktop: DesktopConfig, harness: HarnessConfig) -> None:
     """Raise SetupError when the harness or the desktop cannot load on this machine, naming the fix."""
+    if desktop.backend == "osworld" and not _importable("desktop_env", desktop.osworld_path):
+        raise SetupError("the osworld backend (the default) needs OSWorld's desktop_env, which is not importable here: "
+                         f"pass --osworld PATH (an OSWorld checkout). {NEEDS_LINUX}")
     if harness.name == "qwen" and not _importable("mm_agents", desktop.osworld_path):
-        fix = ("--harness fake (the fake desktop's own) or --harness legato" if desktop.backend == "fake"
+        fix = ("--harness legato" if desktop.backend != "osworld"
                else "--osworld PATH (an OSWorld checkout), or --harness legato")
         raise SetupError(f"the qwen harness is OSWorld's QwenAgent, and OSWorld's mm_agents is not importable here; "
-                         f"pass {fix}")
-    if desktop.backend == "osworld" and not _importable("desktop_env", desktop.osworld_path):
-        raise SetupError("the osworld backend needs OSWorld's desktop_env, which is not importable here; pass --osworld "
-                         "PATH (an OSWorld checkout), or --backend fake to run without VMs")
+                         f"pass {fix}" + (f". {NEEDS_LINUX}" if desktop.backend == "osworld" else ""))
+    if desktop.backend == "local":
+        from legato.rl.local import check
+        check(desktop, harness)
+    elif desktop.backend not in BUILTIN_BACKENDS:
+        load_backend(desktop.backend)
 
 
 # ---------------------------------------------------------------- desktops
@@ -137,6 +235,7 @@ class OSWorldDesktop:
                                     reset_mode="revert")
         self.env.wait_mode = "ready" if cfg.ready_signal else "fixed"
         self.task_cfg, self.last_grade = None, None
+        self.reward_source = "osworld evaluator"
 
     def reset(self, task: dict) -> dict:
         self.env.reset_mode = "fast" if self.cfg.fast_reset else "revert"
@@ -145,6 +244,7 @@ class OSWorldDesktop:
         t = time.perf_counter()
         self.env.reset(task_config=cfg)
         self.instruction, self.task_cfg, self.last_grade = cfg["instruction"], cfg, None
+        self.reward_source = "legato grader" if cfg.get("legato_grader") else "osworld evaluator"
         return dict(self.env.timing, total_s=time.perf_counter() - t)
 
     def _config(self, task: dict) -> dict:
@@ -189,6 +289,11 @@ def make_desktop(cfg: DesktopConfig):
     if cfg.backend == "fake":
         from legato.rl.fake import FakeDesktop
         return FakeDesktop(cfg)
+    if cfg.backend == "local":
+        from legato.rl.local import LocalDesktop
+        return LocalDesktop(**cfg.options)
+    if cfg.backend != "osworld":
+        return load_backend(cfg.backend)(**cfg.options)
     return OSWorldDesktop(cfg)
 
 
@@ -232,9 +337,15 @@ def _pg_key(k: str) -> str:
     return k.lower() if len(k) > 1 or k.isalpha() else k
 
 
-def to_pyautogui(a) -> str:
-    """A legato Action as OSWorld pyautogui code (or OSWorld's special tokens). None is the reference loop's
-    screenshot action: a no-op, so the desktop returns a fresh screenshot."""
+def to_pyautogui(a) -> Code:
+    """A legato Action as OSWorld pyautogui code (or OSWorld's special tokens), with the Action in `.action`. None is
+    the reference loop's screenshot action: a no-op, so the desktop returns a fresh screenshot."""
+    code = Code(_pyautogui(a))
+    code.action = a
+    return code
+
+
+def _pyautogui(a) -> str:
     if a is None:
         return "pass"
     t = a.type
@@ -295,7 +406,8 @@ class ComputerToolHarness:
         self.plan = p = self.h.decide(self.ep)
         actions = [to_pyautogui(a) for a in p.actions]
         if p.done or p.failed:
-            actions.append("DONE" if p.done else "FAIL")
+            from legato.actions import Action
+            actions.append(to_pyautogui(Action("done" if p.done else "fail")))
         payload = {"messages": p.messages, "max_tokens": self.h.max_tokens, "temperature": self.h.temperature,
                    "top_p": None}
         return "\n".join(p.reply), actions, [(payload, p.rec)]
@@ -379,11 +491,11 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
     timing = {"reset_s": 0.0, "wait_after_reset_s": 0.0, "model_s": 0.0, "act_s": 0.0, "wait_s": 0.0, "obs_s": 0.0,
               "wait_before_eval_s": 0.0, "eval_s": 0.0}
     try:
-        r = desk.reset({**job["task"], "_attempt": job["attempt"]})
+        r = desk.reset({**job["task"], "_attempt": job["attempt"]}) or {}
         timing["reset_s"] = r.get("total_s", 0.0) - r.get("base_s", 0.0) - r.get("watcher_s", 0.0)
         rec["reset"] = r
         harness.reset()
-        w = desk.wait_after_reset()
+        w = desk.wait_after_reset() or {}
         timing["wait_after_reset_s"] = w.get("wait_s", 0.0)
         obs, done, i = desk.observe(), False, 0
         while not done and i < opts["max_steps"]:
@@ -430,10 +542,14 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
             for a in actions:
                 ta = time.perf_counter()
                 obs, done, lg = desk.act(a)
+                lg = lg or {}
                 if hasattr(harness, "observed"):
                     harness.observed(obs)
                 wt = lg.get("wait") or {}
-                step["actions"].append({"action": str(a)[:300], "step_s": time.perf_counter() - ta,
+                parsed = getattr(a, "action", None)
+                step["actions"].append({"action": str(a)[:300],
+                                        **({"parsed": parsed.to_dict()} if hasattr(parsed, "to_dict") else {}),
+                                        "step_s": time.perf_counter() - ta,
                                         "act_s": lg.get("act_s"), "wait_s": wt.get("wait_s"), "ready_s": wt.get("ready_s"),
                                         "obs_s": lg.get("obs_s")})
                 timing["act_s"] += lg.get("act_s") or 0.0
@@ -444,10 +560,11 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
             rec["steps"].append(step)
             i += 1
         if rec["status"] in ("ok", "truncated"):
-            w = desk.wait_before_eval()
+            w = desk.wait_before_eval() or {}
             timing["wait_before_eval_s"] = w.get("wait_s", 0.0)
             te = time.perf_counter()
-            rec["reward"] = desk.evaluate()
+            rec["reward"] = float(desk.evaluate())
+            rec["reward_source"] = getattr(desk, "reward_source", "") or opts.get("backend") or type(desk).__name__
             timing["eval_s"] = time.perf_counter() - te
             if getattr(desk, "last_grade", None) is not None:
                 rec["grade"] = desk.last_grade
@@ -540,9 +657,12 @@ def collect(tasks: list[dict], policy: PolicyConfig, out: str | Path, desktops: 
     if getattr(mp.current_process(), "_inheriting", False):   # a worker importing the script that called us
         raise RuntimeError(f"collect() ran while a worker process was starting: {SPAWN_GUARD}")
     desktop, harness = desktop or DesktopConfig(), harness or HarnessConfig()
+    desktop = dataclasses.replace(desktop, backend=resolve_backend(desktop.backend))
     if start_stagger_s is None:
         start_stagger_s = 2.0 if desktop.backend == "osworld" else 0.0
     preflight(desktop, harness)
+    if desktop.backend == "local" and desktops != 1:
+        raise SetupError("--backend local drives this computer's one screen: pass --desktops 1")
     t = given_temperature(policy, harness)
     if t is not None and policy.temperature is None:          # given in extra_body or the harness options
         policy = dataclasses.replace(policy, temperature=t)
@@ -556,7 +676,7 @@ def collect(tasks: list[dict], policy: PolicyConfig, out: str | Path, desktops: 
     for j in jobs:
         q.put(j)
     opts = {"max_steps": max_steps, "rollout_timeout_s": rollout_timeout_s, "env_retries": env_retries,
-            "model": policy.model, "version": policy.version}
+            "model": policy.model, "version": policy.version, "backend": desktop.backend}
     results = out / "rollouts.jsonl"
     t_start = time.time()
     meta = {"started": t_start, "tasks": len(tasks), "group": group, "oversample": oversample,

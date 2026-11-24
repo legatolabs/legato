@@ -16,6 +16,7 @@ What it adds over a plain client:
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
 import threading
@@ -27,6 +28,33 @@ import httpx
 
 RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 BUSY_STATUS = {429, 503}               # "come back later": waited out for up to busy_wait_s, honouring Retry-After
+
+
+PROBE_TOOL = {"type": "function", "function": {
+    "name": "click", "description": "Click a point on the screen.",
+    "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                   "required": ["x", "y"]}}}
+
+
+def probe_verdict(p: dict) -> list[str]:
+    """What a server can be used for, in words, from PolicyClient.probe()'s result."""
+    lines = []
+    if p.get("vision", True):
+        lines.append("evaluation and data collection: yes")
+    else:
+        lines.append(f"evaluation and data collection: no, the model did not take an image ({p.get('vision_error')}). "
+                     "Every step sends a screenshot: use a model with image input")
+    if p["logprobs"]:
+        lines.append("policy-gradient training (GRPO): yes, it returns logprobs"
+                     + (" and token ids" if p["token_ids"] else "; no token ids, so re-tokenize response_text"))
+    else:
+        lines.append("policy-gradient training (GRPO): no, it returns no logprobs; use vLLM or another server that "
+                     "does (docs/rl.md, \"GRPO with a local vLLM server\")")
+    if "tool_calls" in p:
+        lines.append("tool calls: yes" if p["tool_calls"] else
+                     f"tool calls: no ({p.get('tool_calls_error')}). With --harness legato, ask for actions as JSON "
+                     "in the reply instead: \"native_tools\": false in --harness-opts")
+    return lines
 
 
 @dataclass
@@ -320,13 +348,33 @@ class PolicyClient:
         }
 
     def probe(self) -> dict:
-        """Check the server once: does it return logprobs, token ids and cached-token counts?"""
+        """Check the server with five small requests: does it return logprobs, token ids and cached-token counts,
+        does the model take an image, and does it answer with a tool call? Raises PolicyError when the plain text
+        request fails (a wrong URL, key or model name). `vision_error` and `tool_calls_error` say why those failed."""
+        from legato.rl.fake import tiny_png
         msgs = [{"role": "user", "content": "legato probe " + " ".join(f"w{i}" for i in range(300))}]
         a = self.chat(msgs, max_tokens=4, temperature=0.0)
         b = self.chat(msgs, max_tokens=4, temperature=0.0)
-        return {"logprobs": bool(a["logprobs"]), "token_ids": a["token_ids"] is not None and self.cfg.token_ids,
-                "cached_tokens_reported": b["usage"]["cached"] is not None, "cached_on_repeat": b["usage"]["cached"],
-                "call_s": round(b["s"], 3)}
+        out = {"logprobs": bool(a["logprobs"]), "token_ids": a["token_ids"] is not None and self.cfg.token_ids,
+               "cached_tokens_reported": b["usage"]["cached"] is not None, "cached_on_repeat": b["usage"]["cached"],
+               "call_s": round(b["s"], 3)}
+        img = "data:image/png;base64," + base64.b64encode(tiny_png(1, 64, 64)).decode()
+        try:
+            self.chat([{"role": "user", "content": [{"type": "image_url", "image_url": {"url": img}},
+                                                    {"type": "text", "text": "Reply with the word ok."}]}],
+                      max_tokens=16, temperature=0.0)
+            out["vision"] = True
+        except PolicyError as e:
+            out["vision"], out["vision_error"] = False, str(e)
+        try:
+            t = self.chat([{"role": "user", "content": "Call the click tool at x=10, y=20."}], max_tokens=1024,
+                          temperature=0.0, tools=[PROBE_TOOL], tool_choice="auto")
+            out["tool_calls"] = bool(t["tool_calls"])
+            if not t["tool_calls"]:
+                out["tool_calls_error"] = "the model answered without calling the tool it was asked to call"
+        except PolicyError as e:
+            out["tool_calls"], out["tool_calls_error"] = False, str(e)
+        return out
 
     def close(self) -> None:
         self.http.close()

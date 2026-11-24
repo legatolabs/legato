@@ -133,6 +133,17 @@ From the persona tests (six simulated launch users on a real Mac):
 - **Exported samples keep tool calls:** `response_text` includes the action. New fields: `response_content`,
   `response_tool_calls`, `tokens_cover_response`, `finish_reason`, `sampling`.
 - The fake desktop's reward can be set with `--fake-opts`, and help text says `legato rl`.
+- **`legato rl` works on a first try without VMs, and says what needs what.** docs/rl.md opens with "Try it in two
+  minutes, without VMs". `--backend fake` now runs `legato.Harness`, so the recorded actions are the model's own (the
+  old default clicked (10, 10) whatever the model said), and its reward is labelled fake in the records, the export
+  and the report. `legato rl probe` also sends an image and a tool call, says in words what the server is good for
+  (evaluation, policy-gradient training) and exits 1 for a model without image input; `collect --require-logprobs`
+  stops before any rollout when the server returns none. Every JSON option takes `@file.json` (PowerShell drops the
+  quotes inside an argument), and a bad one, a wrong model or URL, or a missing tasks file is one line, not a
+  traceback. `--backend path/to/file.py:Class` runs your own environment (`legato.rl.Desktop`,
+  `examples/rl_custom_backend.py`), and `--backend local` runs this computer's screen with your reset and grading.
+  The export gains `actions` (with the parsed action) and `reward_source`. OSWorld's errors say it needs Linux with
+  KVM. `legato bench --help` lists its commands.
 
 ## 0.3.0
 

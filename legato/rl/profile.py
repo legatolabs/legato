@@ -51,6 +51,7 @@ def summarize(rollouts: list[dict], wall_s: float | None = None, group: int | No
         "full_response_coverage": sum(1 for c in covers if c) / len(covers) if covers else None,   # tool calls included
         "groups_full": sum(1 for n in groups.values() if group and n >= group) if group else None,
         "groups": len({r["group_id"] for r in rollouts}),
+        "reward_sources": sorted({r["reward_source"] for r in done if r.get("reward_source")}),
     }
 
 
@@ -69,4 +70,7 @@ def report(s: dict) -> str:
              f"prefix cache hit {f(s['prefix_cache_hit'], True)}; steps with logprobs {f(s['logprob_coverage'], True)}, "
              f"with token ids {f(s['token_id_coverage'], True)}, "
              f"whose tokens cover the whole response {f(s.get('full_response_coverage'), True)}"]
+    if "fake" in (s.get("reward_sources") or []):
+        lines.append("rewards are FAKE: the fake desktop returns the number in the task file or --fake-opts, whatever "
+                     "the model did. Success and mean reward above measure nothing.")
     return "\n".join(lines)
