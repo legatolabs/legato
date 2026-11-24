@@ -1332,3 +1332,45 @@ def test_browsers_other_than_safari_are_refused_in_a_window_of_their_own():
     for app in ("Safari", "com.apple.Safari", "TextEdit", "Calculator", "Knowledge Base", "Research"):
         assert not other_browser(app), app
     BackgroundEnv("Firefox", mac=FakeMac(), confirm=None, window="front")
+
+
+def test_opening_its_own_window_gives_the_front_back():
+    """Safari came to the front as a tester's desktop opened its window, and stayed there."""
+    m = Browser()
+    real = m.perform
+
+    def press(el, action):
+        if action == "AXPress" and el.role == "AXMenuItem":
+            m.front = m.pid                                # the app took the front as its window opened
+        return real(el, action)
+    m.perform = press
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    assert e.kind == "window" and m.front == 999 and m.activated == [999]
+
+
+def test_another_desktops_window_is_never_taken_even_after_it_closes_or_from_another_process():
+    """A live check (two processes in one Safari) found A acting in its window took B's: B had closed it, and macOS
+    still listed it. Windows another desktop took stay its own, in this process or another, and a closed one stays
+    nobody's while macOS lists it."""
+    import os
+
+    import legato.background as bg
+    m = Browser()
+    a = BackgroundEnv("Safari", mac=m, confirm=None)
+    b = BackgroundEnv("Safari", mac=m, confirm=None)
+    theirs = b.own[0]
+    a._acting = True
+    a.window()
+    assert theirs not in a.own
+    b.close()                                              # closed, but the fake (like macOS) still lists it
+    a.window()
+    assert a.own == [a.own[0]] and theirs not in a.own
+    c = BackgroundEnv("Safari", mac=m, confirm=None)       # a new desktop, acting: the closed window is nobody's
+    c._acting = True
+    c.window()
+    assert theirs not in c.own
+    m.wins.insert(0, {"id": 77, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0, "layer": 0})
+    bg._mark(f"{m.pid}-77")                                # taken by another live Legato process
+    (bg._windows_dir() / f"{m.pid}-77").write_text(str(os.getppid()))
+    a.window()
+    assert 77 not in a.own and a._taken(77) and not c._taken(c.own[0])

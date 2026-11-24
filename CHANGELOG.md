@@ -68,7 +68,8 @@ From the persona tests (six simulated launch users on a real Mac):
   ignores background clicks on web pages. `legato init` refuses them too; `window="front"` still works.
 - **Two Legato processes in one app keep to their own windows.** Their claims were per process, so a Safari window
   another process had just opened was taken as one this run's action opened, and clicked. They are now shared
-  through `~/.cache/legato/windows`.
+  through `~/.cache/legato/windows`; a window another desktop took is never this one's, and one it closed (macOS
+  still lists it for a moment) is nobody's. Opening its own window gives the front back if the app took it.
 - **Typed text goes in as written** in background apps other than browsers, through Accessibility: TextEdit had
   capitalised a typed list ("alpha" to "Alpha"), and the run spent 2.5 minutes retyping it; the same list now takes
   5 s. A field's newline is still Return.

@@ -191,7 +191,10 @@ def _alive(pid: int) -> bool:
 _SWEPT: list = []
 
 
-def _mark(name: str) -> None:
+CLOSED_S = 120.0     # a window a desktop closed stays listed by macOS for a while: nobody takes it in that time
+
+
+def _mark(name: str, what: str = "") -> None:
     """Note for other Legato processes that this one owns `name` ("<app pid>-<window id>") or is opening a window in
     an app ("making-<app pid>-<this pid>"). Two Legato processes in one Safari took each other's new windows."""
     import os
@@ -202,11 +205,12 @@ def _mark(name: str) -> None:
             _SWEPT.append(True)
             for f in d.iterdir():
                 try:
-                    if not _alive(int(f.read_text() or 0)):
+                    said = f.read_text()
+                    if (time.time() - f.stat().st_mtime > CLOSED_S) if said == "closed" else not _alive(int(said or 0)):
                         f.unlink()
                 except (OSError, ValueError):
                     pass
-        (d / name).write_text(str(os.getpid()))
+        (d / name).write_text(what or str(os.getpid()))
     except OSError:
         pass
 
@@ -230,7 +234,12 @@ def _theirs(app_pid: int, wid: int, making: bool = True) -> bool:
     for name in names:
         try:
             f = d / name
-            owner = int(f.read_text() or 0)
+            said = f.read_text()
+            if said == "closed":                  # closed by its desktop, maybe still listed: nobody's to take
+                if time.time() - f.stat().st_mtime < CLOSED_S:
+                    return True
+                continue
+            owner = int(said or 0)
             if name.startswith("making-") and time.time() - f.stat().st_mtime > 15:
                 continue                          # a marker left by a process that died while opening
         except (OSError, ValueError):
@@ -605,7 +614,9 @@ class BackgroundEnv(LocalEnv):
         self.waiter = Waiter(self._digest, rules=LOCAL_RULES)
         self.last_front: dict = {}
         if window == "own":
+            before = self.m.front_pid()
             self._open_own()
+            self.give_back_front(before)          # Safari came to the front as a tester's desktop opened, and stayed
 
     # ------------------------------------------------------------ its own window
     def _open_own(self) -> None:
@@ -672,6 +683,14 @@ class BackgroundEnv(LocalEnv):
         if wid not in self.own:
             self.own.append(wid)
         self.known.discard(wid)
+
+    def _taken(self, wid: int) -> bool:
+        """Has another desktop, in this process or another, taken window `wid` (or closed it)?"""
+        pid = getattr(self.m, "pid", 0)
+        with _LOCK:
+            if _CLAIMS.get((pid, wid), id(self)) != id(self):
+                return True
+        return _theirs(pid, wid, making=False)
 
     def _others(self, wid: int) -> bool:
         """Is window `wid` another desktop's, or about to be (one is opening a window in this app)?"""
@@ -747,8 +766,11 @@ class BackgroundEnv(LocalEnv):
             wid = w["id"]
             if k is False or wid in self.own or wid in self.known:
                 continue
+            if self._taken(wid):
+                self.known.add(wid)               # another desktop's: never this one's, even once it lets go
+                continue
             if self._others(wid):
-                continue                          # another desktop's, or about to be: decided on a later look
+                continue                          # about to be another desktop's: decided on a later look
             if self._acting or self._sheet_of_own(w):
                 self._claim(wid)
             else:
@@ -1062,7 +1084,7 @@ class BackgroundEnv(LocalEnv):
         with _LOCK:
             for wid in self.own:
                 if _CLAIMS.pop((getattr(self.m, "pid", 0), wid), None) is not None:
-                    _unmark(f"{getattr(self.m, 'pid', 0)}-{wid}")
+                    _mark(f"{getattr(self.m, 'pid', 0)}-{wid}", "closed")
 
     def _screen(self, x: float, y: float) -> tuple[float, float]:
         w = self.win or self.window()
