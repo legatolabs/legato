@@ -1,8 +1,7 @@
 # Set up Legato
 
 Legato is a fast, open-source computer-use agent: it uses a computer (clicks, types, reads the screen) with the model
-you choose, on the computer you choose: your Mac, a container, or a cloud sandbox (E2B, Daytona, Modal, Namespace or
-your own). Setup takes about two minutes.
+you choose. Setup takes about two minutes.
 
 **On a Mac, with no code:** [download Legato for Mac](https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg),
 open it and follow its first screen. The rest of this page is for the terminal and for coding agents.
@@ -43,11 +42,10 @@ You are setting Legato up on your user's computer. Run the commands yourself; as
    - `--desktop screen`: the Mac's whole screen.
    - `--desktop docker`: a desktop container on this machine that cannot touch their screen or files (needs Docker).
    - `--desktop e2b`: an E2B cloud desktop (`pip install "legatolabs[e2b]"` and `E2B_API_KEY`).
-   - **Their own cloud sandbox** (Daytona, Modal, Namespace, a VM over SSH, any Linux machine you can run a command
-     in): copy the provider's recipe from [Cloud sandboxes](sandboxes.md#cloud-sandboxes) into
-     `~/.config/legato/desktop.py`, install the provider's package and ask the user for its key (never make one up).
-     Check it with `legato run --sandbox ~/.config/legato/desktop.py:desktop "Open a terminal and type hello"`, then
-     save it as the default: `legato setup --yes --desktop ~/.config/legato/desktop.py:desktop`.
+   - **Their own sandbox or VM** (any Linux machine with a screen that you can run a command in): a function that
+     starts it and returns `legato.attach(shell=run)` ([Desktops](sandboxes.md)). Check it with
+     `legato run --sandbox path/to/desktop.py:desktop "Open a terminal and type hello"`, then save it as the default:
+     `legato setup --yes --desktop path/to/desktop.py:desktop`.
 5. **Give yourself a computer too.** Add `--mcp claude` (or `codex`, `cursor`, `claude-desktop`, `all`) to add
    Legato's MCP server to that client. Tell the user to restart the client (in Claude Code: a new session, or
    `/mcp`) so the `desktop_*` tools appear.

@@ -246,3 +246,54 @@ def test_setup_refuses_a_sandbox_function_it_cannot_find(no_machine, monkeypatch
     assert main(["setup", "--yes", "--no-check", "--provider", "openrouter", "--api-key", "-",
                  "--desktop", "box.py:desktop"]) == 2
     assert "cannot use that desktop" in capsys.readouterr().err and not own_config.exists()
+
+
+def test_legato_run_with_no_flags_runs_in_your_saved_sandbox(monkeypatch, own_config, tmp_path, capsys):
+    """The whole path: setup saved a sandbox function; `legato run "task"` opens it, the model acts, it closes it."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    replies = [{"action": "left_click", "coordinate": [10, 10]}, {"action": "done", "text": "hello"}]
+    seen = []
+
+    class Model(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            seen.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            call = {"id": f"c{len(seen)}", "type": "function",
+                    "function": {"name": "computer", "arguments": json.dumps(replies.pop(0))}}
+            out = json.dumps({"choices": [{"message": {"content": "", "tool_calls": [call]}}],
+                              "usage": {"prompt_tokens": 10, "completion_tokens": 3}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Model)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    box = tmp_path / "box.py"
+    box.write_text('''
+from pathlib import Path
+import legato
+from legato.rl.fake import tiny_png
+
+LOG = Path(__file__).with_suffix(".log")
+
+def desktop(width, height):
+    LOG.open("a").write("open\\n")
+    env = legato.attach(screenshot=lambda: tiny_png(1, w=64, h=40),
+                        execute=lambda a: LOG.open("a").write(f"{a.type}\\n"))
+    return (lambda: LOG.open("a").write("close\\n")), env
+''')
+    try:
+        saved(provider="custom", model="m", base_url=f"http://127.0.0.1:{srv.server_address[1]}/v1",
+              desktop=config.desktop_spec(str(box) + ":desktop"))
+        monkeypatch.chdir(own_config.parent.parent)
+        assert main(["run", "Say hello", "--json"]) == 0
+    finally:
+        srv.shutdown()
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["done"] is True and out["answer"] == "hello"
+    assert (tmp_path / "box.log").read_text() == "open\nclick\nclose\n" and len(seen) == 2

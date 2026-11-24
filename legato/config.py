@@ -69,7 +69,7 @@ DESKTOPS: dict[str, str] = {
     "e2b": "a fresh cloud desktop on E2B (needs E2B_API_KEY)",
 }
 ALIASES = {"local": "screen", "bg": "background"}
-OWN = "your own sandbox: a Python function that starts it (a VM, Modal, Daytona, SSH...) and returns a desktop"
+OWN = "your own sandbox or VM: a Python function that starts it and returns a desktop"
 
 
 def desktop_spec(value: str) -> str:

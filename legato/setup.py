@@ -294,7 +294,7 @@ def _main(argv) -> int:
                       lambda d: C.OWN if d == "own" else C.DESKTOPS[d])
         if picked == "own":
             say("   A function that starts your sandbox and returns legato.attach(shell=run): "
-                "recipes for Modal, Daytona, Namespace and SSH at https://legato.computer/docs/sandboxes#cloud-sandboxes")
+                "https://legato.computer/docs/sandboxes")
             picked = _text("   The function, as path/to/file.py:function", desktop if C.is_own(desktop) else "")
         desktop = picked
     try:

@@ -1,8 +1,8 @@
 # Desktops: which computers Legato can drive
 
 Bring your own. Legato drives one app's window on your Mac in the background, your own screen (macOS, Windows or
-Linux), a desktop container on your machine, a cloud sandbox (E2B built in; Daytona, Modal,
-Namespace or any VM you can SSH into with a short recipe), E2B cloud desktops, or anything you can screenshot and send input to.
+Linux), a desktop container on your machine, any Linux sandbox you can run a command in (SSH, Daytona, Modal, your own
+VMs), E2B cloud desktops, or anything you can screenshot and send input to.
 
 `legato setup` saves which one `legato run`, `legato mcp` and `legato.run()` use: on a Mac the default is the
 background, elsewhere the whole screen.
@@ -34,7 +34,8 @@ def desktop(width, height):
 ```
 
 `legato run "..." --sandbox my_desktop.py:desktop` or `legato mcp --sandbox my_desktop.py:desktop`. A plain function
-works as the handle too: Legato calls it if it has none of those methods.
+works as the handle too: Legato calls it if it has none of those methods. `legato setup --desktop my_desktop.py:desktop`
+makes it the default for `legato run`, `legato mcp` and `legato.run()`; each task gets a fresh one.
 
 ## This computer
 
@@ -116,102 +117,6 @@ Docker: no key, no cloud, and the agent can't touch your own screen. The first u
 the repo. `--sandbox docker:IMAGE` uses your own image: one built `FROM ghcr.io/legatolabs/desktop` with your apps, or
 any image with an X display on `:0`, `python3`, `xdotool` and `scrot`. `LEGATO_DOCKER_ARGS` adds `docker run`
 arguments, such as `-v "$PWD:/home/user/project"` ([testing a desktop app](guides/desktop-apps.md)).
-
-## Cloud sandboxes
-
-E2B is built in (`--sandbox e2b`, with `pip install "legatolabs[e2b]"` and `E2B_API_KEY`). Any other provider works
-through a short function: start a sandbox from `ghcr.io/legatolabs/desktop` (Debian with a screen, a terminal and
-Firefox; amd64 and arm64), start its screen, and give Legato a way to run a command in it. Save one of the recipes
-below as `~/.config/legato/desktop.py`, then:
-
-```bash
-legato run --sandbox ~/.config/legato/desktop.py:desktop "Open a terminal and type hello"   # check it
-legato setup --desktop ~/.config/legato/desktop.py:desktop                                 # make it the default
-```
-
-Each task gets a fresh sandbox and deletes it at the end. To add your own apps, build an image `FROM
-ghcr.io/legatolabs/desktop` and put its name in the recipe.
-
-### Modal
-
-`pip install modal`, then `modal setup`.
-
-```python
-import modal
-import legato
-
-SCREEN = "Xvfb :0 -screen 0 {w}x{h}x24 -nolisten tcp & sleep 1; fluxbox & xterm & exec sleep infinity"
-READY = "for i in $(seq 100); do [ -e /tmp/.X11-unix/X0 ] && exit 0; sleep 0.1; done"
-
-def desktop(width, height):
-    app = modal.App.lookup("legato", create_if_missing=True)
-    image = modal.Image.from_registry("ghcr.io/legatolabs/desktop:latest")
-    sb = modal.Sandbox.create("sh", "-c", SCREEN.format(w=width, h=height), app=app, image=image, timeout=3600)
-
-    def run(cmd):
-        p = sb.exec("sh", "-c", cmd)
-        out = p.stdout.read()
-        p.wait()
-        return out
-
-    run(READY)
-    return sb.terminate, legato.attach(shell=run)
-```
-
-### Daytona
-
-`pip install "daytona[v0-sdk]>=2,<3"` and `DAYTONA_API_KEY`. Daytona needs a pinned image tag, not `latest`.
-
-```python
-import shlex
-from daytona import Daytona
-from daytona.v0 import CreateSandboxFromImageParams, Resources
-import legato
-
-IMAGE = "ghcr.io/legatolabs/desktop:9809376c1ae6ab5f95e105fea36cddcd9c9e26da"
-SCREEN = "Xvfb :0 -screen 0 {w}x{h}x24 -nolisten tcp & sleep 1; fluxbox & xterm & exec sleep infinity"
-READY = "for i in $(seq 100); do [ -e /tmp/.X11-unix/X0 ] && exit 0; sleep 0.1; done"
-
-def desktop(width, height):
-    daytona = Daytona()
-    sb = daytona.v0.create(CreateSandboxFromImageParams(image=IMAGE, resources=Resources(cpu=2, memory=4)), timeout=0)
-
-    def run(cmd):
-        return sb.process.exec(f"sh -c {shlex.quote(cmd)}").result
-
-    run(f"nohup sh -c {shlex.quote(SCREEN.format(w=width, h=height))} >/dev/null 2>&1 &")
-    run(READY)
-    return (lambda: daytona.v0.delete(sb)), legato.attach(shell=run)
-```
-
-### Namespace, or any VM you can SSH into
-
-A Debian or Ubuntu machine you can reach with `ssh` and no password prompt. The first run installs the screen;
-one shared connection keeps each action to a single round trip.
-
-```python
-import shlex, subprocess
-import legato
-
-HOST = "me@my-desktop-vm"
-SSH = ["ssh", "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/legato-%C", "-o", "ControlPersist=10m", HOST]
-INSTALL = ("command -v Xvfb >/dev/null || (sudo apt-get update -qq && "
-           "sudo apt-get install -y -qq xvfb fluxbox xterm xdotool scrot python3)")
-SCREEN = "Xvfb :0 -screen 0 {w}x{h}x24 -nolisten tcp & sleep 1; fluxbox & xterm & exec sleep infinity"
-READY = "for i in $(seq 100); do [ -e /tmp/.X11-unix/X0 ] && exit 0; sleep 0.1; done"
-
-def desktop(width, height):
-    def run(cmd):
-        return subprocess.run(SSH + [cmd], capture_output=True, text=True).stdout
-
-    run(INSTALL)
-    run(f"nohup sh -c {shlex.quote(SCREEN.format(w=width, h=height))} >/dev/null 2>&1 &")
-    run(READY)
-    return (lambda: run("pkill xterm; pkill fluxbox; pkill Xvfb")), legato.attach(shell=run)
-```
-
-On Namespace, create the machine with `nsc create`, use `["nsc", "ssh", "-T", INSTANCE_ID]` in place of `SSH`, and
-delete it with `nsc destroy INSTANCE_ID --force` when you are done.
 
 ## Any Linux sandbox
 
