@@ -24,6 +24,8 @@ From the persona tests (six simulated launch users on a real Mac):
   - With window capture stalled, a sheet (a Save or New Game dialog) is captured as itself.
   - The default browser is Safari: Chrome 158 and later ignore background clicks on a web page's elements. A task
     can still name Chrome.
+- A missing app fails at once ("NoSuchApp could not be opened: Unable to find application..."), not after 30 s;
+  `legato doctor --help` prints help.
 - **`legato rl collect --backend fake` works out of the box** (the fake harness is its default). A harness or backend
   that can't load stops before any worker starts, naming the fix, and `collect` exits 1 when no rollout completed.
 - **Sampling for GRPO:**

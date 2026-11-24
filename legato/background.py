@@ -186,7 +186,10 @@ class MacApp:
         return self._bid
 
     def _launch(self, wait_s: float) -> int:
-        subprocess.run(["open", "-g", self.flag, self.name], capture_output=True, timeout=30)    # -g: not in front
+        r = subprocess.run(["open", "-g", self.flag, self.name], capture_output=True, text=True, timeout=30)  # -g: not in front
+        if r is not None and getattr(r, "returncode", 0) != 0:                # no such app: say so now, not in 30 s
+            why = (getattr(r, "stderr", "") or "").strip().splitlines()
+            raise RuntimeError(f"{self.name} could not be opened: {why[-1] if why else 'is it installed?'}")
         end = time.monotonic() + wait_s
         while time.monotonic() < end:
             if pid := self._find():

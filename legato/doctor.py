@@ -178,6 +178,9 @@ def checks(capture: bool = False) -> dict:
 
 def main(argv=None) -> int:
     argv = list(argv or [])
+    if {"-h", "--help", "help"} & set(argv):
+        print(__doc__.strip())
+        return 0
     c = checks(capture=True)
     if "--json" in argv:
         print(json.dumps(c))

@@ -851,3 +851,16 @@ def test_mcp_desktop_read_reads_a_background_window_and_is_refused_elsewhere():
         with pytest.raises(Exception, match="only in background mode"):
             await srv.call_tool("desktop_read", {"desktop_id": did})
     asyncio.run(elsewhere())
+
+
+def test_an_app_that_does_not_exist_fails_at_once(monkeypatch):
+    """`open -a NoSuchApp` exits 1 right away: say so, instead of waiting 30 s for it to appear."""
+    import subprocess
+    import legato.background as bg
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.name, app.flag = "NoSuchApp123", "-a"
+    monkeypatch.setattr(bg.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 1, "", "Unable to find application named 'NoSuchApp123'\n"))
+    monkeypatch.setattr(app, "_find", lambda: pytest.fail("should not wait for an app that can't open"))
+    with pytest.raises(RuntimeError, match="NoSuchApp123 could not be opened: Unable to find application"):
+        app._launch(30)

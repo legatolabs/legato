@@ -123,3 +123,9 @@ def test_a_dead_local_model_server_is_not_reported_ready(models_server, monkeypa
     cfg.base_url, cfg.api_key = "https://openrouter.ai/api/v1", "k"      # not on this machine: not asked
     config.save(cfg)
     assert doctor.checks()["setup"]["server"] is None
+
+
+def test_doctor_help_prints_help_and_checks_nothing(monkeypatch, capsys):
+    from legato import doctor
+    monkeypatch.setattr(doctor, "checks", lambda **k: pytest.fail("--help must not run the checks"))
+    assert doctor.main(["--help"]) == 0 and "legato doctor" in capsys.readouterr().out
