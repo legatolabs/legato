@@ -2,6 +2,21 @@
 
 ## 0.3.1
 
+- **Bring any model, checked the way a run uses it.** `legato setup` now tries the model with the agent's own prompt,
+  a test screenshot and the `computer` tool (it was a one-word colour question, which passed models that then failed
+  every run with "No endpoints found that support tool use"). A model that takes images but no tool calls is asked
+  for its actions as JSON instead; that and the coordinates its click used (pixels or the 0–1000 grid) are saved in
+  the config (`tool_calls`, `coords`; `legato setup --coords`), so `legato run`, `legato mcp` and `legato.run()` use
+  them. `Harness` also switches to JSON actions by itself when a server refuses tool calls. A text-only model is
+  refused in plain words ("this model does not accept images; Legato needs a vision model") with two that work.
+- **`legato doctor --model [NAME]`** tries the saved or a named model: answers, accepts images, makes tool calls,
+  where its click lands, each with its fix (exit 1 when it cannot be used; `--json` has `model_check`).
+- **What is true about setup:** with no setup and a key in the environment, `legato` and `legato doctor` say the
+  default model is in use and that `legato setup` saves a choice, and `legato init` takes that default without
+  asking. A setup that saved no key says what is missing instead of "Next: legato run". `--provider local` with no
+  server names the three it looked for and how to start one, at once. Key hints use PowerShell's form on Windows.
+  `legato doctor`, `legato run` and `report()` print " - " in place of the middle dot where stdout is not UTF-8
+  (a Windows pipe showed it as another character).
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
   updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
   a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs

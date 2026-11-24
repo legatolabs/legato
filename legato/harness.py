@@ -118,6 +118,24 @@ ANSWER_ASK = ("You called done without the answer. This is the screen now: if th
 CUT_OFF_NOTE = ("Your last reply reached the token limit before you called the tool, so nothing happened. Keep your "
                 "reasoning short and call the tool now.")
 
+# Added to the system prompt for a model without tool calls (native_tools=False): how to write the call instead.
+JSON_NOTE = ("\nThis model has no tool calling here, so write each `computer` call as one JSON object in your reply "
+             'instead, for example {"action": "left_click", "coordinate": [x, y]} or {"action": "type", "text": "hello"} '
+             'or {"action": "done", "text": "the answer"}. Write nothing after the last object.')
+PLAN_JSON_NOTE = ("\nThis model has no tool calling here, so write the `plan` call as one JSON object in your reply "
+                  'instead: {"steps": [{"action": "left_click", "coordinate": [x, y], "text": "label"}, ...]}. Write '
+                  "nothing after it.")
+_NO_TOOLS = re.compile(r"support\w* (for )?(tool|function)|(tool|function)[\w \"'`-]{0,40}(not|un)\s?support|"
+                       r"enable-auto-tool-choice|tool-call-parser", re.I)
+
+
+def no_tool_calls(error: str) -> bool:
+    """Does a failed call's error say the model or server takes no tool calls (OpenRouter's "No endpoints found that
+    support tool use", vLLM without a tool-call parser, Ollama's "does not support tools")? Harness then asks for
+    the actions as JSON in the reply (native_tools=False) instead."""
+    return bool(_NO_TOOLS.search(error or "")) and not re.search(r"HTTP (401|403|429)\b", error or "")
+
+
 COORDS = {"norm1000": "Coordinates are [x, y] on a 0-1000 scale of the screenshot's width and height (origin top-left).",
           "pixels": "Coordinates are [x, y] in pixels of the screenshot (origin top-left)."}
 
@@ -353,12 +371,14 @@ class RunResult:
             head = f"{status} in {self.wall_s:.1f} s, {counts}"
         else:                                            # the error first, then how long it took
             head = f"{self.error} (after {self.wall_s:.1f} s, {counts})"
-        return (f"{head}\n"
-                f"model {tot['model_s']:.1f} s ({share(tot['model_s'])}) · actions {tot['act_s']:.1f} s "
-                f"({share(tot['act_s'])}) · waiting for the screen {tot['settle_s']:.1f} s ({share(tot['settle_s'])}) · "
-                f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])}) · "
-                + (f"tools {tot['tool_s']:.1f} s ({share(tot['tool_s'])}) · " if tot["tool_s"] else "")
-                + f"other {other:.1f} s")
+        from legato.config import dot
+        parts = [f"model {tot['model_s']:.1f} s ({share(tot['model_s'])})",
+                 f"actions {tot['act_s']:.1f} s ({share(tot['act_s'])})",
+                 f"waiting for the screen {tot['settle_s']:.1f} s ({share(tot['settle_s'])})",
+                 f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])})"]
+        if tot["tool_s"]:
+            parts.append(f"tools {tot['tool_s']:.1f} s ({share(tot['tool_s'])})")
+        return f"{head}\n" + dot().join(parts + [f"other {other:.1f} s"])
 
 
 class _Limits:
@@ -524,6 +544,8 @@ class Harness:
                 sys_text += plans.PROGRESS_NOTE
         else:
             sys_text = (self.system or SYSTEM).format(w=w, h=h, coords=COORDS[self.coords], batch=self.max_batch or "several")
+        if not self.native_tools:
+            sys_text += PLAN_JSON_NOTE if self.plan_mode else JSON_NOTE
         if self.tools and not self.plan_mode:
             sys_text += "\n" + self._tools_prompt()
         n_img = sum(len(t.get("pngs") or [t["png_b64"]]) for t in turns if t["role"] == "user")
@@ -659,9 +681,16 @@ class Harness:
             tools = [computer_tool(names)] + [t.spec() for t in self.tools.values()] if self.native_tools else None
         # Claude caches only where asked: OpenRouter's automatic caching (one top-level marker that follows the end of
         # the conversation) stands in for the reference implementation's per-turn breakpoints
-        rec = self._chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,
-                               tool_choice="auto" if tools else None,
-                               extra={"cache_control": {"type": "ephemeral"}} if self.cache else None)
+        try:
+            rec = self._chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,
+                             tool_choice="auto" if tools else None,
+                             extra={"cache_control": {"type": "ephemeral"}} if self.cache else None)
+        except PolicyError as e:
+            if not tools or not no_tool_calls(str(e)):
+                raise
+            # this model or server takes no tool calls: ask for the actions as JSON in the reply, from here on
+            self.native_tools = False
+            return self.decide(ep)
         if self.plan_mode:
             return self._decide_plan(rec, msgs, ep)
         calls = _named_calls(rec, tuple(self.tools))

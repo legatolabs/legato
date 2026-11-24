@@ -757,3 +757,80 @@ def test_a_done_without_the_answer_gets_one_more_turn(server):
     assert (res.status, res.done) == ("max_steps", False)    # it went on acting: the first done no longer counts
     assert asks_for_information("Tell me the top headline") and asks_for_information("How many tabs are open?")
     assert not asks_for_information("Open TextEdit and type hello") and not asks_for_information("Reload the page")
+
+
+# ------------------------------------------------------------ a model without tool calls; checking a model
+NO_TOOLS = {"http": 404, "body": {"error": {"message": 'No endpoints found that support tool use. Try disabling "computer".'}}}
+NO_IMAGES = {"http": 404, "body": {"error": {"message": "No endpoints found that support image input"}}}
+
+
+def test_a_model_without_tool_calls_is_asked_for_json_instead(server):
+    from legato.harness import no_tool_calls
+    assert no_tool_calls('HTTP 404: No endpoints found that support tool use. Try disabling "computer".')
+    assert no_tool_calls('HTTP 400: "auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set')
+    assert no_tool_calls("HTTP 400: registry.ollama.ai/library/llava:latest does not support tools")
+    assert not no_tool_calls("HTTP 401: this key does not support tools") and not no_tool_calls("HTTP 500: overloaded")
+    server["script"] = [NO_TOOLS, {"content": '{"action": "left_click", "coordinate": [10, 20]}'},
+                        {"content": '{"action": "done"}'}]
+    log = []
+    h = legato.Harness("m", server["url"])
+    res = h.run("t", fake_env(log))
+    assert res.done and [a.type for a in log] == ["click"] and h.native_tools is False
+    first, second, third = server["bodies"]
+    assert "tools" in first and "tools" not in second and "tools" not in third        # refused once, never sent again
+    assert "JSON object" in second["messages"][0]["content"] and "JSON object" not in first["messages"][0]["content"]
+
+
+def test_check_model_tries_what_a_run_needs(server):
+    from legato import config
+    server["script"] = [{"tool_calls": [tc({"action": "left_click", "coordinate": [751, 248]})]}]
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["images"], r["tool_calls"], r["coords"], r["coords_default"]) == (True, True, "native", "norm1000", "norm1000")
+    body = server["bodies"][0]                      # one call, with the screenshot and the tool, as a run sends them
+    assert len(server["bodies"]) == 1 and body["tools"][0]["function"]["name"] == "computer"
+    assert any(p.get("type") == "image_url" for p in body["messages"][1]["content"])
+    assert any("clicks in the 0-1000 grid" in line for line in config.check_lines(r))
+
+    server["script"] = [NO_TOOLS, {"content": '{"action": "left_click", "coordinate": [955, 205]}'}]
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["tool_calls"], r["coords"]) == (True, "json", "pixels")
+    lines = "\n".join(config.check_lines(r))
+    assert "it takes no tool calls here" in lines and "--coords pixels" in lines
+
+    server["script"] = [{"content": "I would click the red square."}, {"content": '{"action": "left_click", "coordinate": [750, 250]}'}]
+    assert config.check_model("m", server["url"])["tool_calls"] == "json"       # words first, JSON when asked for it
+
+    server["script"] = [{"tool_calls": [tc({"action": "left_click", "coordinate": [100, 700]})]}]
+    r = config.check_model("m", server["url"])
+    assert r["ok"] and r["coords"] is None and r["images"] is None and "missed the test square" in r["fix"]
+
+
+def test_check_model_says_why_a_model_cannot_be_used(server, monkeypatch):
+    from legato import config
+    server["script"] = [NO_IMAGES, {"content": "ok"}]
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["answers"], r["images"]) == (False, True, False)
+    assert r["fix"] == "this model does not accept images; Legato needs a vision model"
+    monkeypatch.setitem(config.VISION_MODELS, "openrouter", ("a/one", "b/two"))
+    monkeypatch.setitem(config.PROVIDERS, "openrouter", config.PROVIDERS["openrouter"]._replace(base_url=server["url"]))
+    server["script"] = [NO_IMAGES, {"content": "ok"}]
+    assert config.check_model("m", server["url"])["fix"].endswith("for example a/one or b/two")
+
+    server["script"] = [{"http": 401, "body": {"error": {"message": "No auth credentials found"}}}]
+    n = len(server["bodies"])
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["answers"], r["fix"]) == (False, False, "check the key") and len(server["bodies"]) == n + 1
+    assert config.check_lines(r)[0].startswith("no  answers: HTTP 401")
+
+    server["script"] = [{"content": "Sorry, I cannot help with that."}, {"content": "No."}]
+    r = config.check_model("m", server["url"])
+    assert r["ok"] is False and r["answers"] and "no action Legato can run" in r["error"]
+
+
+def test_the_report_is_ascii_where_stdout_is_not_utf8(monkeypatch):
+    res = legato.harness.RunResult("t", status="done", wall_s=1.0)
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
+    line = res.report()
+    assert line.isascii() and "model 0.0 s (0%) - actions" in line
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+    assert " · actions" in res.report()

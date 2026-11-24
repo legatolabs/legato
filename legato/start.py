@@ -33,8 +33,11 @@ def welcome() -> str:
     from legato import __version__, config
     cfg = config.load()
     desk = cfg.desktop or config.default_desktop()
-    if cfg.ready:
-        now = f"Set up: {cfg.model} · {desk}" + (f" ({cfg.app})" if cfg.app else "") + "   (legato setup to change)"
+    if cfg.ready and cfg.default_from:            # no setup yet: a key in the environment picked the default
+        now = (f"Not set up yet, and ready to run: using {cfg.default_from} from the environment with the default "
+               f"model ({cfg.model}), on {desk}.\nlegato setup saves a choice.")
+    elif cfg.ready:
+        now = f"Set up: {cfg.model}{config.dot()}{desk}" + (f" ({cfg.app})" if cfg.app else "") + "   (legato setup to change)"
     else:
         now = "Not set up yet: start with legato setup."
     return f"""legato {__version__}: a fast computer-use agent for any model.
@@ -65,8 +68,12 @@ def default_browser() -> str | None:
     return Path(out).stem or None
 
 
-def agent_source(model: str, base_url: str, key_env: str, desktop: str, app: str | None) -> str:
-    """agent.py: the whole loop in a few lines, to run as it is or copy into your own code."""
+def agent_source(model: str, base_url: str, key_env: str, desktop: str, app: str | None, coords: str = "",
+                 native_tools: bool = True) -> str:
+    """agent.py: the whole loop in a few lines, to run as it is or copy into your own code. coords and native_tools:
+    what `legato setup` found the model needs, written out when they are not the defaults."""
+    more = (f'\n    coords="{coords}",   # where this model\'s clicks land (legato setup found it)' if coords else "") + \
+        ("" if native_tools else "\n    native_tools=False,   # this model takes no tool calls: actions as JSON")
     key = (f'os.environ.get("{key_env}", "")' if key_env else '""') if key_env is not None else \
         "None"   # the key legato setup saved for this server
     if desktop == "background":
@@ -89,7 +96,7 @@ import legato
 agent = legato.Harness(
     model="{model}",
     base_url="{base_url}",
-    api_key={key},
+    api_key={key},{more}
 )
 {open_desk}
 task = " ".join(sys.argv[1:]) or "Open example.com {where} and check that the page says Example Domain"
@@ -130,7 +137,8 @@ def missing(desktop: str, key_env: str) -> list[str]:
     out = []
     if key_env and not os.environ.get(key_env):
         where = " (get one at https://openrouter.ai/keys)" if key_env == "OPENROUTER_API_KEY" else ""
-        out.append(f"set your model key: export {key_env}=...{where}")
+        from legato.config import set_env
+        out.append(f"set your model key: {set_env(key_env)}{where}")
     c = doctor.checks()
     if desktop in ("local", "background"):
         s = c["sandboxes"]["local"]
@@ -174,6 +182,11 @@ def _init(argv) -> int:
 
     from legato import config
     saved = config.load(use_env=False)
+    if not saved.ready and config.load().default_from:     # no setup yet: the default a key in the environment picks,
+        saved = config.load()                              # which is what `legato run` is already using
+        if not (a.provider or a.base_url or a.model):
+            print(f"Using {saved.default_from} from the environment with the default model ({saved.model}); "
+                  "legato setup saves another choice.")
     use_saved = saved.ready and not (a.provider or a.base_url or a.model)
     provider = a.provider or ("custom" if a.base_url else "openrouter")
     if asking and not (a.provider or a.base_url or use_saved):
@@ -222,7 +235,9 @@ def _init(argv) -> int:
             print(f"note: background mode is tested on {', '.join(TESTED_APPS)}. {app} may not show all of its "
                   f"window to macOS Accessibility; if clicks do nothing, try --app Safari.")
 
-    out.write_text(agent_source(model, base_url, key_env, desktop, app))
+    same = use_saved and (model, base_url) == (saved.model, saved.base_url)
+    out.write_text(agent_source(model, base_url, key_env, desktop, app, coords=saved.coords if same else "",
+                                native_tools=not (same and saved.tool_calls == "json")))
     print(f"\nWrote {out}: {model} at {base_url}, " + (f"working in {app}'s window" if app else f"desktop: {desktop}"))
     todo = missing(desktop, key_env)
     if todo:

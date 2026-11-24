@@ -411,3 +411,61 @@ def test_a_saved_key_is_not_sent_to_a_server_named_by_the_environment(monkeypatc
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")
     monkeypatch.setenv("LEGATO_BASE_URL", "http://other.example/v1")
     assert config.load().key == ""
+
+
+# ------------------------------------------------------------ what the model check finds, saved for every run
+def test_setup_saves_what_the_model_needs_and_every_run_uses_it(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {
+        "ok": True, "seconds": 1.8, "sees_images": True, "tool_calls": "json", "coords": "pixels",
+        "coords_default": "norm1000", "fix": None})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert main(["setup", "--yes", "--mcp", "none", "--desktop", "screen", "--model", "mistralai/pixtral-large-2502"]) == 0
+    out = capsys.readouterr().out
+    assert "ok, 1.8 s a call; it takes no tool calls here, so Legato will ask it for its actions as JSON (saved)" in out
+    assert "its clicks are in pixels (saved)" in out
+    saved_file = json.loads(own_config.read_text())
+    assert (saved_file["tool_calls"], saved_file["coords"]) == ("json", "pixels")
+    h = legato.agent.agent_for(None)
+    assert h.native_tools is False and h.coords == "pixels"
+    assert legato.agent.agent_for(None, coords="norm1000").coords == "norm1000"        # what the caller passes wins
+    other = legato.agent.agent_for(None, model="qwen/qwen3.8-27b")                     # another model: its own defaults
+    assert other.native_tools is True and other.coords == "norm1000"
+    # a model that needs nothing unusual clears what the last one needed
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {
+        "ok": True, "seconds": 0.8, "sees_images": True, "tool_calls": "native", "coords": "norm1000",
+        "coords_default": "norm1000", "fix": None})
+    assert main(["setup", "--yes", "--mcp", "none", "--model", "qwen/qwen3.8-27b"]) == 0
+    assert not {"tool_calls", "coords"} & set(json.loads(own_config.read_text()))
+    assert main(["setup", "--yes", "--mcp", "none", "--no-check", "--coords", "pixels"]) == 0     # by hand
+    assert json.loads(own_config.read_text())["coords"] == "pixels"
+
+
+def test_setup_refuses_a_text_only_model_in_plain_words(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {
+        "ok": False, "answers": True, "images": False, "error": "HTTP 404: No endpoints found that support image input",
+        "fix": "this model does not accept images; Legato needs a vision model, for example a/one or b/two"})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert main(["setup", "--yes", "--mcp", "none", "--model", "deepseek/deepseek-v4-flash"]) == 1
+    cap = capsys.readouterr()
+    assert "nothing was saved: this model does not accept images; Legato needs a vision model, for example a/one" in cap.err
+    assert "Check the key" not in cap.err + cap.out and not own_config.exists()
+
+
+def test_setup_local_with_no_server_says_where_it_looked(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(config, "find_local_server", lambda: None)
+    monkeypatch.setattr(config, "list_models", lambda *a, **k: pytest.fail("no second wait for a server that is not there"))
+    assert main(["setup", "--yes", "--mcp", "none", "--provider", "local"]) == 2
+    err = capsys.readouterr().err
+    assert all(s in err for s in ("no model server answered", ":8000", ":11434", ":1234", "ollama serve", "vllm serve"))
+    assert not own_config.exists()
+
+
+def test_setup_without_a_key_does_not_say_run_is_next(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(config, "_windows_owner_only", lambda p: True)
+    assert main(["setup", "--yes", "--mcp", "none", "--provider", "openrouter", "--desktop", "screen"]) == 0
+    out = capsys.readouterr().out
+    assert 'no key yet: $env:OPENROUTER_API_KEY = "..."' in out and "export" not in out
+    assert "Before a task can run: no key for" in out and "Next: legato run" not in out
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert "export OPENROUTER_API_KEY=..." in config.load().missing()

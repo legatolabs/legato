@@ -201,6 +201,9 @@ def _main(argv) -> int:
                                   "default: ask, or with --yes all found")
     ap.add_argument("--try", dest="try_task", nargs="?", const=FIRST_TASK, metavar="TASK",
                     help="run a first task after setup (default task: the Eiffel Tower on Wikipedia)")
+    ap.add_argument("--coords", choices=["pixels", "norm1000"],
+                    help="where the model's clicks land: pixels of the screenshot, or a 0-1000 grid (default: what "
+                         "the check finds, else pixels for Claude and norm1000 otherwise)")
     ap.add_argument("--no-check", action="store_true", help="do not make a test call to the model")
     ap.add_argument("--yes", action="store_true", help="ask nothing: flags, keys in the environment and the defaults")
     ap.add_argument("--json", action="store_true", help="print what is set up as one JSON object and change nothing "
@@ -208,7 +211,7 @@ def _main(argv) -> int:
     a = ap.parse_args(argv)
     asking = not a.yes and not a.json and sys.stdin.isatty()
     only_show = a.json and not any([a.provider, a.model, a.base_url, a.api_key, a.api_key_env, a.desktop, a.app,
-                                    a.mcp, a.yes])
+                                    a.mcp, a.yes, a.coords])
     if only_show:
         print(json.dumps(state()))
         return 0
@@ -235,6 +238,9 @@ def _main(argv) -> int:
         if hit:
             base_url, models = hit
             say(f"   found a model server at {base_url}")
+        elif not asking and not (a.model or (cfg.provider == "local" and cfg.model)):
+            print(f"legato setup: {C.NO_LOCAL_SERVER}.", file=sys.stderr)
+            return 2
         elif asking:
             guess = ("http://localhost:11434/v1" if shutil.which("ollama") else "http://localhost:1234/v1"
                      if Path("/Applications/LM Studio.app").exists() else base_url)
@@ -261,12 +267,13 @@ def _main(argv) -> int:
             where = f" (get one at {pv.keys_url})" if pv.keys_url else ""
             key = getpass.getpass(f"   Paste your {pv.name.split(':')[0]} key{where}, or Enter for none: ").strip()
         elif not C.is_local_url(base_url):
-            say(f"   no key yet: export {key_env or 'LEGATO_API_KEY'}=..., or run legato setup --api-key -")
+            say(f"   no key yet: {C.set_env(key_env or 'LEGATO_API_KEY')}, or run legato setup --api-key -")
     elif in_env and not key:
         say(f"   using the key in {C.env_name(key_env)}")
 
     model = a.model or (cfg.model if provider == cfg.provider and cfg.model else pv.model)
-    if not models and (provider == "local" or (not model and (key or in_env))):
+    if not models and ((provider == "local" and not a.model and (asking or a.base_url))
+                       or (not model and (key or in_env))):
         models = C.list_models(base_url, key or os.environ.get(key_env or "", ""))
     if asking and not a.model:
         if models and not model:
@@ -277,26 +284,45 @@ def _main(argv) -> int:
     if not model:
         print("legato setup: pass --model (the model's name at that provider)", file=sys.stderr)
         return 2
+    if (model, base_url) != (cfg.model, cfg.base_url):       # what the check found belongs to the model it tried
+        cfg.coords = cfg.tool_calls = ""
     cfg.provider, cfg.model, cfg.base_url = provider, model, base_url
     cfg.api_key, cfg.api_key_env = key, ("" if key else key_env)
+    if a.coords:
+        cfg.coords = a.coords
 
     if not a.no_check and (cfg.key or C.is_local_url(base_url)):
         say(f"   checking {model} ...", end=" ", flush=True)
         r = C.check_model(model, base_url, cfg.key)
         if not r["ok"]:
-            say(f"\n   the model did not answer: {r['error']}")
+            fix = r.get("fix") or "check the key, the model name and the URL"
+            if C.is_local_url(base_url) and not r.get("answers"):
+                fix = (f"no model server answered at {base_url}: start one (vllm serve, ollama serve, or LM Studio's "
+                       "server) or pass --base-url")
+            say(f"\n   {model} cannot be used: {fix}\n   (what it said: {r['error']})")
             if not asking or not _yes("   Save it anyway?", False):
-                fix = (f"No model server answered at {base_url}: start one (vllm serve, ollama serve, or LM Studio's "
-                       "server) or pass --base-url" if C.is_local_url(base_url)
-                       else "Check the key, the model name and the URL")
-                print(f"legato setup: nothing was saved. {fix}, or pass --no-check to save it as it is.",
+                print(f"legato setup: nothing was saved: {fix}. (--no-check saves a model without trying it.)",
                       file=sys.stderr)
                 if a.json:
-                    print(json.dumps({**state(), "ready": False, "missing": [f"the model did not answer: {r['error']}"]}))
+                    print(json.dumps({**state(), "ready": False, "missing": [f"{model}: {fix} ({r['error']})"]}))
                 return 1
         else:
-            say(f"ok, {r['seconds']} s a call" + ("; it did not see the test image, and computer use needs a "
-                                                   "vision model" if r["sees_images"] is False else ""))
+            notes = []
+            cfg.tool_calls = "json" if r.get("tool_calls") == "json" else ""
+            if cfg.tool_calls:
+                notes.append("it takes no tool calls here, so Legato will ask it for its actions as JSON (saved)")
+            found = r.get("coords")
+            if a.coords and found and found != a.coords:
+                notes.append(f"its click on the test image was in {found}, not the --coords {a.coords} you passed")
+            elif not a.coords:
+                cfg.coords = found if found and found != r.get("coords_default") else ""
+                if cfg.coords:
+                    notes.append(f"its clicks are in {'pixels' if found == 'pixels' else 'the 0-1000 grid'} (saved)")
+            if r.get("sees_images") is False:
+                notes.append("it did not see the test image, and computer use needs a vision model")
+            elif not found and r.get("fix"):
+                notes.append(r["fix"])
+            say("; ".join([f"ok, {r['seconds']} s a call"] + notes))
 
     # 2. the desktop
     mac = sys.platform == "darwin"
@@ -378,6 +404,10 @@ def _main(argv) -> int:
             task = FIRST_TASK
     if task:
         return first_task(C.load(), task)
-    say('\nNext: legato run "your task"' + ("   (or ask your coding agent to use its legato desktop)" if added else ""))
+    todo = C.load().missing()
+    if todo:                                  # saved, but a run would stop on this
+        say(f"\nBefore a task can run: {todo}")
+    else:
+        say('\nNext: legato run "your task"' + ("   (or ask your coding agent to use its legato desktop)" if added else ""))
     say(f"Docs: {DOCS}")
     return 0

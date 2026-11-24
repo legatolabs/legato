@@ -8,6 +8,7 @@
       [--max-steps 40] [--timeout S] [--json] [--yes]
   legato mcp                      an MCP server: a computer for Claude Code, Codex, Cursor (see docs/mcp.md)
   legato doctor [--json]          what is installed and set up, and how to fix what is missing
+      [--model [NAME]]            also try the saved model (or NAME): images, tool calls, where its clicks land
   legato init                     write agent.py, a working agent to copy into your own code
   legato                          what to do first
 
@@ -99,7 +100,9 @@ def run_main(argv) -> int:
     fail = lambda msg: _fail(msg, a.json)                # with --json, the error as JSON too
     cfg = config.load()
     if a.model or a.base_url:
-        cfg = config.Config(model=a.model or cfg.model, base_url=a.base_url or cfg.base_url,
+        same = (a.model or cfg.model) == cfg.model and (a.base_url or cfg.base_url) == cfg.base_url
+        cfg = config.Config(coords=cfg.coords if same else "", tool_calls=cfg.tool_calls if same else "",
+                            model=a.model or cfg.model, base_url=a.base_url or cfg.base_url,
                             api_key_env=a.api_key_env or ("" if a.base_url and a.base_url != cfg.base_url else cfg.api_key_env),
                             api_key="" if a.base_url and a.base_url != cfg.base_url else cfg.api_key,
                             desktop=cfg.desktop, app=cfg.app)
@@ -129,7 +132,7 @@ def run_main(argv) -> int:
         return fail(f"cannot start {label}: {e}")
     say = (lambda *_: None) if a.json else print
     t0 = time.monotonic()
-    say(f"{cfg.model} · {what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
+    say(f"{cfg.model}{config.dot()}{what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
 
     def show(i, acts, t):
         say(f"  {time.monotonic() - t0:5.1f} s  {', '.join(x.describe() if x else 'looking' for x in acts) or 'looking'}")

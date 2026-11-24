@@ -48,7 +48,9 @@ def agent_for(env: Env | None = None, *, model: str | None = None, base_url: str
     """A Harness for `env` with the saved model (or the one given). On a Mac's whole screen: the Mac app's setup
     (one plan per turn, a shell and checked AppleScript beside the screen, 4 screenshots kept, the ending fix). In
     one app's window in the background: one action at a time, with no shell, so nothing it runs takes the screen
-    from you (4 screenshots kept, the ending fix). Elsewhere: Harness's defaults. `options` go to Harness and win over these."""
+    from you (4 screenshots kept, the ending fix). Elsewhere: Harness's defaults. For the saved model, what setup's
+    check found it needs: its coordinates, and JSON actions when it takes no tool calls. `options` go to Harness and
+    win over these."""
     cfg = cfg or cfgmod.load()
     model = model or cfg.model
     base_url = base_url or cfg.base_url
@@ -69,6 +71,12 @@ def agent_for(env: Env | None = None, *, model: str | None = None, base_url: str
         # the loop background mode is tested with (tests/test_background_live.py), with the Mac's ending fix and 4
         # screenshots; plans in the background are unmeasured (two small runs on 24 Nov were inconclusive)
         setup = dict(end_fix=True, image_max=4)
+    if model == cfg.model and base_url.rstrip("/") == cfg.base_url.rstrip("/"):
+        # what `legato setup` found this model needs (legato.config.check_model)
+        if cfg.coords in ("pixels", "norm1000"):
+            setup["coords"] = cfg.coords
+        if cfg.tool_calls == "json":
+            setup["native_tools"] = False
     setup.update(options)
     h = Harness(model=model, base_url=base_url, api_key=api_key, **setup)
     if hasattr(h.client, "key_source"):          # named in a 401 or 403 (never the key itself)

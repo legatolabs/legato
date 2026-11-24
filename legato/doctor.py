@@ -2,6 +2,9 @@
 
     legato doctor            # a short report
     legato doctor --json     # the same as one JSON object, for coding agents and scripts
+    legato doctor --model    # also try your saved model: does it answer, take images, make tool calls, and where
+                             # does its click land on a test image (one small paid call, three at most)
+    legato doctor --model NAME [--base-url URL]    # the same for another model, with your saved key
 
 Besides what is installed, it tries the two things that fail at run time: on a Mac, one real window capture, as
 background mode takes it (it can stall); and with a model on this machine, whether its server answers.
@@ -135,9 +138,10 @@ def window_capture(app: str = "", perms: dict | None = None) -> dict:
     return out
 
 
-def checks(capture: bool = False) -> dict:
+def checks(capture: bool = False, model: str | None = None, base_url: str | None = None) -> dict:
     """What is installed and set up. capture=True also takes one real window capture on a Mac (a few seconds at
-    most); a model server on this machine is always asked whether it answers (1.5 s at most)."""
+    most); a model server on this machine is always asked whether it answers (1.5 s at most). model: also try that
+    model ("" for the saved one) with legato.config.check_model, at base_url or the saved server ("model_check")."""
     from legato import __version__
     local_ok = _has("mss") and _has("pyautogui")
     display = sys.platform in ("darwin", "win32") or bool(os.environ.get("DISPLAY"))
@@ -190,7 +194,21 @@ def checks(capture: bool = False) -> dict:
                           "ollama serve, or LM Studio's server), or run legato setup to choose another model")
     out["setup"] = {"ok": ok, "model": cfg.model or None, "base_url": cfg.base_url or None,
                     "desktop": cfg.desktop or config.default_desktop(), "app": cfg.app or None,
-                    "config": str(config.path()), "fix": fix, "server": server}
+                    "config": str(config.path()), "fix": fix, "server": server,
+                    "saved": config.path().exists(), "default_from": cfg.default_from or None,
+                    "coords": cfg.coords or None, "tool_calls": cfg.tool_calls or None}
+    if model is not None:
+        name, url = model or cfg.model, base_url or cfg.base_url
+        if not name or not url:
+            out["model_check"] = {"ok": False, "model": name or None, "answers": False,
+                                  "error": "no model to try", "fix": fix or "run legato setup, or pass --model NAME"}
+        else:
+            same = url.rstrip("/") == cfg.base_url.rstrip("/")
+            if not (cfg.key if same else os.environ.get("LEGATO_API_KEY", "")) and not config.is_local_url(url):
+                out["model_check"] = {"ok": False, "model": name, "answers": False, "error": "no key",
+                                      "fix": cfg.missing() if same else f"{config.set_env('LEGATO_API_KEY')} (the key for {url})"}
+            else:
+                out["model_check"] = config.check_model(name, url, cfg.key if same else os.environ.get("LEGATO_API_KEY", ""))
     if capture and sys.platform == "darwin":
         cap = out["window_capture"] = window_capture(cfg.app, perms)
         local = out["sandboxes"]["local"]
@@ -204,18 +222,39 @@ def main(argv=None) -> int:
     if {"-h", "--help", "help"} & set(argv):
         print(__doc__.strip())
         return 0
-    c = checks(capture=True)
-    if "--json" in argv:
+    import argparse
+    ap = argparse.ArgumentParser(prog="legato doctor", add_help=False)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--model", nargs="?", const="")
+    ap.add_argument("--base-url")
+    a = ap.parse_args(argv)
+    c = checks(capture=True, model=a.model, base_url=a.base_url)
+    mc = c.get("model_check")
+    if a.json:
         print(json.dumps(c))
-        return 0
+        return 0 if mc is None or mc["ok"] else 1
+    from legato.config import check_lines, dot
     print(f"legato {c['legato']}, Python {c['python']} on {c['platform']}")
     st = c["setup"]
-    print(f"  {'ok ' if st['ok'] else 'no '} setup: " + (f"{st['model']} · {st['desktop']}" + (f" ({st['app']})" if st["app"] else "")
-                                                       if st["ok"] else st["fix"]))
+    if st["ok"] and st["default_from"]:        # nothing saved: a key in the environment picked the default model
+        what = (f"nothing saved yet; using {st['default_from']} from the environment with the default model "
+                f"({st['model']}), on {st['desktop']}. legato setup saves a choice")
+    elif st["ok"]:
+        what = f"{st['model']}{dot()}{st['desktop']}" + (f" ({st['app']})" if st["app"] else "")
+        what += "".join(f", {k.replace('_', ' ')}: {st[k]}" for k in ("coords", "tool_calls") if st[k])
+    else:
+        what = st["fix"]
+    print(f"  {'ok ' if st['ok'] else 'no '} setup: {what}")
     if st["ok"] and st.get("server"):
         sv = st["server"]
         print(f"      ok  model server answers at {st['base_url']} ({sv['seconds']} s)"
               + (f"; {sv['note']}" if sv.get("note") else ""))
+    if mc is not None:
+        print(f"  {'ok ' if mc['ok'] else 'no '} model: {mc.get('model') or 'none'}")
+        for line in check_lines(mc):
+            print(f"      {line}")
+    elif st["ok"]:
+        print("      the model was not tried: legato doctor --model tries it (one small call)")
     if not c["command"]["ok"]:
         print(f"  no  command: {c['command']['fix']}")
     for name, s in [*c["sandboxes"].items(), ("mcp", c["mcp"])]:
@@ -232,7 +271,7 @@ def main(argv=None) -> int:
             print("      " + _capture_line(c["window_capture"]))
     keys = ", ".join(c["model_keys"]) or "none set"
     print(f"  model keys: {keys}" + (f" ({c['model_note']})" if c["model_note"] else ""))
-    return 0
+    return 0 if mc is None or mc["ok"] else 1
 
 
 def _capture_line(cap: dict) -> str:
