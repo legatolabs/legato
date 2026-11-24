@@ -104,6 +104,14 @@ def add_mcp(client: str, cmd: list[str] | None = None, run=None) -> str:
     """Add Legato's MCP server to one coding agent (user-wide where it has that), replacing an older entry.
     Returns what was done, as one line."""
     cmd = cmd or legato_command()
+    if client in ("claude", "codex") and run is None:
+        import shutil
+        exe = shutil.which(client)              # the full path: on Windows these are .cmd files a bare name does not run
+        if exe is None:
+            raise RuntimeError(f"{client} is not installed here (no `{client}` command on PATH): nothing was added")
+        real = subprocess.run
+        first = exe if sys.platform == "win32" else client
+        run = lambda argv, **kw: real([first, *argv[1:]], **kw)  # noqa: E731
     run = run or subprocess.run
     if client == "claude":
         run(["claude", "mcp", "remove", "legato", "-s", "user"], capture_output=True, text=True)
@@ -255,7 +263,7 @@ def _main(argv) -> int:
         elif not C.is_local_url(base_url):
             say(f"   no key yet: export {key_env or 'LEGATO_API_KEY'}=..., or run legato setup --api-key -")
     elif in_env and not key:
-        say(f"   using the key in ${key_env}")
+        say(f"   using the key in {C.env_name(key_env)}")
 
     model = a.model or (cfg.model if provider == cfg.provider and cfg.model else pv.model)
     if not models and (provider == "local" or (not model and (key or in_env))):
