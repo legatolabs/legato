@@ -474,6 +474,8 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
         model_s = 0.0
         for _req, rec in s.calls:
             res.usage["cost_usd"] += (rec.get("usage") or {}).get("cost") or 0.0
+            if rec.get("cut") or rec.get("hedged"):
+                res.usage["complete"] = False
         n = s.planner["calls"] - len([t for t in res.timings if "planner" in t])
         for _ in range(n):
             res.timings.append({"planner_s": s.planner["s"] / max(1, s.planner["calls"]), "planner": "call"})
@@ -492,7 +494,9 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
             try:
                 actions = s.next(png)
             except PolicyError as e:
-                res.error = (f"planner: {str(e)[:280]}" if not s.planner["calls"] or not s.running else str(e)[:300])
+                res.error = (f"planner: {str(e)[:480]}" if not s.planner["calls"] or not s.running else str(e)[:500])
+                if getattr(e, "cut", 0):
+                    res.usage["complete"] = False
                 account()
                 ended = limits is not None and limits.hit(res)    # a call cut short by the deadline: a timeout
                 break

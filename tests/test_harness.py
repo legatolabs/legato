@@ -32,8 +32,8 @@ def server():
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             st["bodies"].append(body)
-            time.sleep(st["delay"])
             step = st["script"].pop(0) if st["script"] else {"content": "", "tool_calls": [tc({"action": "done"})]}
+            time.sleep(step.get("delay", st["delay"]))           # a step's own delay, else the server's
             if "http" in step:                    # an error reply: {"http": 400, "body": {...}}
                 out = json.dumps(step["body"]).encode()
                 self.send_response(step["http"])
@@ -453,7 +453,7 @@ def test_every_ending_has_a_status(server):
     assert res.report().startswith("out of steps")
     server["script"] = [{"http": 401, "body": {"error": {"message": "No auth credentials found", "code": 401}}}]
     res = legato.Harness("m", server["url"], retries=0).run("t", fake_env([]))
-    assert (res.status, res.failed, res.error) == ("error", False, "HTTP 401: No auth credentials found")
+    assert (res.status, res.failed) == ("error", False) and res.error.startswith("HTTP 401: No auth credentials found.")
 
 
 def test_harness_run_and_legato_run_default_to_40_steps():
@@ -468,7 +468,8 @@ def test_usage_is_a_typed_dict_and_a_plain_dict():
     from typing import get_type_hints
     from legato.harness import Usage
     res = legato.RunResult("t")
-    assert type(res.usage) is dict and res.usage == {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
+    assert type(res.usage) is dict and res.usage == {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0,
+                                                     "complete": True}
     assert get_type_hints(legato.RunResult)["usage"] is Usage and set(Usage.__annotations__) == set(res.usage)
     assert legato.Usage is Usage and set(legato.RunStatus.__args__) == {"done", "failed", "max_steps", "timeout",
                                                                        "cancelled", "stopped", "error"}
@@ -589,3 +590,142 @@ def test_a_desktop_that_fails_mid_rollout_is_still_retried_by_rl(server, tmp_pat
     rs = read_rollouts(tmp_path)
     assert [r["status"] for r in rs] == ["retried", "ok"] and s["env_errors"] == 1
     assert rs[0]["error"]["kind"] == "env" and "the action failed" in rs[0]["error"]["message"]
+
+
+# ------------------------------------------------------------ round two: whole-run deadline, typed errors, usage, keys
+def test_legato_run_timeout_covers_opening_the_desktop(server, monkeypatch):
+    import legato.agent
+    server["script"], server["delay"] = [CLICK] * 20, 0.2
+    seen = {}
+
+    def slow_open(desktop, **kw):                 # a desktop that takes 0.6 s of the 1 s to open
+        seen.update(kw)
+        time.sleep(0.6)
+        return fake_env([]), (lambda: None), "slow"
+    monkeypatch.setattr(legato.agent, "open_desktop", slow_open)
+    t = time.perf_counter()
+    res = legato.run("t", "docker", model="m", base_url=server["url"], api_key="", timeout_s=1.0)
+    assert res.status == "timeout" and res.error == "the run's time limit (1 s) ran out"
+    assert 0.9 < seen["timeout_s"] <= 1.0 and time.perf_counter() - t < 1.6
+
+    def too_slow(desktop, **kw):
+        time.sleep(kw["timeout_s"])
+        raise legato.DesktopStartError("the docker desktop did not start within 0.3 s")
+    monkeypatch.setattr(legato.agent, "open_desktop", too_slow)
+    res = legato.run("t", "docker", model="m", base_url=server["url"], api_key="", timeout_s=0.3)
+    assert res.status == "timeout" and "ran out while the desktop was opening" in res.error
+
+
+def test_background_launch_is_cut_at_the_time_left(monkeypatch):
+    import legato.agent
+    import legato.background as bg
+    got = {}
+    monkeypatch.setattr(bg.sys, "platform", "darwin")
+    monkeypatch.setattr(legato.agent.sys, "platform", "darwin")
+    monkeypatch.setattr(bg, "background", lambda name, confirm=None, launch_s=30.0: got.update(launch_s=launch_s))
+    legato.agent.open_desktop("background", app="Notes", timeout_s=4.0)
+    assert got["launch_s"] == 4.0
+    legato.agent.open_desktop("background", app="Notes")
+    assert got["launch_s"] == 30.0
+
+
+def test_docker_start_is_cut_at_its_timeout(monkeypatch):
+    import subprocess
+    from legato import providers
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/docker")
+
+    def hangs(args, timeout=None, **kw):          # a docker daemon that never answers
+        time.sleep(min(timeout or 5.0, 5.0))
+        raise subprocess.TimeoutExpired(args, timeout)
+    monkeypatch.setattr(providers.subprocess, "run", hangs)
+    t = time.perf_counter()
+    with pytest.raises(legato.DesktopStartError, match="did not start within 0.3 s"):
+        providers.start(providers.docker, 800, 600, timeout_s=0.3)
+    assert time.perf_counter() - t < 1.0
+    calls = []
+    assert providers.start(lambda w, h: calls.append((w, h)) or (None, "env"), 8, 6, timeout_s=1.0) == (None, "env")
+    assert calls == [(8, 6)]                       # your own function: called as it always was
+
+
+def test_desktop_errors_are_typed_and_still_runtime_errors(monkeypatch):
+    import legato.background as bg
+    from legato import providers
+    assert issubclass(legato.DesktopStartError, legato.DesktopError) and issubclass(legato.DesktopError, RuntimeError)
+    monkeypatch.setattr(bg.sys, "platform", "linux")
+    with pytest.raises(legato.DesktopStartError, match="macOS only"):
+        bg.BackgroundEnv("TextEdit")
+
+    class NoSuchApp:
+        returncode, stderr = 1, "Unable to find application named 'NoSuchAppXyz'"
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.name, app.flag = "NoSuchAppXyz", "-a"
+    monkeypatch.setattr(bg.subprocess, "run", lambda *a, **k: NoSuchApp())
+    with pytest.raises(legato.DesktopStartError, match="could not be opened"):
+        app._launch(5)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    with pytest.raises(legato.DesktopStartError, match="needs Docker"):
+        providers.ensure_image("img")
+
+
+def test_a_desktop_name_that_is_none_is_worded_for_python(monkeypatch):
+    with pytest.raises(ValueError) as e:
+        legato.run("t", "nonsense", model="m", base_url="http://x/v1", api_key="")
+    assert str(e.value).startswith("desktop='nonsense' is not a desktop: use \"background\", \"screen\"")
+    assert "--sandbox" not in str(e.value)
+
+
+def test_usage_is_marked_incomplete_when_a_call_is_cut_off(server):
+    server["script"] = [dict(CLICK, delay=3.0)]
+    res = legato.Harness("m", server["url"]).run("t", fake_env([]), timeout_s=0.5)
+    assert res.status == "timeout" and res.usage["complete"] is False
+    server["script"] = [dict(CLICK, delay=1.0), CLICK, {"tool_calls": [tc({"action": "done"})]}]
+    res = legato.Harness("m", server["url"], step_timeout_s=0.3, retries=1).run("t", fake_env([]))
+    assert res.done and res.usage["complete"] is False and res.usage["prompt"] == 20   # the cut attempt is not counted
+    server["script"] = [CLICK, {"tool_calls": [tc({"action": "done"})]}]
+    assert legato.Harness("m", server["url"]).run("t", fake_env([])).usage["complete"] is True
+
+
+def test_a_refused_key_says_which_key_and_how_to_fix_it(server, monkeypatch, own_config):
+    from legato import config
+    refused = {"http": 401, "body": {"error": {"message": "User not found.", "code": 401}, "user_id": "user_x"}}
+    server["script"] = [refused]
+    res = legato.Harness("m", server["url"], "sk-secret-1").run("t", fake_env([]))
+    assert res.error == (f"HTTP 401: User not found. The api_key passed to legato.Harness was refused by "
+                         f"{server['url']}: check the key you passed.")
+    config.save(config.Config(model="m", base_url=server["url"], api_key_env="MY_KEY"))
+    monkeypatch.setenv("MY_KEY", "sk-secret-2")
+    server["script"] = [refused]
+    res = legato.Harness().run("t", fake_env([]))
+    assert "The key in $MY_KEY was refused" in res.error and "export a working one as MY_KEY" in res.error
+    server["script"] = [refused]
+    res = legato.run("t", fake_env([]))
+    assert "The key in $MY_KEY was refused" in res.error and "sk-secret" not in res.error
+    server["script"] = [{"http": 403, "body": {"error": {"message": "Forbidden"}}}]
+    res = legato.Harness("m", server["url"], "").run("t", fake_env([]))
+    assert res.error.startswith("HTTP 403: Forbidden. No API key was sent to")
+
+
+def test_unattended_legato_run_refuses_risky_actions_unless_told(monkeypatch):
+    import sys
+    import legato.agent
+    from legato import safety
+    got = []
+
+    def opened(desktop, **kw):
+        got.append(kw["confirm"])
+        raise legato.DesktopStartError("stop here")
+    monkeypatch.setattr(legato.agent, "open_desktop", opened)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    monkeypatch.delenv("LEGATO_CONFIRM", raising=False)
+    run = lambda **kw: legato.run("t", "screen", model="m", base_url="http://x/v1", api_key="", **kw)  # noqa: E731
+    run()
+    run(confirm="auto")
+    run(confirm=None)
+    run(confirm=safety.ask)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    run()
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    monkeypatch.setenv("LEGATO_CONFIRM", "off")
+    run()
+    assert got == [safety.deny, safety.deny, None, safety.ask, safety.ask, None]
+    assert safety.default_confirm() is None                 # legato.local's "auto" is unchanged: nothing held back

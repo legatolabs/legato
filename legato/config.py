@@ -87,6 +87,18 @@ class Config:
                 or (os.environ.get(self.api_key_env, "") if self.api_key_env else ""))
 
     @property
+    def key_source(self) -> str:
+        """Where `key` comes from, by name and never by value: "the key in $LEGATO_API_KEY", "the key legato setup
+        saved in <file>", "the key in $OPENROUTER_API_KEY"..., or "" when there is no key."""
+        if os.environ.get("LEGATO_API_KEY"):
+            return "the key in $LEGATO_API_KEY"
+        if self.api_key:
+            return f"the key legato setup saved in {path()}"
+        if self.api_key_env and os.environ.get(self.api_key_env):
+            return f"the key in ${self.api_key_env}"
+        return ""
+
+    @property
     def ready(self) -> bool:
         """A model is chosen and, unless it runs on this machine, has a key."""
         return bool(self.model and self.base_url and (self.key or is_local_url(self.base_url)))

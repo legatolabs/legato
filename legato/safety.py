@@ -101,15 +101,16 @@ def deny(description: str) -> bool:
     return False
 
 
-def default_confirm() -> Confirm | None:
+def default_confirm(unattended: Confirm | None = None) -> Confirm | None:
     """`confirm="auto"`: ask in the terminal when a person is at one; unattended (a benchmark, a VM, an MCP server,
-    CI: stdin is not a terminal) there is nobody to ask and nothing is held back. LEGATO_CONFIRM=off turns it off."""
+    CI: stdin is not a terminal) there is nobody to ask, and `unattended` decides: None (the default for
+    legato.local and the CLI) holds nothing back, `deny` (legato.run's) refuses. LEGATO_CONFIRM=off turns it off."""
     if os.environ.get("LEGATO_CONFIRM", "").lower() in ("0", "off", "no", "false"):
         return None
     try:
-        return ask if sys.stdin is not None and sys.stdin.isatty() else None
+        return ask if sys.stdin is not None and sys.stdin.isatty() else unattended
     except (ValueError, OSError):
-        return None
+        return unattended
 
 
 # ------------------------------------------------------------ macOS permissions and the Escape key

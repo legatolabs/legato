@@ -413,3 +413,12 @@ def test_a_deadline_caps_each_attempt_and_stops_retries(server):
     with pytest.raises(PolicyError, match="time limit"):
         c.chat([{"role": "user", "content": "x"}])
     assert time.perf_counter() - t < 1.2
+
+
+def test_cut_off_attempts_are_counted_on_the_error_and_the_record(server):
+    server.delay_s = 1.0
+    with pytest.raises(PolicyError) as e:
+        PolicyClient(PolicyConfig(server.url, "m", timeout_s=0.3, retries=1)).chat([{"role": "user", "content": "x"}])
+    assert e.value.cut == 2                          # both were sent and may be billed
+    server.delay_s = 0.0
+    assert PolicyClient(PolicyConfig(server.url, "m")).chat([{"role": "user", "content": "x"}])["cut"] == 0

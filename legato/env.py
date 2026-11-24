@@ -36,6 +36,15 @@ from legato.actions import Action
 from legato.settle import LOCAL_RULES, Waiter, rule_kind
 from legato.tools import wrap_command
 
+class DesktopError(RuntimeError):
+    """A desktop failed: it could not take a screenshot or run an action (a window that can't be captured, a sandbox
+    that went away). A RuntimeError, so code that caught that before still does."""
+
+
+class DesktopStartError(DesktopError):
+    """A desktop could not be opened: an app that is not installed, Docker not running, no screen to capture."""
+
+
 HELPER_PATH = "/tmp/legato_step.py"
 HELPER = r'''
 import hashlib, json, os, shutil, subprocess, sys, time
@@ -398,7 +407,7 @@ class ShellEnv(Env):
         try:
             return json.loads(out.strip().splitlines()[-1])
         except (ValueError, IndexError):
-            raise RuntimeError("Legato's helper did not answer from the sandbox; it needs an X display and xdotool "
+            raise DesktopError("Legato's helper did not answer from the sandbox; it needs an X display and xdotool "
                                "(and python3 and scrot where the native helper can't run). "
                                f"Output: {out[-300:]!r}") from None
 
