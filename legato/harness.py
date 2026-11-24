@@ -99,6 +99,9 @@ def _again(refusals: dict, e: Denied) -> str:
 
 END_NOTE = ("Your last reply had no action, so nothing happened. If the task is complete, call done; otherwise take "
             "the next step.")
+ANSWER_ASK = ("You called done without the answer. This is the screen now: if the task asks for information, call done "
+              "again with the answer itself in its text (the number, name or sentence asked for); if the page is not "
+              "there yet, take the next step. If the task asks for no information, call done again.")
 CUT_OFF_NOTE = ("Your last reply reached the token limit before you called the tool, so nothing happened. Keep your "
                 "reasoning short and call the tool now.")
 
@@ -379,7 +382,7 @@ class Harness:
                  plan_trust_first_click: bool = False, ocr_cache: bool = False,
                  ocr_near: bool = False, strict_done: bool = False, image_format: str = "jpeg", jpeg_quality: int = 85,
                  change_log_lines: int = 15, change_log_turns: int | None = None, progress_note: bool = False,
-                 history_scale: float | None = None, planner: "Planner | None" = None):
+                 history_scale: float | None = None, planner: "Planner | None" = None, ask_answer: bool = False):
         """plan: one `plan` tool whose steps (screen actions, click_text, shell through the `bash` tool in `tools`,
         wait_for, done) run in order until one cannot go on (legato/plan.py). end_fix: a reply with no action gets
         a note to call done if the task is complete, and a second such reply in a row ends the task as done. coords: "norm1000" or "pixels" (default: pixels for Claude, norm1000 otherwise). image_max: screenshots kept
@@ -391,7 +394,10 @@ class Harness:
         jpeg_quality) or "png": screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes; the
         upload is most of a hosted call's wait for its first token (legato-research EXP-0052: a call 1.57 s against
         3.11 s at median through OpenRouter, the next action unchanged; EXP-0053: on 27 Mac tasks a call 2.28 against
-        3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless."""
+        3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless.
+        ask_answer: a done with no text gets one more turn, with the screen its actions left and a note asking for the
+        answer in done's text (legato.run sets it for a task that asks for information; legato-research EXP-0102:
+        GPT-6.1 Terra ended 20 of 20 Safari questions with an empty done, a plan's done often before the page loaded)."""
         key_source = "" if api_key is None else "the api_key passed to legato.Harness"
         if model is None or base_url is None or api_key is None:     # what `legato setup` saved
             from legato import config
@@ -417,7 +423,7 @@ class Harness:
         self.client.key_source = key_source        # named if the server refuses the key
         self.coords, self.image_max, self.fold = coords, image_max, max(1, fold)
         self.plan_mode, self.plan_max = plan, max(1, plan_max_steps)
-        self.end_fix = end_fix
+        self.end_fix, self.ask_answer = end_fix, ask_answer
         self.image_format, self.jpeg_quality = image_format, jpeg_quality
         self._jpeg: dict[str, str] = {}               # PNG b64 -> JPEG b64: each kept screenshot is encoded once
         # change_log: each turn carries the text that appeared and went on the screen (macOS Vision), so the history
@@ -961,16 +967,23 @@ class Harness:
         refusals: dict[str, int] = {}               # how often each impossible action was refused this run
         if self.plan_mode:                          # the text reader loads its model once (~10 s): during the first call
             threading.Thread(target=plans.warm_up, args=(obs.screenshot,), daemon=True).start()
+        asked = -1                                  # the turn that asks for the answer a done left out (ask_answer)
         for turn in range(max_steps):
             if lim.hit(res):
+                if turn == asked:                   # it had called done: it ends done, without the answer
+                    res.status, res.error = "done", None
                 break
             try:
                 plan = self.decide(ep)
             except PolicyError as e:
                 _book(res.usage, error=e)
-                if not lim.hit(res):                # a call cut short by the deadline is a timeout
+                if turn == asked:
+                    res.status, res.error = "done", None
+                elif not lim.hit(res):              # a call cut short by the deadline is a timeout
                     res.status, res.error = "error", str(e)[:500]
                 break
+            if turn == asked:                       # the done counts again only if this turn ends the run
+                res.done, res.status = False, "max_steps"
             _book(res.usage, plan.rec)
             timing = {"model_s": plan.rec["s"], "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
             pngs, results, stale, ran, note, denied = [], [], False, [], None, None
@@ -1053,7 +1066,9 @@ class Harness:
                 if plan.done or plan.failed:
                     res.status = "done" if plan.done else "failed"
                     res.answer = _answer(plan.rec, plan.actions)
-                    break
+                    if not (plan.done and not res.answer and self.ask_answer and asked < 0 and turn + 1 < max_steps):
+                        break
+                    asked, note = turn + 1, ANSWER_ASK       # one more turn to read the answer off the screen
             self.feed(ep, plan, pngs or [obs.screenshot], results, note)
             seen = (pngs or [obs.screenshot])[-1]
 

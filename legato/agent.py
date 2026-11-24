@@ -11,6 +11,7 @@ Harness's defaults elsewhere, where the one-action loop was faster: KNOWLEDGE.md
 """
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import time
@@ -29,6 +30,17 @@ from legato.harness import Harness, RunResult
 # What legato.run says for a desktop name that is none of these (the CLI says it with --sandbox's words).
 DESKTOPS = ('"background", "screen", "docker", "docker:IMAGE", "e2b", "path/to/file.py:function" or '
             '"module:function", or a desktop you opened (legato.local(...), legato.attach(...))')
+
+
+# words that ask for an answer: a done without one then gets one more turn (Harness(ask_answer=True))
+_ASKS = re.compile(r"\?|\b(tell me|what|which|who|whose|when|where|why|how (many|much|long|old|far|big)|find out|"
+                   r"look up|check (if|whether)|is there|are there)\b", re.I)
+
+
+def asks_for_information(task: str) -> bool:
+    """Does `task` ask for an answer ("what is ...", "tell me ...", "how many ...")? A guess from its words: a wrong
+    yes costs one more model call, and only after a done that came without text."""
+    return bool(_ASKS.search(task))
 
 
 def agent_for(env: Env | None = None, *, model: str | None = None, base_url: str | None = None,
@@ -150,6 +162,7 @@ def run(task: str, desktop: str | Env | None = None, *, model: str | None = None
             return RunResult(task, error=f"cannot start the desktop: {e}"[:300], status="error",
                              wall_s=time.monotonic() - t0)
     try:
+        options.setdefault("ask_answer", asks_for_information(task))
         agent = agent_for(env, model=model, base_url=base_url, api_key=api_key, **options)
         res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, timeout_s=left(),
                         cancel=cancel, raise_desktop_errors=False)

@@ -729,3 +729,31 @@ def test_unattended_legato_run_refuses_risky_actions_unless_told(monkeypatch):
     run()
     assert got == [safety.deny, safety.deny, None, safety.ask, safety.ask, None]
     assert safety.default_confirm() is None                 # legato.local's "auto" is unchanged: nothing held back
+
+
+def test_a_done_without_the_answer_gets_one_more_turn(server):
+    """GPT-6.1 Terra ended 20 of 20 Safari questions with done and no text, a plan's done often before the page had
+    loaded (legato-research EXP-0102). With ask_answer, that done gets one more turn with the screen and a note; the
+    answer then given is the result's. A second empty done ends the run done, and a run without ask_answer is as before."""
+    from legato.agent import asks_for_information
+    server["script"] = [{"tool_calls": [tc({"action": "left_click", "coordinate": [500, 500]}), tc({"action": "done"})]},
+                        {"tool_calls": [tc({"action": "done", "text": "8,849 m"})]}]
+    res = legato.Harness("m", server["url"], ask_answer=True).run("how tall is Everest?", fake_env([]))
+    assert (res.status, res.done, res.answer, res.steps) == ("done", True, "8,849 m", 2)
+    assert "You called done without the answer" in json.dumps(server["bodies"][1])
+    server["bodies"].clear()
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}, {"tool_calls": [tc({"action": "done"})]}]
+    res = legato.Harness("m", server["url"], ask_answer=True).run("what is open?", fake_env([]))
+    assert (res.status, res.done, res.answer, res.steps) == ("done", True, "", 2)
+    server["bodies"].clear()
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}]
+    res = legato.Harness("m", server["url"], ask_answer=True).run("what is open?", fake_env([]), max_steps=1)
+    assert (res.status, res.done, res.steps) == ("done", True, 1)          # no turn left to ask in
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}]
+    res = legato.Harness("m", server["url"]).run("type hello", fake_env([]))
+    assert (res.status, res.done, res.steps) == ("done", True, 1)
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}, CLICK, CLICK]
+    res = legato.Harness("m", server["url"], ask_answer=True).run("what is open?", fake_env([]), max_steps=3)
+    assert (res.status, res.done) == ("max_steps", False)    # it went on acting: the first done no longer counts
+    assert asks_for_information("Tell me the top headline") and asks_for_information("How many tabs are open?")
+    assert not asks_for_information("Open TextEdit and type hello") and not asks_for_information("Reload the page")

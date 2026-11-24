@@ -63,6 +63,11 @@ From the persona tests (six simulated launch users on a real Mac):
 - **The same impossible action no longer loops to the step limit.** From its second refusal the model is told
   to call fail and say why; the third ends the run as failed with the reason. A background app's Save, Close and
   Find stay turned off however often they're pressed (a TextEdit "save it" task looped to the call limit).
+- **A question gets its answer.** When a task asks for information ("what", "tell me", "how many", a question mark)
+  and the model calls done without the answer, it gets one more turn with the screen and is asked for it
+  (`Harness(ask_answer=True)`, which `legato.run`, `legato run` and `desktop_run_task` set). GPT-6.1 Terra ended
+  20 of 20 Safari questions with an empty done (legato-research EXP-0102), often in the same plan as the
+  navigation, before the page had loaded.
 - MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
   Chrome refusal says Chrome ignores background clicks on web pages.
 - `legato rl`: Python `collect()` raises `CollectError` when no rollout completed (and names the `__main__` guard);
