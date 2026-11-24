@@ -13,6 +13,8 @@
   every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
   stall the window is taken with `screencapture` for the next five minutes (its sheets and menus are left out then).
   A run that fails mid-way prints one line, not a traceback.
+- **The MCP server passes a desktop's failure to the client with its reason** (the MCP library otherwise shows only
+  "Error executing tool"). The MCP docs say what `desktop_close` and `desktop_shell` do in the background.
 - **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on
   stderr, so coding agents can read why.
 - **Set-up page:** clearer for coding agents. Save the choice even when a key in the environment already makes it
