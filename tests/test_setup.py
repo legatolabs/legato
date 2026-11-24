@@ -202,3 +202,18 @@ def test_legato_run_json_prints_json_when_it_cannot_start(capsys):
     out, err = capsys.readouterr()
     got = json.loads(out.strip().splitlines()[-1])
     assert got["done"] is False and "legato setup" in got["error"] and "legato setup" in err
+
+
+def test_a_desktop_that_fails_mid_run_is_one_line_and_json(monkeypatch, own_config, capsys):
+    """A capture that fails after the run started: no traceback, and with --json one JSON object with the error."""
+    import legato.agent
+    saved()
+    def broken():
+        raise RuntimeError("the window could not be captured")
+    env = legato.attach(screenshot=broken, execute=lambda a: None)
+    monkeypatch.setattr(legato.agent, "open_desktop", lambda *a, **k: (env, lambda: None, "a test desktop"))
+    assert main(["run", "Say hello", "--json"]) == 2
+    out, err = capsys.readouterr()
+    got = json.loads(out.strip().splitlines()[-1])
+    assert got["done"] is False and got["error"].startswith("the run stopped: the window could not be captured")
+    assert "Traceback" not in err

@@ -136,6 +136,8 @@ def run_main(argv) -> int:
         res = agent.run(a.task + ANSWER_NOTE, env, max_steps=a.max_steps, on_step=show)
     except ValueError as e:
         return fail(str(e))
+    except (RuntimeError, OSError) as e:                 # the desktop failed mid-run: one line (and JSON), no traceback
+        return fail(f"the run stopped: {e}")
     finally:
         close()
     if a.json:

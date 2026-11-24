@@ -576,3 +576,36 @@ def test_an_app_that_is_not_open_yet_is_waited_for_with_the_run_loop(monkeypatch
     monkeypatch.setattr(bg.time, "monotonic", iter([0.0, 0.0, 9.0]).__next__)
     with pytest.raises(RuntimeError, match="did not open within 5 s"):
         app._launch(5)
+
+
+def test_a_stalled_window_capture_falls_back_to_screencapture(monkeypatch):
+    """macOS's window capture can hang 30 s and return nothing while its capture service is busy; `screencapture`
+    still works. The API gets a short wait, then the fallback is used for a while without trying the API again."""
+    import time
+    import legato.background as bg
+    calls = {"api": 0, "fallback": 0}
+
+    class Q:
+        kCGWindowImageBoundsIgnoreFraming = kCGWindowImageNominalResolution = 0
+
+        @staticmethod
+        def CGRectMake(*r):
+            return r
+
+        @staticmethod
+        def CGWindowListCreateImageFromArray(rect, ids, opts):
+            calls["api"] += 1
+            time.sleep(0.3)                       # stalls past the wait below
+            return None
+
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.Q = Q
+    monkeypatch.setattr(bg.MacApp, "API_WAIT_S", 0.05)
+    monkeypatch.setattr(bg, "_screencapture", lambda wid, size: calls.__setitem__("fallback", calls["fallback"] + 1)
+                        or f"png {wid} {size}".encode())
+    assert app.capture([7, 8], (10, 20, 300, 200)) == b"png 7 (300, 200)"
+    assert app.capture([7], (10, 20, 300, 200)) == b"png 7 (300, 200)"
+    assert calls == {"api": 1, "fallback": 2}      # the API was tried once, then left alone
+    monkeypatch.setattr(bg, "_screencapture", lambda wid, size: None)
+    with pytest.raises(RuntimeError, match="capture is busy"):
+        app.capture([7], (10, 20, 300, 200))

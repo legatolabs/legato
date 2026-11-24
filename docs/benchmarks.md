@@ -22,7 +22,7 @@ Same model, same desktops, all arms run at the same time.
   - Every arm called models through Legato's client.
   - All arms ran with a 25-step cap; OSWorld's runner default is 50.
 
-## H2H-1: Claude and Qwen (24 tasks, 2 attempts each, 0 errors)
+## H2H-1: Claude and Qwen (24 tasks, 2 attempts each, 0 errors after 7 rollouts whose desktop failed were run again)
 
 | arm | success | agent s | calls/task | model s/call | wait s/action | $/task |
 |---|---|---|---|---|---|---|
