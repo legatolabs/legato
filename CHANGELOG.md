@@ -2,6 +2,11 @@
 
 ## 0.3.1
 
+- **`legato mcp` refuses risky actions on this computer unless started with `--yes`.** Its stdin is the client's
+  pipe, so "ask in the terminal" asked nobody and ran them: Cmd+Q or a typed `rm` through `desktop_act`, and the
+  shell and AppleScript steps inside `desktop_run_task`. The client is told how to allow them. The README says what
+  the list doesn't catch, and that a page on screen can try to instruct the agent.
+
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
   updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
   a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs

@@ -77,8 +77,12 @@ Most of a computer-use agent's time goes to waiting: on the model, and on the sc
 
 ## Safety and limits
 
-- **Your own screen:** risky keys and typed commands (`rm`, `sudo`, Cmd+Q...) wait for your yes; move the mouse into
-  a corner to stop a run. `--sandbox docker` or a cloud desktop keeps the agent off your screen and files.
+- **Your own screen:** risky keys and typed commands (`rm`, `sudo`, Cmd+Q...) wait for your yes, and are refused when
+  nobody can answer (an MCP server, a script; `--yes` allows them). It's a list, not a sandbox: a click on Delete
+  isn't caught. Move the mouse into a corner to stop a run. `--sandbox docker` or a cloud desktop keeps the agent off
+  your screen and files.
+- **What it reads:** a page or document on screen can try to instruct the agent (prompt injection). In the background
+  it works in your own Safari, signed in where you are; for sites you don't trust, use `--sandbox docker`.
 - **Your data:** screenshots and the task go to the model you chose and nowhere else. Legato has no server of its
   own and sends no telemetry.
 - **Limits you set:** `timeout_s` and `max_steps` bound a run, and `result.status` says how it ended
