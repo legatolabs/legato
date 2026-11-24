@@ -31,6 +31,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 
+def env_name(var: str) -> str:
+    """An environment variable as this platform's usual shell writes it: $VAR, or $env:VAR on Windows (PowerShell)."""
+    return f"$env:{var}" if sys.platform == "win32" else f"${var}"
+
+
 class Provider(NamedTuple):
     name: str
     base_url: str
@@ -117,11 +122,11 @@ class Config:
         """Where `key` comes from, by name and never by value: "the key in $LEGATO_API_KEY", "the key legato setup
         saved in <file>", "the key in $OPENROUTER_API_KEY"..., or "" when there is no key."""
         if os.environ.get("LEGATO_API_KEY"):
-            return "the key in $LEGATO_API_KEY"
+            return f"the key in {env_name('LEGATO_API_KEY')}"
         if self.api_key:
             return f"the key legato setup saved in {path()}"
         if self.api_key_env and os.environ.get(self.api_key_env):
-            return f"the key in ${self.api_key_env}"
+            return f"the key in {env_name(self.api_key_env)}"
         return ""
 
     @property
@@ -164,6 +169,12 @@ def load(use_env: bool = True) -> Config:
     known = {f for f in Config.__dataclass_fields__ if f != "extra"}
     cfg = Config(**{k: str(v) for k, v in data.items() if k in known and v is not None},
                  extra={k: v for k, v in data.items() if k not in known})
+    saved_url = cfg.base_url or (PROVIDERS[cfg.provider].base_url if cfg.provider in PROVIDERS else "")
+    other = os.environ.get("LEGATO_BASE_URL", "") if use_env else ""
+    if other and saved_url and other.rstrip("/") != saved_url.rstrip("/"):
+        # the saved key is the saved provider's: it is never sent to another server. LEGATO_API_KEY is the key for
+        # a server named by LEGATO_BASE_URL.
+        cfg.api_key, cfg.api_key_env, cfg.provider = "", "", ""
     if use_env:
         for name, attr in (("LEGATO_MODEL", "model"), ("LEGATO_BASE_URL", "base_url"), ("LEGATO_DESKTOP", "desktop"),
                            ("LEGATO_APP", "app")):
@@ -193,7 +204,22 @@ def save(cfg: Config) -> Path:
     tmp.write_text(json.dumps(data, indent=2) + "\n")
     os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
     tmp.replace(p)
+    if sys.platform == "win32":       # chmod does not limit who reads a file on Windows: its access list does
+        _windows_owner_only(p)
     return p
+
+
+def _windows_owner_only(p: Path) -> bool:
+    """Leave only the current user on the file's access list (no inherited entries). False if icacls failed."""
+    import subprocess
+    user = os.environ.get("USERNAME") or ""
+    if not user:
+        return False
+    try:
+        r = subprocess.run(["icacls", str(p), "/inheritance:r", "/grant:r", f"{user}:F"], capture_output=True, timeout=15)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def default_desktop() -> str:

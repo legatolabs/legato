@@ -78,5 +78,14 @@ fits better.
 Compare `result.report()` from `legato.Harness` and `legato.Harness.reference` on them
 (`examples/compare_with_reference.py`).
 
+**Where is my key kept, and how do I remove it?**
+A key in an environment variable (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`...) is read from there and never
+written down: setup saves only the variable's name. A key pasted into `legato setup` (or given with `--api-key -`)
+is saved in plain text in `~/.config/legato/config.json` (`C:\Users\you\.config\legato\config.json` on Windows),
+readable by your user only. To remove it, delete that file, or run `legato setup --api-key-env OPENROUTER_API_KEY`
+to go back to the variable. `LEGATO_MODEL`, `LEGATO_BASE_URL` and `LEGATO_API_KEY` override the saved choice for one
+shell; a flag on the command wins over both. A saved key is only ever sent to the server it was saved for: with
+`LEGATO_BASE_URL` pointing somewhere else, set `LEGATO_API_KEY` for that server.
+
 **Is there a hosted version?**
 Not yet. Legato runs where you run it, with the model you bring.
