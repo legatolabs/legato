@@ -315,12 +315,17 @@ class LocalEnv(Env):
                 names = [self.key(k) for k in combo.split("+") if k]
                 if why := safety.keys_risk(names):
                     return f"press {combo} ({why})", typed
+                if safety.is_delete(names) and getattr(self, "_all_selected", False):
+                    self._all_selected = False
+                    return f"press {combo} after selecting everything (deletes all that is selected)", typed
+                self._all_selected = safety.is_select_all(names)
                 if safety.is_enter(names):
                     if why := safety.text_risk(typed):
                         return f"press Return after typing {quote(typed)} ({why})", ""
                     typed = ""
             return None, typed
         if t in ("click", "double_click", "triple_click", "right_click", "drag"):
+            self._all_selected = False
             return None, ""                       # the focus may have moved: a later Return runs something else
         return None, typed
 
