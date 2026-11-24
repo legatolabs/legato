@@ -68,6 +68,7 @@ def _said(fn):
 
 
 LAUNCH_RULE = {"launch": {"floor": 0.5, "quiet": 1.0, "min_same": 2}}   # once the window starts drawing
+PAGE_RULE = {"page": {"floor": 0.1, "quiet": 0.3, "min_same": 2}}       # a page already loaded: until it is drawn
 
 
 def launch_command(platform: str, url: str | None = None, app: str | None = None) -> str:
@@ -201,8 +202,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         try:
             env = background(app)
             if url:
-                env.open_url(url)
-                wait_for_launch(lambda: env.observe().screenshot, digest(env.observe().screenshot))
+                env.open_url(url)                           # returns once the page has loaded (Accessibility)
+                Waiter(lambda: env.observe().screenshot, PAGE_RULE).settle("page", cap_s=5.0, poll_s=0.1)
         except (RuntimeError, OSError, subprocess.SubprocessError) as e:
             raise ToolError(f"could not open {app} in the background: {e}") from None
         did = uuid.uuid4().hex[:12]
@@ -270,7 +271,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                             "reads the window's Accessibility tree; on this desktop use desktop_screenshot, or "
                             "desktop_shell to check files and output")
         t = time.monotonic()
-        text = d["env"].read(max_chars=min(max(int(max_chars), 200), 200_000))
+        text = d["env"].read(max_chars=min(max(int(max_chars), 1), 200_000))
         keep(desktop_id, "read", None, chars=len(text), seconds=round(time.monotonic() - t, 3))
         return text
 
@@ -294,10 +295,13 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
     @srv.tool()
     @_said
     def desktop_run_task(desktop_id: str, task: str, model: str | None = None, base_url: str | None = None,
-                         api_key_env: str | None = None, max_steps: int = 40) -> list:
+                         api_key_env: str | None = None, max_steps: int = 40, timeout_s: float | None = None) -> list:
         """Hand a whole task to Legato's own agent and get back what it found, its report and the final screen. It
         uses the model saved by `legato setup` unless you name one (model, base_url: any OpenAI-compatible endpoint;
-        the key is read from the environment variable api_key_env). Good for long GUI chores while you keep working."""
+        the key is read from the environment variable api_key_env). Good for long GUI chores while you keep working.
+        The reply starts with `status:`, how the run ended: done, failed, max_steps, timeout, cancelled, stopped or
+        error; only done means the agent says it finished, so check the result before relying on it. timeout_s: a
+        deadline for the whole run in seconds (status timeout, with what was done so far)."""
         from legato import config
         from legato.agent import agent_for
         d = get(desktop_id)
@@ -314,7 +318,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         if source and hasattr(agent.client, "key_source"):  # named if the server refuses the key
             agent.client.key_source = source
         from legato.agent import ANSWER_NOTE
-        res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps, raise_desktop_errors=False)
+        res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps, raise_desktop_errors=False,
+                        timeout_s=float(timeout_s) if timeout_s else None)
         answer = f"answer: {res.answer}\n" if res.answer else ""
         text = (f"status: {res.status}\n" + answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]))
         try:
@@ -332,13 +337,19 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
     @srv.tool()
     @_said
     def desktop_close(desktop_id: str) -> str:
-        """Stop a desktop."""
+        """Stop a desktop. In the background, the window desktop_open(url=...) opened is closed; the app stays."""
         if desktop_id not in desks:
             return f"no open desktop {desktop_id!r}"
         keep(desktop_id, "close", None)
         d = desks.pop(desktop_id)
         from legato import providers
         providers.close(d["sb"])
+        from legato.background import BackgroundEnv
+        if isinstance(d["env"], BackgroundEnv):           # the window desktop_open(url=...) opened
+            try:
+                d["env"].close()
+            except Exception:  # noqa: BLE001 - the desktop is gone from the list either way
+                pass
         return f"closed {desktop_id} after {time.time() - d['opened']:.0f} s"
 
     return srv

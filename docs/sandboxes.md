@@ -93,10 +93,14 @@ agent.run("Sign up with the name Ada Lovelace", env)
   the point is pressed (buttons, links, checkboxes, menu items), focused (fields), or selected (rows), and in text the
   insertion point goes to that character; a double or triple click there selects the word or the line.
 - **Scrolling** moves the scroll bar under the point; a page with none (Chrome) scrolls with the arrow keys.
+- **A page opens in a window of its own** (`env.open_url(url)`, `desktop_open(url=...)`): the browser's New Window
+  menu item and address field, through Accessibility, so your tabs stay as they were. `env.close()` closes it.
 - **If the app takes the front** (Chrome does when it opens a URL), it is given back to the app you were in.
 - **Not possible in the background,** and reported to the model as "this desktop can't do that": drags, a click on
   something that can't be pressed, focused or selected (a canvas, an empty area), a click with keys held, copy, cut and
-  paste (the clipboard is yours), and anything outside the app (the Dock, the menu bar, Spotlight, other apps).
+  paste (the clipboard is yours), anything outside the app (the Dock, the menu bar, Spotlight, other apps), and font
+  changes such as bold and italic: an app in the back doesn't apply them, though its Bold button may look on
+  (underline and alignment do work).
 - **Don't use the same app yourself** while it works: its keys go to whatever has the focus in that app. Give it its own
   app, or its own browser (Chrome while you use Safari).
 - The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it. An app

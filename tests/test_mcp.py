@@ -243,3 +243,29 @@ def test_run_task_reports_its_status_and_a_desktop_error(monkeypatch):
         assert kinds(r) == ["text"] and r.content[0].text.startswith(
             "status: error\nthe desktop failed: the window could not be captured")
     asyncio.run(go())
+
+
+def test_run_task_passes_its_deadline_and_says_status_in_its_description(monkeypatch):
+    import legato.agent
+    from legato.harness import RunResult
+    got = []
+
+    class Agent:
+        model = "m"
+
+        def run(self, task, env, **kw):
+            got.append(kw)
+            return RunResult(task, status="timeout", error="the run's deadline passed")
+    monkeypatch.setattr(legato.agent, "agent_for", lambda env, **kw: Agent())
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def go():
+        tool = next(t for t in await srv.list_tools() if t.name == "desktop_run_task")
+        assert "status" in tool.description and "timeout_s" in tool.description
+        did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
+        r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t", "timeout_s": 90})
+        assert r.content[0].text.startswith("status: timeout\n")
+        await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t"})
+    asyncio.run(go())
+    assert got[0]["timeout_s"] == 90.0 and got[1]["timeout_s"] is None

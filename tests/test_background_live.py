@@ -205,12 +205,14 @@ def browser(request, site):
     log.clear()
     tag = f"?{request.param.replace(' ', '')}{time.time():.0f}"
     env = BackgroundEnv(request.param, confirm=None)
-    env.open_url(url + tag)                       # Chrome takes the front for a new URL: open_url gives it back
+    env.open_url(url + tag)                       # in a window of its own; Chrome may take the front: given back
     if not wait_for(log, lambda e: e.get("loaded") == tag, 40.0):
+        env.close()
         pytest.fail(f"the page never loaded in {request.param}")
     time.sleep(1.0)
     env.observe()
     yield env, log
+    env.close()                                   # the window open_url opened
 
 
 def element(env, role, label):
