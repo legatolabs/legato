@@ -4,6 +4,10 @@
 
 One agent, four ways in, and one command to set it up.
 
+- **Planner notes and shell:** `Planner(..., style="point", notes=True)` lets the planner keep notes that are given
+  back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
+  the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
+  (`shell_name` says which shell that is).
 - **`legato setup`:** choose the model (checked with one call) and where it works, add Legato to the coding agents it
   finds (Claude Code, Codex, Cursor, Claude Desktop), and watch a first task. `--yes` and `--json` for coding agents;
   a key can come on stdin (`--api-key -`). Saved to `~/.config/legato/config.json`, readable by you only.

@@ -75,6 +75,8 @@ class Planner:
     retries: int = 2
     client: Any = None                   # anything with .chat(messages, ...) -> record; built from the fields if None
     style: str = "steps"                 # "steps": the executor does each step (this module); "point": legato/point.py
+    notes: bool = False                  # point: the planner keeps notes that are given back to it at every call
+    shell_name: str = "bash"             # point: what the harness's shell tool runs, as the planner is told
 
     def __post_init__(self) -> None:
         if self.client is None:
