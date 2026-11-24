@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0
 
 One agent, four ways in, and one command to set it up.
 
@@ -25,10 +25,9 @@ One agent, four ways in, and one command to set it up.
 - macOS: a sum ("1269*5693=") is typed key by key like a number, since Calculator ignores a pasted sum (legato-research
   EXP-0085: the Calculator task 0.375x the time). The harness reads an action a model left open before its own
   closing tags (Qwen3.8-27B).
+- **Two models, one plans and one points (#42):** `legato.Planner(..., style="point")`: a strong model names each
+  action and a small one finds it on the screen, the setup of the Windows runs (GPT-6.1 Terra with UI-TARS-1.5-7B).
 - Docs: a shorter README; Set up, Mac app, and Terminal and Python pages; the sidebar from 21 links to 12.
-
-## Unreleased
-
 - `legato.hosted` is no longer exported from `legato`: the managed service isn't live yet. The module stays
   (`from legato import hosted`), and the FAQ says there is no hosted version yet.
 - **Easy start (#35):** `legato` alone prints what to do first: `legato init`, the three ways to use Legato, and a
