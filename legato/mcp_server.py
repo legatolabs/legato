@@ -48,6 +48,23 @@ except ImportError:                    # mcp 1.x
         raise ImportError('the MCP server needs the mcp package: pip install "legatolabs[mcp]"') from e
 
 
+def _said(fn):
+    """The tool's failure with its reason, for the client: the MCP library shows the model only "Error executing tool
+    <name>" for any exception but ToolError, and the reason (a window that can't be captured, an app that won't open)
+    stays in the server's log."""
+    import functools
+
+    @functools.wraps(fn)
+    def tool(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except ToolError:
+            raise
+        except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            raise ToolError(f"{fn.__name__} failed: {e}") from None
+    return tool
+
+
 LAUNCH_RULE = {"launch": {"floor": 0.5, "quiet": 1.0, "min_same": 2}}   # once the window starts drawing
 
 
@@ -142,6 +159,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return desks[desktop_id]
 
     @srv.tool()
+    @_said
     def desktop_open(width: int = 1280, height: int = 800, url: str | None = None, app: str | None = None) -> list:
         """Open a desktop and return its id and first screenshot. Which desktop depends on how the server was
         started (the server's instructions say): one app's window on the person's Mac in the background, their whole
@@ -195,6 +213,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                 "pressable are not possible here, so use the keyboard for those.", img]
 
     @srv.tool()
+    @_said
     def desktop_act(desktop_id: str, action: str, x: int | None = None, y: int | None = None, text: str | None = None,
                     keys: str | None = None, direction: str | None = None, amount: int | None = None,
                     end_x: int | None = None, end_y: int | None = None) -> list:
@@ -227,6 +246,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return [note, to_image(obs.screenshot, image_format)]
 
     @srv.tool()
+    @_said
     def desktop_screenshot(desktop_id: str) -> Image:
         """The current screen of an open desktop."""
         img = shot(get(desktop_id))
@@ -234,6 +254,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return img
 
     @srv.tool()
+    @_said
     def desktop_shell(desktop_id: str, command: str, timeout_s: float = 30.0) -> str:
         """Run a shell command on the desktop's computer and return its output (stdout and stderr) and exit code.
         Use it to start apps, read and write files and check results; it is faster than the screen. Start a GUI app
@@ -250,6 +271,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return out
 
     @srv.tool()
+    @_said
     def desktop_run_task(desktop_id: str, task: str, model: str | None = None, base_url: str | None = None,
                          api_key_env: str | None = None, max_steps: int = 40) -> list:
         """Hand a whole task to Legato's own agent and get back what it found, its report and the final screen. It
@@ -274,6 +296,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return [answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]), img]
 
     @srv.tool()
+    @_said
     def desktop_close(desktop_id: str) -> str:
         """Stop a desktop."""
         if desktop_id not in desks:

@@ -274,8 +274,11 @@ def _main(argv) -> int:
         if not r["ok"]:
             say(f"\n   the model did not answer: {r['error']}")
             if not asking or not _yes("   Save it anyway?", False):
-                print("legato setup: nothing was saved. Check the key, the model name and the URL, or pass "
-                      "--no-check to save it as it is.", file=sys.stderr)
+                fix = (f"No model server answered at {base_url}: start one (vllm serve, ollama serve, or LM Studio's "
+                       "server) or pass --base-url" if C.is_local_url(base_url)
+                       else "Check the key, the model name and the URL")
+                print(f"legato setup: nothing was saved. {fix}, or pass --no-check to save it as it is.",
+                      file=sys.stderr)
                 if a.json:
                     print(json.dumps({**state(), "ready": False, "missing": [f"the model did not answer: {r['error']}"]}))
                 return 1
@@ -313,7 +316,9 @@ def _main(argv) -> int:
         if not d["ok"]:
             say(f"   needs: {d['fix']}")
     path = C.save(cfg)
-    say(f"\nSaved to {path}.")
+    where = (f"in the background, in {cfg.app or 'the app each task names, else ' + C.pick_app('', cfg)}"
+             if desktop == "background" else C.DESKTOPS.get(desktop, desktop).split(":")[0])
+    say(f"\nSaved to {path}. Legato will work {where}.")
 
     # 3. coding agents
     found = coding_agents()

@@ -56,12 +56,59 @@ PRESS = ("AXPress", "AXPick", "AXConfirm")
 HIDES = re.compile(r"(cmd|command|super|meta)(\+(alt|option))?\+[hm]")   # hide the app, minimize the window
 
 
+def _within(seconds: float, fn):
+    """fn() if it returns within `seconds`, else None (it finishes on its own in a background thread)."""
+    import threading
+    box: list = []
+    t = threading.Thread(target=lambda: box.append(fn()), daemon=True)
+    t.start()
+    t.join(seconds)
+    return box[0] if box else None
+
+
+def _screencapture(window_id: int, size: tuple[int, int]) -> bytes | None:
+    """PNG of one window with macOS's `screencapture`, scaled to `size` (points), or None."""
+    import io
+    import os
+    import tempfile
+    from PIL import Image
+    fd, path = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    try:
+        r = subprocess.run(["screencapture", "-x", "-o", "-t", "png", f"-l{window_id}", path], capture_output=True,
+                           timeout=15)
+        data = open(path, "rb").read()
+        if r.returncode != 0 or not data:
+            return None
+        im = Image.open(io.BytesIO(data))
+        if size[0] > 0 and size[1] > 0 and im.size != size:
+            im = im.resize(size, Image.LANCZOS)
+        buf = io.BytesIO()
+        im.convert("RGB").save(buf, "PNG")
+        return buf.getvalue()
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return None
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _pump(seconds: float) -> None:
+    """Wait while letting AppKit catch up. NSWorkspace's list of running apps is only refreshed by the run loop, so in
+    a plain `time.sleep` loop an app opened after the first look is never seen (it was: "Safari did not start" with
+    Safari running)."""
+    from Foundation import NSDate, NSRunLoop
+    NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(seconds))
+
+
 class MacApp:
     """The few macOS calls background mode needs, for one app. Tests swap in a fake with the same methods.
 
     Coordinates here are screen points, origin at the top left of the main display. Elements are AXUIElements."""
 
-    def __init__(self, app: str, launch_s: float = 15.0):
+    def __init__(self, app: str, launch_s: float = 30.0):
         try:
             import ApplicationServices as AS
             import Quartz
@@ -81,7 +128,23 @@ class MacApp:
         for a in self.ws.runningApplications():
             if self.name in (a.localizedName(), a.bundleIdentifier()):
                 return int(a.processIdentifier())
+        # NSWorkspace's list is refreshed only by the main run loop, so in a long-lived process (the MCP server runs
+        # tools on worker threads) it can miss an app opened after the first look. Asking by bundle id is always fresh.
+        if bid := self._bundle_id():
+            from AppKit import NSRunningApplication
+            for a in NSRunningApplication.runningApplicationsWithBundleIdentifier_(bid) or []:
+                return int(a.processIdentifier())
         return None
+
+    def _bundle_id(self) -> str | None:
+        if self.flag == "-b":
+            return self.name
+        if not hasattr(self, "_bid"):
+            from Foundation import NSBundle
+            path = self.ws.fullPathForApplication_(self.name)
+            bundle = NSBundle.bundleWithPath_(path) if path else None
+            self._bid = bundle.bundleIdentifier() if bundle is not None else None
+        return self._bid
 
     def _launch(self, wait_s: float) -> int:
         subprocess.run(["open", "-g", self.flag, self.name], capture_output=True, timeout=30)    # -g: not in front
@@ -89,8 +152,8 @@ class MacApp:
         while time.monotonic() < end:
             if pid := self._find():
                 return pid
-            time.sleep(0.2)
-        raise RuntimeError(f"{self.name} did not start (is it installed?)")
+            _pump(0.2)
+        raise RuntimeError(f"{self.name} did not open within {wait_s:.0f} s (is it installed?)")
 
     def unhide(self) -> bool:
         """Show the app again if it was hidden (cmd+H), without bringing it to the front. True if it was hidden."""
@@ -120,16 +183,31 @@ class MacApp:
                         "layer": int(w.get("kCGWindowLayer", 0))})
         return out
 
+    API_WAIT_S = 3.0          # longer than this, and macOS's window capture is stalled (it gives up only after 30 s)
+    API_OFF_S = 300.0         # then use `screencapture` for this long before trying the API again
+
     def capture(self, ids: list[int], rect: tuple[float, float, float, float]) -> bytes:
-        """PNG of windows `ids` composited in `rect` (screen points), one pixel per point, other apps left out."""
+        """PNG of windows `ids` composited in `rect` (screen points), one pixel per point, other apps left out.
+
+        macOS's window capture can stall for 30 s and return nothing while its capture service is busy (seen with a
+        screen recorder running and several captures at once), while `screencapture` still works. So the API call
+        gets API_WAIT_S, and after a stall the front window is taken with `screencapture` for API_OFF_S (its sheets
+        and menus are then left out)."""
         q = self.Q
-        img = q.CGWindowListCreateImageFromArray(q.CGRectMake(*rect), ids, q.kCGWindowImageBoundsIgnoreFraming
-                                                 | q.kCGWindowImageNominalResolution)
-        if img is None:
-            raise RuntimeError("the window could not be captured: is Screen Recording on for this app?")
-        from AppKit import NSBitmapImageRep, NSPNGFileType
-        rep = NSBitmapImageRep.alloc().initWithCGImage_(img)
-        return bytes(rep.representationUsingType_properties_(NSPNGFileType, None))
+        if time.monotonic() >= getattr(self, "_api_off_until", 0.0):
+            img = _within(self.API_WAIT_S, lambda: q.CGWindowListCreateImageFromArray(
+                q.CGRectMake(*rect), ids, q.kCGWindowImageBoundsIgnoreFraming | q.kCGWindowImageNominalResolution))
+            if img is not None:
+                from AppKit import NSBitmapImageRep, NSPNGFileType
+                rep = NSBitmapImageRep.alloc().initWithCGImage_(img)
+                return bytes(rep.representationUsingType_properties_(NSPNGFileType, None))
+            self._api_off_until = time.monotonic() + self.API_OFF_S
+        png = _screencapture(ids[0], (int(rect[2]), int(rect[3])))
+        if png is None:
+            raise RuntimeError("the window could not be captured: check Screen Recording for this app in System "
+                               "Settings; if it is on, macOS's screen capture is busy (quit other screen recorders) "
+                               "or needs a restart")
+        return png
 
     def front_pid(self) -> int | None:
         q = self.Q

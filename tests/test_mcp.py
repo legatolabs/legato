@@ -183,3 +183,24 @@ def test_fixed_wait_flag(monkeypatch):
     mcp_server.main(["--local", "--wait-scope", "app"])
     built["factory"]((64, 40))
     assert built["local_kw"] == {"wait_scope": "app"}
+
+
+def test_a_desktop_failure_reaches_the_client_with_its_reason():
+    """The MCP library shows only "Error executing tool" for an unexpected exception: the reason must come through."""
+    shots = iter([png()])
+
+    def screenshot():
+        try:
+            return next(shots)
+        except StopIteration:
+            raise RuntimeError("the window could not be captured") from None
+
+    srv = build_server(lambda res: (None, legato.attach(screenshot=screenshot, execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        did = r.content[0].text.split()[1]
+        with pytest.raises(Exception, match="desktop_screenshot failed: the window could not be captured"):
+            await srv.call_tool("desktop_screenshot", {"desktop_id": did})
+    asyncio.run(go())
