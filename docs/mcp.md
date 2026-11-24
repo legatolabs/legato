@@ -46,8 +46,8 @@ codex mcp add legato -- legato mcp                                   # Codex: th
 | `desktop_screenshot(desktop_id)` | the current screen |
 | `desktop_read(desktop_id, max_chars=8000)` | in the background on a Mac only: the window's text from its Accessibility tree, as an outline (`- heading "Counter"`, `- text "Count: 1"`, `- button "+1"`) of at most `max_chars` characters; in a browser, the page with its title and address. Other desktops answer with an error |
 | `desktop_shell(desktop_id, command, timeout_s=30)` | runs a shell command on the desktop's computer (the container, the sandbox, or yours with `--local` or `--background`, where it is not sandboxed); returns its output and exit code |
-| `desktop_run_task(desktop_id, task, model, base_url, api_key_env, max_steps, timeout_s)` | hands a whole task to Legato's own agent on a desktop from `desktop_open`, with the model `legato setup` saved unless you name one; returns its status (`done`, `failed`, `max_steps`, `timeout`, `error`...), the answer, the run report and the final screen. `timeout_s` is a deadline for the whole run |
-| `desktop_close(desktop_id)` | stops the desktop (a container or sandbox is deleted; in the background, the window `desktop_open(url=...)` opened is closed and the app stays open) |
+| `desktop_run_task(desktop_id, task, model, base_url, api_key_env, max_steps, timeout_s)` | hands a whole task to Legato's own agent on a desktop from `desktop_open`, with the model `legato setup` saved unless you name one; returns the run report and the final screen, and `{status, answer, seconds, steps, error}` as structured content to branch on. A run that failed, timed out or errored is marked as a tool error (`isError`). `timeout_s` is a deadline for the whole run |
+| `desktop_close(desktop_id)` | stops the desktop (a container or sandbox is deleted; in the background, the browser window the desktop opened is closed, a new document stays open, and the app stays open) |
 
 - **`desktop_act` lets your agent drive.** Use it when your agent's own model (for example Claude in Claude Code) does
   the computer use.
@@ -58,14 +58,16 @@ codex mcp add legato -- legato mcp                                   # Codex: th
 - **In the background on your Mac:** `legato mcp --background` forces it whatever was saved. It takes no app name:
   the app is `desktop_open(app=...)`'s, else the one `legato setup --app` saved, else Safari (Chrome 158 and later
   ignore background clicks on web pages).
-- **A page gets a window of its own in the background.** `desktop_open(app="Safari", url=...)` opens a new Safari
+- **Each background desktop gets a window of its own.** `desktop_open(app="Safari", url=...)` opens a new Safari
   window through its menu and address field (no Apple Events permission), so your tabs stay as they were and out of
-  the agent's sight, and returns once the page has loaded and has the keyboard focus.
+  the agent's sight, and returns once the page has loaded and has the keyboard focus. TextEdit and other document apps
+  get a new document; an app with neither is worked in its front window, which `desktop_open` names. Two desktops in
+  one app each keep their own window.
 - **`desktop_read` checks text without a screenshot.** Your agent can check that a page says `Count: 1` as it would
   with Playwright's snapshot. It reads the window that `desktop_act` works in.
 - **A fixed-sleep baseline:** `legato mcp --fixed-wait 2` sleeps after every action instead of waiting for the screen.
 - **See what the agent did:** `legato mcp --record DIR` saves every screenshot the agent got, with a `log.jsonl` of its
-  actions, under `DIR/<desktop_id>/`.
+  actions, under `DIR/<desktop_id>/`, including each step of a `desktop_run_task`.
 - **`desktop_shell` skips the screen** for what a command does faster: starting apps, reading files, checking results.
 - **`desktop_run_task` delegates.** Use it to offload a whole GUI task to a cheaper open model while your agent keeps
   working.

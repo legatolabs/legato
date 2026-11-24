@@ -81,7 +81,9 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
                  timeout_s: float | None = None) -> tuple[Env, Callable[[], None], str]:
     """(env, close, what) for a desktop by name ("background", "screen", "docker", "e2b", or a --sandbox spec such as
     my_desktop.py:desktop). With none given: the saved one, else background on a Mac and the screen elsewhere. In the
-    background, the app is `app`, else the saved one, else the one the task names, else Safari. timeout_s bounds the
+    background, the app is `app`, else the saved one, else the one the task names, else Safari, and the desktop is a
+    window of its own (a new browser window or document; `close` closes a browser window it opened). timeout_s bounds
+    the
     start where it can be bounded: an app's launch in the background, docker (image pull included) and E2B's create
     request; your own --sandbox function is not. Raises DesktopStartError when the desktop can't start, and
     legato.providers.SpecError (a ValueError) for a name that is no desktop."""
@@ -93,8 +95,9 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
         from legato.background import background
         name = app or cfgmod.pick_app(task, cfg)
         launch = 30.0 if timeout_s is None else max(0.0, min(30.0, timeout_s))
-        return (background(name, confirm=confirm, launch_s=launch), (lambda: None),
-                f"{name}'s window, in the background")
+        env = background(name, confirm=confirm, launch_s=launch)    # a window of its own: the person's stay as they are
+        what = env.describe() if hasattr(env, "describe") else f"{name}'s window"
+        return env, getattr(env, "close", lambda: None), f"{what}, in the background"
     if desktop == "screen":
         from legato.local import local
         return local(confirm=confirm), (lambda: None), "this screen"

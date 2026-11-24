@@ -31,6 +31,8 @@ import time
 import uuid
 from typing import Any, Callable
 
+from typing_extensions import TypedDict
+
 from legato.actions import ALIASES, KINDS, Action, norm_keys
 from legato.env import Env
 from legato.safety import Denied, Stopped, Unavailable
@@ -93,6 +95,37 @@ def wait_for_launch(screenshot, before: str, appear_s: float = 10.0) -> None:
             Waiter(screenshot, LAUNCH_RULE).settle("launch", cap_s=10.0, poll_s=0.15)
             return
         time.sleep(0.15)
+
+
+class RunTaskOutput(TypedDict):
+    """desktop_run_task's structured result, for a client to branch on."""
+    status: str               # done, failed, max_steps, timeout, cancelled, stopped or error
+    answer: str               # what the agent said at the end ("" if nothing)
+    seconds: float            # how long the run took
+    steps: int                # model turns
+    error: str | None         # why it failed, for error and timeout
+
+
+FAILED = ("failed", "timeout", "error")       # statuses reported as a failed tool call (isError)
+NEW_MCP = _Server.__module__.startswith("mcp.server.mcpserver")    # mcp 2: a tool can return its own CallToolResult
+if NEW_MCP:
+    from typing import Annotated
+
+    from mcp.types import CallToolResult, TextContent
+    RUN_RETURN: Any = Annotated[CallToolResult, RunTaskOutput]
+else:                                         # mcp 1: text and the screenshot, as before
+    RUN_RETURN = list
+
+
+def run_result(text: str, img: Any, out: dict) -> Any:
+    """desktop_run_task's reply: the report as text (older clients read that), the final screen, and `out` as
+    structured content; a run that failed, timed out or errored is marked as an error (isError), so a client sees it
+    without reading the text. With mcp 1, the text and the screen only."""
+    if not NEW_MCP:
+        return [text] + ([img] if img is not None else [])
+    content = [TextContent(type="text", text=text)] + ([img.to_image_content()] if img is not None else [])
+    return CallToolResult.model_validate({"content": content, "structuredContent": out,
+                                          "isError": out["status"] in FAILED})
 
 
 def e2b_factory(resolution: tuple[int, int]):
@@ -199,21 +232,26 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         if not app:
             from legato import config
             app = config.pick_app("")                       # the saved app, else the browser
+        env = None
         try:
-            env = background(app)
+            env = background(app)                           # a window of its own: the person's stay as they are
             if url:
                 env.open_url(url)                           # returns once the page has loaded (Accessibility)
                 Waiter(lambda: env.observe().screenshot, PAGE_RULE).settle("page", cap_s=5.0, poll_s=0.1)
+            did = uuid.uuid4().hex[:12]
+            desks[did] = {"sb": None, "env": env, "wh": (0, 0), "opened": time.time()}
+            img = shot(desks[did])
         except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            close = getattr(env, "close", None)
+            if callable(close):
+                close()                                     # the window it opened, if it got that far
             raise ToolError(f"could not open {app} in the background: {e}") from None
-        did = uuid.uuid4().hex[:12]
-        desks[did] = {"sb": None, "env": env, "wh": (0, 0), "opened": time.time()}
-        img = shot(desks[did])
         w, h = desks[did]["wh"]
-        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app)
-        return [f"desktop_id: {did} ({w}x{h}): {app}'s window, worked in the background. Coordinates are pixels of "
-                "this window. Clicks press, focus or select what is under them; drags and clicks on nothing "
-                "pressable are not possible here, so use the keyboard for those.", img]
+        what = env.describe() if hasattr(env, "describe") else f"{app}'s window"
+        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app, window=what)
+        return [f"desktop_id: {did} ({w}x{h}): {what}, worked in the background; the person's other windows are left "
+                "alone. Coordinates are pixels of this window. Clicks press, focus or select what is under them; "
+                "drags and clicks on nothing pressable are not possible here, so use the keyboard for those.", img]
 
     @srv.tool()
     @_said
@@ -292,10 +330,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         keep(desktop_id, "shell", None, command=command, seconds=round(time.monotonic() - t, 3))
         return out
 
-    @srv.tool()
-    @_said
     def desktop_run_task(desktop_id: str, task: str, model: str | None = None, base_url: str | None = None,
-                         api_key_env: str | None = None, max_steps: int = 40, timeout_s: float | None = None) -> list:
+                         api_key_env: str | None = None, max_steps: int = 40, timeout_s: float | None = None) -> Any:
         """Hand a whole task to Legato's own agent and get back what it found, its report and the final screen. It
         uses the model saved by `legato setup` unless you name one (model, base_url: any OpenAI-compatible endpoint;
         the key is read from the environment variable api_key_env). Good for long GUI chores while you keep working.
@@ -318,21 +354,43 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         if source and hasattr(agent.client, "key_source"):  # named if the server refuses the key
             agent.client.key_source = source
         from legato.agent import ANSWER_NOTE
-        res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps, raise_desktop_errors=False,
-                        timeout_s=float(timeout_s) if timeout_s else None)
+        env, last = d["env"], {}
+        on_step = None
+        if record:                              # each step's actions and screen, not only the last one
+            def seen(fn):
+                def wrapped(*a, **k):
+                    obs = fn(*a, **k)
+                    last["png"] = getattr(obs, "screenshot", None)
+                    return obs
+                return wrapped
+            env.observe, env.act = seen(env.observe), seen(env.act)
+
+            def on_step(turn, actions, timing):
+                keep(desktop_id, "run_step", last.pop("png", None), turn=turn,
+                     actions=[a.describe() if a else "screenshot" for a in actions],
+                     seconds={k: round(v, 3) for k, v in timing.items() if isinstance(v, float)})
+        try:
+            res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, raise_desktop_errors=False,
+                            timeout_s=float(timeout_s) if timeout_s else None)
+        finally:
+            if record:
+                del env.observe, env.act                # the class's own again
         answer = f"answer: {res.answer}\n" if res.answer else ""
         text = (f"status: {res.status}\n" + answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]))
+        out = {"status": res.status, "answer": res.answer, "seconds": round(res.wall_s, 2), "steps": res.steps,
+               "error": res.error}
         try:
             img = shot(d)
         except Exception:  # noqa: BLE001 - the desktop that failed the run may not give a screenshot either
             if res.status != "error":
                 raise
-            keep(desktop_id, "run_task", None, task=task, model=agent.model, status=res.status, done=res.done,
-                 actions=res.actions[-50:])
-            return [text]                    # report() leads with the error
-        keep(desktop_id, "run_task", d["png"], task=task, model=agent.model, status=res.status, done=res.done,
-             actions=res.actions[-50:])
-        return [text, img]
+            img = None                          # report() leads with the error
+        keep(desktop_id, "run_task", d.get("png") if img is not None else None, task=task, model=agent.model,
+             status=res.status, done=res.done, actions=res.actions[-50:])
+        return run_result(text, img, out)
+
+    desktop_run_task.__annotations__["return"] = RUN_RETURN
+    srv.tool()(_said(desktop_run_task))
 
     @srv.tool()
     @_said
