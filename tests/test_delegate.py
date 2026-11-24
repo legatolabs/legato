@@ -63,7 +63,7 @@ def test_plan_steps_then_planner_judges_done():
     res = h.run("save it", desktop(log))
     assert res.done and not res.failed and [a.type for a in log] == ["click", "key"]
     assert res.planner["calls"] == 2 and res.planner["by"] == {"start": 1, "end": 1}
-    assert res.steps == 3 and res.actions[-1] == "done"
+    assert res.steps == 5 and res.actions[-1] == "done"            # 3 executor turns and 2 planner calls
     assert [("planner" in e) for e in res.trace] == [True, False, False, False, True]
     assert res.trace[0]["steps"][0] == ["click OK", "the dialog is gone"] and res.trace[2]["done"] is True
     first = h.client.sent[0]["messages"][1]["content"][0]["text"]
@@ -127,7 +127,7 @@ def test_a_plan_with_no_steps_fails_and_the_turn_limit_holds():
     h, _ = harness([plan("continue", ("a", "A"))], [rec([act(action="left_click", coordinate=[1, 1])])] * 3,
                    max_turns_per_step=99, every=0)
     res = h.run("t", desktop([]), max_steps=3)
-    assert not res.done and not res.failed and "turn limit" in res.error and res.steps == 3
+    assert not res.done and not res.failed and "turn limit" in res.error and res.steps == 4
 
 
 def test_statuses_with_a_planner_and_a_desktop_error_returned():
@@ -143,7 +143,7 @@ def test_statuses_with_a_planner_and_a_desktop_error_returned():
     h, _ = harness([plan("continue", ("a", "A"))], [rec([act(action="left_click", coordinate=[1, 1])])] * 5,
                    max_turns_per_step=99, every=0)
     res = h.run("t", desktop([]), cancel=stop, on_step=lambda *a: stop.set())
-    assert (res.status, res.steps) == ("cancelled", 1) and res.usage["prompt"] == 100
+    assert (res.status, res.steps) == ("cancelled", 2) and res.usage["prompt"] == 200
 
     def broken(a):
         raise OSError("the sandbox went away")
@@ -151,4 +151,17 @@ def test_statuses_with_a_planner_and_a_desktop_error_returned():
     h, _ = harness([plan("continue", ("a", "A"))], [rec([act(action="left_click", coordinate=[1, 1])])])
     res = h.run("t", legato.attach(screenshot=lambda: png, execute=broken), raise_desktop_errors=False)
     assert (res.status, res.error) == ("error", "the desktop failed: the sandbox went away")
-    assert res.usage["prompt"] == 100 and res.planner["calls"] == 1 and "step_done" not in h.tools
+    assert res.usage["prompt"] == 200 and res.planner["calls"] == 1 and "step_done" not in h.tools
+
+
+def test_planner_calls_are_in_the_steps_usage_and_seconds_and_its_answer_is_the_results():
+    h, p = harness([plan("continue", ("click OK", "the dialog is gone")),
+                    rec([call("plan", {"status": "done", "answer": "it says 42"})])],
+                   [rec([act(action="left_click", coordinate=[500, 500]), call("step_done", {})])])
+    res = h.run("what does the dialog say?", desktop([]))
+    assert (res.status, res.answer, res.steps) == ("done", "it says 42", 3)          # 2 planner calls + 1 executor turn
+    assert res.usage["prompt"] == 300 and abs(res.usage["cost_usd"] - 0.003) < 1e-9 and res.planner["prompt"] == 200
+    assert abs(sum(t["model_s"] for t in res.timings if "planner" in t) - res.planner["s"]) < 1e-6
+    h, p = harness([plan("done"), rec([call("plan", {"status": "done", "answer": "42"})])], [])
+    res = h.run("what does the dialog say?", desktop([]))
+    assert (res.answer, res.planner["by"]) == ("42", {"start": 1, "answer": 1})      # asked once for the answer

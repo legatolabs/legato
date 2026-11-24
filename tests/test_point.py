@@ -58,7 +58,7 @@ def test_keys_cost_no_call_and_clicks_one_pointer_call_each():
                    [at(500, 500), at(100, 200)])
     log = []
     res = h.run("retitle", desktop(log))
-    assert res.done and res.steps == 2 and res.planner["calls"] == 2        # four actions: 2 pointer + 2 planner calls
+    assert res.done and res.steps == 4 and res.planner["calls"] == 2        # four actions: 2 pointer + 2 planner calls
     assert [(a.type, a.x, a.y) for a in log if a.type.endswith("click")] == [("double_click", 500, 250), ("click", 100, 100)]
     assert [(a.type, a.keys or a.text) for a in log if a.type in ("key", "type")] == [("key", "ctrl+a"), ("type", "Hello")]
     asked = h.client.sent[0]["messages"]
@@ -91,7 +91,7 @@ def test_drag_scroll_hold_and_the_call_limit():
     assert log[2].keys == "shift" and (log[2].x, log[2].y) == (80, 400)      # the pointer may answer in text
     h, p = harness([act("continue", {"click": "a"})] * 3, [at(1, 1)] * 3)
     res = h.run("t", desktop([]), max_steps=4)
-    assert not res.done and "call limit" in res.error and res.steps + res.planner["calls"] == 4
+    assert not res.done and "call limit" in res.error and res.steps == 4 and res.planner["calls"] == 2
 
 
 def test_text_and_caret_keys_before_more_keys_do_not_wait_for_the_screen():
@@ -133,7 +133,7 @@ def test_a_coordinate_from_the_planner_is_used_without_asking_the_pointer():
                     act("done")], [])
     log = []
     res = h.run("bold", desktop(log))
-    assert res.done and res.steps == 0 and res.planner["calls"] == 2         # no pointer call at all
+    assert res.done and res.steps == 2 and res.planner["calls"] == 2         # no pointer call at all
     assert [(a.type, a.x, a.y) for a in log if a.type == "click"] == [("click", 300, 200)]
     assert {"aimed": "the Bold button in the toolbar", "at": [300.0, 200.0]} in res.trace       # screenshot pixels
     assert "The screen now is 1000x500 pixels" in p.client.sent[0]["messages"][0]["content"]
@@ -148,7 +148,7 @@ def test_a_coordinate_from_the_planner_is_dropped_when_the_screen_changed_there(
                     act("done")], [at(520, 600), at(990, 50)])
     res = h.run("open", env)
     clicks = [(a.x, a.y) for a in log if a.type == "click"]
-    assert res.done and res.steps == 2          # the pointer was asked for the first, and for the one off the screen
+    assert res.done and res.steps - res.planner["calls"] == 2          # the pointer was asked for the first, and for the one off the screen
     assert clicks == [(208, 120), (380, 10), (396, 10)]     # the pointer's, the planner's (untouched), the pointer's
     assert {"aimed": "the Name field", "at": None, "why": "the screen changed there"} in res.trace
     assert {"aimed": "the clock", "at": None, "why": "off the screen"} in res.trace
@@ -239,7 +239,7 @@ def test_a_planner_whose_harness_has_a_shell_names_commands_and_reads_their_outp
     h.client = Scripted([])
     log = []
     res = h.run("count", desktop(log))
-    assert res.done and ran == ["ls | wc -l"] and res.steps == 0 and res.planner["calls"] == 2
+    assert res.done and ran == ["ls | wc -l"] and res.steps == 2 and res.planner["calls"] == 2
     assert [a.keys for a in log if a.type == "key"] == ["ctrl+s"]
     first, again = p.client.sent[0], p.client.sent[1]["messages"][1]["content"][0]["text"]
     assert '{"shell": "<command>"}' in first["messages"][0]["content"] and "applescript" not in first["messages"][0]["content"]
@@ -320,3 +320,49 @@ def test_on_windows_the_shell_tool_is_powershell_and_the_planner_is_told_so(monk
 
 def test_elsewhere_the_shell_tool_is_bash():
     assert legato.tools.bash().runs == "bash" and "PowerShell" not in legato.tools.bash().description
+
+
+def test_planner_calls_tokens_cost_and_seconds_are_in_the_totals_and_on_step_sees_what_ran():
+    """The docs' two-model example printed "done in 9.4 s, 0 model turns, 7 actions", usage prompt 0, "model 0.0 s"
+    and on_step "STEP 1 []" six times: only the pointer was counted. Every model call counts now."""
+    h, p = harness([act("continue", {"key": "ctrl+a"}, {"click": "the Save button"}), act("done")], [at(500, 500)])
+    seen = []
+    res = h.run("save", desktop([]), on_step=lambda turn, actions, timing: seen.append(
+        (turn, [a.describe() for a in actions], timing["usage"]["prompt"])))
+    assert res.done and res.steps == 3 and res.planner["calls"] == 2
+    assert res.usage["prompt"] == 300 and res.usage["completion"] == 30 and abs(res.usage["cost_usd"] - 0.003) < 1e-9
+    assert res.planner["prompt"] == 200 and abs(res.planner["cost_usd"] - 0.002) < 1e-9       # the planner's share
+    assert seen == [(0, ["key ctrl+a"], 100), (1, ["click (500, 250)"], 200), (2, [], 300)]
+    assert sum(t["model_s"] for t in res.timings) > 0 and "3 model turns" in res.report()
+    assert abs(sum(t.get("planner_s", 0) for t in res.timings) - res.planner["s"]) < 1e-6
+
+
+def test_the_planners_notes_are_in_the_result_and_the_trace():
+    h, p = harness([rec([call("act", {"status": "continue", "actions": [{"key": "ctrl+a"}], "notes": "total is 42"})]),
+                    rec([call("act", {"status": "done", "notes": "total is 42; saved"})])], [])
+    res = h.run("save", desktop([]))
+    assert res.planner["notes"] == "total is 42; saved"
+    assert [e["notes"] for e in res.trace if "planner" in e] == ["total is 42", "total is 42; saved"]
+
+
+def test_the_planner_gives_the_answer_and_is_asked_once_more_for_one_it_left_out(tmp_path):
+    h, p = harness([rec([call("act", {"status": "done", "answer": "24 November"})])], [])
+    res = h.run("tell me the date on the clock", desktop([]))
+    assert (res.status, res.answer, res.steps) == ("done", "24 November", 1)
+    h, p = harness([act("done"), rec([call("act", {"status": "done", "answer": "24 November"})])], [])
+    res = h.run("tell me the date on the clock", desktop([]), record_dir=tmp_path)
+    assert (res.status, res.answer, res.planner["by"]) == ("done", "24 November", {"start": 1, "answer": 1})
+    assert "You said done without an answer" in p.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert (tmp_path / "start.png").exists() and (tmp_path / "turn-001.png").exists()
+    h, p = harness([act("done"), act("done")], [])
+    res = h.run("what is open?", desktop([]))
+    assert (res.status, res.answer, res.planner["calls"]) == ("done", "", 2)        # asked once, never twice
+    h, p = harness([act("done")], [])
+    res = h.run("type hello", desktop([]))
+    assert (res.status, res.planner["calls"]) == ("done", 1)                          # no question: no extra call
+
+
+def test_max_cost_usd_ends_a_planner_run():
+    h, p = harness([act("continue", {"key": "a"}), act("continue", {"key": "b"}), act("continue", {"key": "c"})], [])
+    res = h.run("press keys", desktop([]), max_cost_usd=0.002)
+    assert (res.status, res.actions, res.planner["calls"]) == ("max_cost", ["key a", "key b"], 2)

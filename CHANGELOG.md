@@ -2,6 +2,23 @@
 
 ## 0.3.1
 
+- **Python API: answers, cost limits, traces and honest planner totals.**
+  - A task that asks for information ("what", "tell me", a question mark) gets its answer in `result.answer` from
+    `Harness.run` too, not only `legato.run`: the task is sent with a line asking for it, and a done without it gets
+    one more turn (`ask_answer` now defaults to deciding from the task's words; `False` turns it off). GPT-6.1 Terra
+    and Claude Sonnet 5.5 returned `answer: ''` before. A planner (`legato.Planner`) now gives the answer as well.
+  - `Harness(plan=True)` offers only the steps that can run: no shell steps without a `bash` tool, no label steps
+    without a text reader (Windows and Linux), PowerShell named where the shell is PowerShell, and a step that
+    can't run is said to the model. On Windows with no tools it ran "out of steps ... 20 model turns, 0 actions".
+  - `max_cost_usd=` on `legato.run` and `Harness.run` ends a run with the new status `max_cost` once the cost the
+    provider reports reaches it. `on_step`'s `timing` carries `usage` (the run's tokens and cost so far).
+  - `record_dir=` saves the screen after each turn, and every run has `result.trace` (what the model said, what ran,
+    seconds, the screenshot's path), not only planner runs.
+  - Planner runs count the planner: `steps`, `usage`, `timings` and `report()` include its calls, tokens, cost and
+    seconds (they showed "0 model turns" and 0 tokens), `on_step` gets the actions each batch ran, and the planner's
+    notes are in `result.planner["notes"]` and at each planner call in the trace.
+  - `result.error` says why for every status but `done`: `failed` carries the model's reason (still in `answer`) and
+    `max_steps` says so; both were `None`.
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
   updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
   a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs

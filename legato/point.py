@@ -41,11 +41,12 @@ Call the `act` tool:
 - status "continue" with the next actions to run in order (at most {max_actions}). Go as far ahead as you are sure of \
 without seeing the screen in between (for example: click a menu, click its item; click a field, select all, type, \
 press Return). Stop the list where you need to see the result.
-- status "done" when the screen shows the task is complete and saved.
+- status "done" when the screen shows the task is complete and saved. If the task asks for information, put the \
+answer itself in "answer" (the number, name or sentence asked for).
 After a list has run you may be shown screens from during it, each labelled with the action it followed, before \
 the screen as it is now. Check on them that every action did what you meant (the right thing was selected, the \
 right dialog opened) before you go on or say done; redo what went wrong.
-- status "fail" when the task cannot be done on this computer.
+- status "fail" when the task cannot be done on this computer, with why in "answer".
 Actions:
 - {{"click": "<what to click>"}}, with "button": "double", "right" or "triple" when it is not a plain click, and \
 "hold": "shift" or "ctrl" to hold a key. Describe the thing so it can be found on the screenshot without knowing the \
@@ -68,6 +69,8 @@ ACT_TOOL = {"type": "function", "function": {
     "name": "act", "description": "The next actions to run, or the task's end.",
     "parameters": {"type": "object", "properties": {
         "status": {"type": "string", "enum": ["continue", "done", "fail"]},
+        "answer": {"type": "string", "description": "with done: what the task asked to find out, if anything; "
+                                                    "with fail: why"},
         "actions": {"type": "array", "items": {"type": "object", "properties": {
             "click": {"type": "string"}, "button": {"type": "string", "enum": ["left", "double", "right", "triple"]},
             "hold": {"type": "string"}, "key": {"type": "string"}, "type": {"type": "string"},
@@ -202,6 +205,12 @@ NOTES_MAX = 4000
 SHELL_OUT = 1500                   # characters of a command's output kept in the list the planner reads
 
 
+ANSWER_ASK = ("You said done without an answer. This is the screen now: if the task asks for information, say done "
+              "again with the answer itself in `answer` (the number, name or sentence asked for); if what you need "
+              "is not on the screen yet, go on with the actions that get it. If the task asks for no information, "
+              "say done again.")
+
+
 PROGRESS = {"type": "string", "description": "one line: what is done so far and what is left"}
 PROGRESS_NOTE = ("\nEvery call also carries `progress`: one line, what is done so far, what you have checked and "
                  "what is left. Your next call sees only the task, the list of actions run with these lines, and the "
@@ -257,7 +266,9 @@ class Pointing:
         self.why = ("start", "Nothing has been run yet.")
         self.seen = png                         # the screen the planner's latest call looked at
         self.pointer_calls = 0
-        self.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cost_usd": 0.0}
+        self.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
+        self.answer = ""                        # what the planner said with done (the answer) or fail (why)
+        self.ask = h._asks(task)                # a done without an answer gets one more planner call (ask_answer)
         self.pointer = {"s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
         self.trace: list[dict] = []
         self.calls: list[tuple] = []            # (request, record) of every model call made by the latest next()
@@ -321,12 +332,22 @@ class Pointing:
         pl["s"] += dt
         pl["prompt"] += u.get("prompt") or 0
         pl["completion"] += u.get("completion") or 0
+        pl["cached"] += u.get("cached") or 0
         pl["cost_usd"] += u.get("cost") or 0.0
-        self.trace.append({"planner": key, "status": status, "s": round(dt, 2), "frames": [n for n, _ in shown],
-                           "steps": [[json.dumps(x, ensure_ascii=False)[:150], ""] for x in acts]})
+        entry = {"planner": key, "status": status, "s": round(dt, 2), "frames": [n for n, _ in shown],
+                 "steps": [[json.dumps(x, ensure_ascii=False)[:150], ""] for x in acts]}
+        if p.notes:
+            entry["notes"] = pl["notes"] = self.notes          # the notes as they are after this call
+        if status != "continue":
+            self.answer = entry["answer"] = " ".join(str(a.get("answer") or "").split())[:2000]
+        self.trace.append(entry)
         self.frames.clear()
         self.status, self.pending = status, (acts if status == "continue" else [])
         self.why = ("next", "Those actions ran. This is the screen now.")
+        if status == "done" and not self.answer and self.ask and key != "answer" and \
+                self.pointer_calls + pl["calls"] < self.max_calls:
+            self.ask = False                    # once: the next call asks for the answer, or goes on to get it
+            self.status, self.why = "continue", ("answer", ANSWER_ASK)
 
     def _point(self, target: str, png: bytes) -> list | None:
         """The pointer's coordinate for `target` on this screen (in the harness's coords), or None."""
@@ -415,6 +436,12 @@ class Pointing:
             if not self.pending:
                 if self._spent():
                     break
+                if self.why[0] == "answer":     # it had said done: it ends done, with or without the answer
+                    try:
+                        self._plan(png)
+                    except PolicyError:
+                        self.status = "done"
+                    continue
                 self._plan(png)
                 continue
             while self.pending:
@@ -458,9 +485,11 @@ class Pointing:
 def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                 on_step: Callable | None = None, *, res: "RunResult | None" = None, limits=None) -> "RunResult":
     """Harness.run with a planner whose style is "point" (see the module docstring). max_steps counts every model
-    call, the planner's and the pointer's. res: the result to fill in (Harness.run's); limits: its deadline and
-    cancel event, checked before each planner turn."""
-    from legato.harness import RunResult
+    call, the planner's and the pointer's, and so does the result's steps; its usage and timings hold both models'
+    tokens, cost and seconds (result.planner has the planner's share, and its final notes). res: the result to fill
+    in (Harness.run's); limits: its deadline, cancel event and cost limit, checked before each planner turn.
+    on_step(turn, actions, timing) is called after each batch, and after the planner's last call."""
+    from legato.harness import RunResult, _book
     res = RunResult(task) if res is None else res
     t0 = time.monotonic()
     ended = False                           # the limits ended it: res.status says how
@@ -468,23 +497,30 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
     png = obs.screenshot
     s = Pointing(h, task, png, max_calls=max_steps)
     res.planner, res.trace = s.planner, s.trace
+    if limits is not None:
+        limits.shot(png, "start.png")
 
-    def account() -> float:
-        """Books the model calls the latest next() made; returns the pointer's seconds among them."""
-        model_s = 0.0
+    def account() -> dict:
+        """Books the model calls the latest next() made, the planner's and the pointer's; returns their timing."""
         for _req, rec in s.calls:
-            res.usage["cost_usd"] += (rec.get("usage") or {}).get("cost") or 0.0
-            if rec.get("cut") or rec.get("hedged"):
-                res.usage["complete"] = False
-        n = s.planner["calls"] - len([t for t in res.timings if "planner" in t])
-        for _ in range(n):
-            res.timings.append({"planner_s": s.planner["s"] / max(1, s.planner["calls"]), "planner": "call"})
-        for k in ("prompt", "completion", "cached"):
-            res.usage[k] = s.pointer[k]
-        model_s, res.steps = s.pointer["s"] - account.seen, s.pointer_calls
-        account.seen = s.pointer["s"]
-        return model_s
-    account.seen = 0.0
+            _book(res.usage, rec)
+        planner_s, pointer_s = s.planner["s"] - seen[0], s.pointer["s"] - seen[1]
+        seen[:] = s.planner["s"], s.pointer["s"]
+        res.steps = s.pointer_calls + s.planner["calls"]
+        timing = {"model_s": planner_s + pointer_s, "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
+        if planner_s:
+            timing["planner_s"] = planner_s
+        return timing
+    seen = [0.0, 0.0]                       # the planner's and the pointer's seconds already in the timings
+
+    def told(timing: dict, ran: list) -> None:
+        res.timings.append(timing)
+        if limits is not None:
+            limits.step(res, timing, png)
+            if timing.get("screenshot"):
+                s.trace.append({"ran": [a.describe() for a in ran], "screenshot": timing["screenshot"]})
+        if on_step:
+            on_step(len(res.timings) - 1, ran, timing)
 
     try:
         while not res.stopped:
@@ -497,11 +533,15 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                 res.error = (f"planner: {str(e)[:480]}" if not s.planner["calls"] or not s.running else str(e)[:500])
                 if getattr(e, "cut", 0):
                     res.usage["complete"] = False
-                account()
+                timing = account()
+                if timing["model_s"]:
+                    res.timings.append(timing)
                 ended = limits is not None and limits.hit(res)    # a call cut short by the deadline: a timeout
                 break
-            timing = {"model_s": account(), "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
+            timing, ran = account(), []
             if not actions:
+                if timing["model_s"] or s.status != "continue":   # the planner's last call: done, or fail
+                    told(timing, ran)
                 break
             try:
                 for a, quick in zip(actions, list(s.quick)):
@@ -513,6 +553,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                         obs = env.observe()
                         png = obs.screenshot
                         res.actions.append(a.describe())
+                        ran.append(a)
                         s.ran(png, out)
                         continue
                     if quick:      # it only edits the focused field and a key or text follows: a short fixed pause
@@ -528,6 +569,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                     for k in ("act_s", "settle_s", "obs_s"):
                         timing[k] += env.last.get(k, 0.0)
                     res.actions.append(a.describe())
+                    ran.append(a)
                     s.ran(png)
             except Stopped as e:
                 res.stopped, res.error = True, f"stopped by the person: {e}"
@@ -535,13 +577,12 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                 s.refused(f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}")
                 obs = env.observe()
                 png = obs.screenshot
-            res.timings.append(timing)
-            if on_step:
-                on_step(s.planner["calls"] - 1, [], timing)
+            told(timing, ran)
         res.error = res.error or s.error
         if not res.error:
             res.done, res.failed = s.status == "done", s.status == "fail"
             res.actions.append("done" if res.done else "fail")
+            res.answer = s.answer
         if not ended:
             res.status = ("stopped" if res.stopped else "max_steps" if res.error and res.error == s.error else
                           "error" if res.error else "done" if res.done else "failed")
