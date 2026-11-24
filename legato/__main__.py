@@ -65,7 +65,17 @@ def main(argv=None) -> int:
         if which == "h2h":
             from legato.rl.bench.h2h import main as h2h_main
             return h2h_main(argv[2:])
-        print("usage: legato bench office|h2h ...", file=sys.stderr)
+        usage = ("usage: legato bench COMMAND ...\n\n"
+                 "  legato bench office generate --out DIR   Legato Office Bench: Excel-to-PowerPoint tasks, as files\n"
+                 "                                           and a tasks.json for `legato rl collect` (OSWorld backend)\n"
+                 "  legato bench h2h --tasks tasks.json --arm NAME=RUN_DIR ... --ref NAME --out DIR\n"
+                 "                                           compare harnesses run on the same tasks\n\n"
+                 "`legato bench office --help` and `legato bench h2h --help` list each one's options. Results and "
+                 "how they were measured: docs/benchmarks.md (legato.computer/docs/benchmarks).")
+        if which in ("", "-h", "--help", "help"):
+            print(usage)
+            return 0
+        print(f"legato bench: no command {which!r}\n{usage}", file=sys.stderr)
         return 2
     if argv[:1] == ["setup"]:
         from legato.setup import main as setup_main
