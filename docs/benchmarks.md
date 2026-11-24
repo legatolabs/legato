@@ -104,7 +104,7 @@ The open-source loop runs anywhere. Legato Cloud also runs the model and the des
 the loop alone cannot. These are measurements of each part, not end-to-end task times. Raw data:
 [benchmarks/results/cloud](../benchmarks/results/cloud).
 
-**Live in the beta**
+**Measured in the private beta** (not public yet)
 
 | what | measured |
 |---|---|
