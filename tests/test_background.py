@@ -2,6 +2,7 @@
 nothing reaches the person's pointer, front app or clipboard. Runs anywhere; tests/test_background_live.py runs the
 same on a real Mac."""
 import io
+import time
 
 import pytest
 from PIL import Image
@@ -808,8 +809,23 @@ def test_read_is_cut_at_max_chars_and_says_so():
     for i in range(200):
         El("AXStaticText", win, value=f"line {i}")
     out = e.read(max_chars=300)
-    assert len(out) < 400 and out.splitlines()[-1].startswith("[cut at 300 characters")
+    assert len(out) <= 300 and out.splitlines()[-1].startswith("[cut at 300 characters")
     assert '- text "line 0"' in out and '- text "line 199"' not in out
+    out = e.read(max_chars=120)                             # small ones too: a tester asked for 120 and got 200
+    assert len(out) <= 120 and out.endswith("[cut]") and '- text "line 0"' in out
+    assert len(e.read(max_chars=5)) == 5
+
+
+def test_read_leaves_out_textedits_ruler_and_a_headings_level():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    ruler = El("AXRuler", win)
+    for v in (0, 0.5, 1):
+        El("AXRulerMarker", ruler, value=v)
+    El("AXTextArea", win, value="hi")
+    h = El("AXHeading", win, value=1)
+    El("AXStaticText", h, value="Title")
+    assert e.read().splitlines()[1:] == ['- textbox: "hi"', '- heading "Title"']
 
 
 def test_read_says_so_when_the_window_has_no_tree():
@@ -835,8 +851,8 @@ def test_mcp_desktop_read_reads_a_background_window_and_is_refused_elsewhere():
         r = await srv.call_tool("desktop_read", {"desktop_id": did})
         assert r.content[0].text.splitlines()[:3] == ['page "Counter" file:///tmp/app/index.html',
                                                       '- heading "Counter"', '- text "Count: 1"']
-        r = await srv.call_tool("desktop_read", {"desktop_id": did, "max_chars": 1})      # raised to 200
-        assert "[cut at 200 characters" not in r.content[0].text
+        r = await srv.call_tool("desktop_read", {"desktop_id": did, "max_chars": 60})
+        assert len(r.content[0].text) <= 60 and r.content[0].text.endswith("[cut]")
         with pytest.raises(Exception, match="no open desktop"):
             await srv.call_tool("desktop_read", {"desktop_id": "nope"})
     asyncio.run(go())
@@ -878,3 +894,191 @@ def test_a_stall_is_remembered_by_the_next_process(monkeypatch, tmp_path):
     monkeypatch.setattr(bg, "_screencapture", lambda *a, **k: b"png")
     monkeypatch.setattr(app, "windows", lambda: [], raising=False)
     assert app.capture([7], (0, 0, 100, 80)) == b"png"
+
+
+def test_a_chrome_page_control_that_ignores_background_presses_says_so_and_suggests_safari():
+    """Chrome 158's page elements offer no press from the back: say so instead of "the AXButton can't be pressed"."""
+    m = FakeMac()
+    e = BackgroundEnv("Google Chrome", mac=m, confirm=None)
+    page = El("AXWebArea", frame=(100.0, 50.0, 400.0, 300.0))
+    button = El("AXButton", page, actions=["AXShowMenu", "AXScrollToVisible"], title="+1", frame=(150, 100, 40, 20))
+    m.hits = [(150, 100, 190, 120, button)]
+    e.observe()
+    with pytest.raises(safety.Unavailable, match="Chrome ignores background clicks on web pages.*Safari"):
+        e.act(Action("click", x=60, y=60))
+    e2 = BackgroundEnv("TextEdit", mac=m, confirm=None)
+    e2.observe()
+    with pytest.raises(safety.Unavailable, match="the AXButton at that point can't be pressed"):
+        e2.act(Action("click", x=60, y=60))
+    assert m.performed == []
+
+
+# ------------------------------------------------------------ which window is "the window"
+def _doc_and_bubble(m, listed_bubble=False):
+    """TextEdit's document window with its autocorrect bubble (a window of its own, 120x46, in front of it)."""
+    doc = El("AXWindow", m.app, frame=(100.0, 50.0, 400.0, 300.0))
+    doc.extra = {"AXSubrole": "AXStandardWindow"}
+    m.wins = [{"id": 9, "x": 180.0, "y": 120.0, "w": 120.0, "h": 46.0, "layer": 0}] + m.wins
+    listed = [doc]
+    if listed_bubble:                                      # Chrome lists its help bubble, as AXUnknown
+        bubble = El("AXWindow", m.app, frame=(180.0, 120.0, 120.0, 46.0))
+        bubble.extra = {"AXSubrole": "AXUnknown"}
+        listed.insert(0, bubble)
+    m.app.extra = {"AXWindows": listed}
+    return doc
+
+
+def test_a_bubble_in_front_is_not_taken_for_the_window_but_shows_over_it():
+    """TextEdit's autocorrect bubble (120x46) became "the window": the run's last screen and the next desktop_open
+    were 120x46."""
+    for listed in (False, True):
+        e, m = env()
+        _doc_and_bubble(m, listed_bubble=listed)
+        obs = e.observe()
+        assert (obs.width, obs.height) == (400, 300) and e.win["id"] == 7
+        assert m.captures[-1] == ([7, 9], (100.0, 50.0, 400.0, 300.0))      # the bubble drawn over the window
+
+
+def test_a_sheet_in_front_is_still_the_window():
+    e, m = env()
+    doc = El("AXWindow", m.app, frame=(100.0, 50.0, 400.0, 300.0))
+    doc.extra = {"AXSubrole": "AXStandardWindow"}
+    El("AXSheet", doc, frame=(150.0, 72.0, 300.0, 150.0))
+    m.app.extra = {"AXWindows": [doc]}
+    m.wins = [{"id": 8, "x": 150.0, "y": 72.0, "w": 300.0, "h": 150.0, "layer": 0}] + m.wins
+    e.observe()
+    assert e.win["id"] == 8
+
+
+def test_a_window_that_closes_before_its_capture_is_looked_for_again():
+    """After Escape closed the bubble, the next capture failed and blamed Screen Recording: look again instead."""
+    e, m = env()
+    m.wins = [{"id": 9, "x": 180.0, "y": 120.0, "w": 120.0, "h": 46.0, "layer": 0}] + m.wins   # nothing listed
+    taken = m.capture
+
+    def capture(ids, rect):
+        if ids[0] == 9:
+            m.wins = m.wins[1:]                            # it closed just now
+            raise RuntimeError("the window could not be captured: check Screen Recording")
+        return taken(ids, rect)
+    m.capture = capture
+    obs = e.observe()
+    assert (obs.width, obs.height) == (400, 300) and e.win["id"] == 7
+    m.capture = lambda ids, rect: (_ for _ in ()).throw(RuntimeError("Screen Recording is off"))
+    with pytest.raises(RuntimeError, match="Screen Recording"):           # still there: the error stands
+        e.observe()
+
+
+# ------------------------------------------------------------ fonts can't change from the back
+def test_bold_and_italic_are_refused_since_the_text_would_not_change():
+    """TextEdit in the back: cmd+B's menu item is off, and its format bar's Bold looks switched on while the text stays
+    Helvetica (checked through AXAttributedStringForRange). A model reported "now bold" twice. Underline and
+    alignment do apply, so they still run."""
+    e, m = env()
+    menu(m, ("Bold", "B", 0, False), ("Underline", "U", 0, False))
+    with pytest.raises(safety.Unavailable, match="changing the font .* isn't possible in the background.*Don't report"):
+        e.act(Action("key", keys="cmd+b"))
+    with pytest.raises(safety.Unavailable, match="Underline.*turned off.*do it another way"):
+        e.act(Action("key", keys="cmd+u"))
+    win = El("AXWindow")
+    bar = {}
+    for i, name in enumerate(("bold", "italic", "underline", "align center")):
+        bar[name] = El("AXCheckBox", win, actions=["AXPress"], frame=(110.0 + 30 * i, 70.0, 20.0, 20.0))
+        bar[name].extra = {"AXDescription": name}
+    size = El("AXPopUpButton", win, actions=["AXPress"], title="", frame=(300.0, 70.0, 40.0, 20.0))
+    size.extra = {"AXDescription": "font size"}
+    m.hits = [(f[0], f[1], f[0] + f[2], f[1] + f[3], el)
+              for el in (*bar.values(), size) for f in [el.frame]]
+    e.observe()
+    for x in (20, 50, 210):                                  # bold, italic, font size
+        with pytest.raises(safety.Unavailable, match="isn't possible in the background"):
+            e.act(Action("click", x=x, y=30))
+    e.act(Action("click", x=80, y=30))                       # underline
+    e.act(Action("click", x=110, y=30))                      # align center
+    assert m.performed == [(bar["underline"], "AXPress"), (bar["align center"], "AXPress")]
+
+
+# ------------------------------------------------------------ desktop_open(url=...): a window of its own
+class Browser(FakeMac):
+    """A browser whose File > New Window (cmd+N) opens a window with an address field that loads what is typed."""
+
+    def __init__(self, navigates=True):
+        super().__init__()
+        self.navigates = navigates
+        person = El("AXWindow", frame=(100.0, 50.0, 400.0, 300.0))
+        person.extra = {"AXSubrole": "AXStandardWindow"}
+        self.new_window, = menu(self, ("New Window", "N", 0, True))
+        self.app.extra["AXWindows"] = [person]
+        self.closed = []
+
+    def perform(self, el, action):
+        super().perform(el, action)
+        if el is self.new_window:
+            win = El("AXWindow", frame=(120.0, 60.0, 400.0, 300.0))
+            close = El("AXButton", win, actions=["AXPress"])
+            win.extra = {"AXSubrole": "AXStandardWindow", "AXCloseButton": close}
+            bar = El("AXToolbar", win)
+            El("AXTextField", bar, actions=["AXConfirm"])
+            self.app.extra["AXWindows"].insert(0, win)
+            self.wins.insert(0, {"id": 20, "x": 120.0, "y": 60.0, "w": 400.0, "h": 300.0, "layer": 0})
+        elif action == "AXConfirm" and self.navigates:
+            page = El("AXWebArea", el.parent.parent)
+            page.extra = {"AXURL": el.value, "AXLoaded": True}
+        elif action == "AXPress" and el.role == "AXButton" and el.parent.role == "AXWindow":
+            self.closed.append(el.parent)
+        return True
+
+
+def test_a_page_opens_in_a_window_of_its_own_ready_for_clicks_and_closes_with_the_desktop():
+    """Safari put the page in the person's window as a tab (their other tabs' titles reached the model), dropped a
+    query string, took 15.7 s, left the address field focused so the first click on the page was refused, and
+    desktop_close left the tab."""
+    m = Browser()
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    m.open_url = lambda url: pytest.fail("no tab in the person's window")
+    t = time.monotonic()
+    e.open_url("file:///tmp/app/index.html?run=2")
+    assert time.monotonic() - t < 1.0
+    new = m.app.extra["AXWindows"][0]
+    field = new.children[1].children[0]
+    page = next(c for c in new.children if c.role == "AXWebArea")
+    assert field.value == "file:///tmp/app/index.html?run=2" and page.focused is True     # the page has the keyboard
+    assert e.window()["id"] == 20 and m.front == 999 and m.activated == []
+    assert e.read().splitlines()[0] == 'page "Safari" file:///tmp/app/index.html?run=2'      # the query kept
+    e.close()
+    assert m.closed == [new] and e.opened == []
+    e.close()                                               # once only
+    assert m.closed == [new]
+
+
+def test_a_browser_whose_new_window_does_not_load_gets_the_url_as_a_tab_as_before():
+    m = Browser(navigates=False)
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    m.open_url = lambda url: m.urls.append(url)
+    e.open_url("http://example.test/", wait_s=0.2)
+    assert m.urls == ["http://example.test/"] and len(e.opened) == 1     # the window is still closed afterwards
+
+
+def test_mcp_desktop_close_closes_the_window_desktop_open_opened(monkeypatch):
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from legato.mcp_server import build_server
+    m = Browser()
+    srv = build_server(lambda res: pytest.fail("no full-screen desktop"),
+                       background=lambda app: BackgroundEnv(app, mac=m, confirm=None))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"app": "Safari", "url": "http://example.test/?q=1"})
+        did = r.content[0].text.split("desktop_id: ")[1].split()[0]
+        await srv.call_tool("desktop_close", {"desktop_id": did})
+    asyncio.run(go())
+    assert len(m.closed) == 1
+
+
+def test_a_new_windows_own_page_is_not_taken_for_the_page_asked_for():
+    from legato.background import _is_page
+    assert not _is_page("chrome://newtab/", "https://example.com") and not _is_page("favorites://", "file:///a.html")
+    assert not _is_page("", "https://example.com") and _is_page("https://example.com/", "https://example.com")
+    assert _is_page("https://www.example.com/login", "http://example.com")         # where it led
+    assert _is_page("about:blank", "about:blank")

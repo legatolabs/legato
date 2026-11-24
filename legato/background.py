@@ -67,7 +67,45 @@ ROLE_NAMES = {"AXStaticText": "text", "AXTextField": "textbox", "AXTextArea": "t
               "AXSecureTextField": "password", "AXWebArea": "page", "AXPopUpButton": "popup", "AXCheckBox": "checkbox",
               "AXRadioButton": "radio", "AXMenuButton": "menubutton", "AXComboBox": "combobox"}
 QUIET_ROLES = {"AXGroup", "AXGenericElement", "AXSplitGroup", "AXScrollArea", "AXLayoutArea", "AXLayoutItem",
-               "AXUnknown", "AXMatte", "AXRuler", "AXGrowArea", "AXSplitter", "AXScrollBar", "AXValueIndicator"}
+               "AXUnknown", "AXMatte", "AXGrowArea", "AXSplitter", "AXScrollBar", "AXValueIndicator"}
+CONTROL_ROLES = {"AXButton", "AXLink", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXMenuItem",
+                 "AXTab", "AXDisclosureTriangle", "AXComboBox", "AXSlider"}
+FORMAT_ROLES = {"AXCheckBox", "AXButton", "AXPopUpButton", "AXMenuButton", "AXColorWell", "AXComboBox",
+                "AXRadioButton", "AXMenuItem"}
+CHROMIUM = re.compile(r"chrom|brave|edge|vivaldi|opera|arc\b", re.I)    # their pages ignore background presses
+SKIP_ROLES = {"AXRuler", "AXRulerMarker"}           # read() leaves these out with all they hold (TextEdit's ruler)
+# Font changes go through the font manager to the first responder of the app's key window, and an app in the back has
+# none: in TextEdit the format bar's Bold and Italic look switched on while the text stays Helvetica, and Format >
+# Font > Bold is off (checked on 24 Nov through AXAttributedStringForRange). Underline and alignment do apply.
+FONT_CONTROLS = {"bold", "italic", "typeface", "style", "font size", "bigger", "smaller", "show fonts", "font family"}
+
+
+REAL_SUBROLES = {"AXStandardWindow", "AXDialog", "AXSystemDialog", "AXFloatingWindow"}
+
+
+def _same(f: tuple | None, w: dict) -> bool:
+    """Is Accessibility frame `f` the window `w` (screen points, within 2)?"""
+    return f is not None and all(abs(a - b) <= 2 for a, b in zip(f, (w["x"], w["y"], w["w"], w["h"])))
+
+
+def _url(v: Any) -> str:
+    """An AXURL (an NSURL, or text) as text."""
+    if v is None:
+        return ""
+    return str(v.absoluteString() if hasattr(v, "absoluteString") else v)
+
+
+BROWSER_PAGES = ("about:", "chrome:", "chrome-search:", "favorites:", "safari-resource:", "topsites:", "edge:",
+                 "brave:", "bookmarks:", "history:")      # a new window's own page, before it goes anywhere
+
+
+def _is_page(now: str, asked: str) -> bool:
+    """Is `now` the page `asked` for, or where it led (a redirect), rather than a new window's own page?"""
+    if not now:
+        return False
+    if now.rstrip("/") == asked.rstrip("/"):
+        return True
+    return not now.startswith(BROWSER_PAGES)
 
 
 def _str(v: Any) -> str:
@@ -422,17 +460,24 @@ class BackgroundEnv(LocalEnv):
         self.m = mac or MacApp(app)
         self.app = app
         self.win: dict | None = None          # the window the latest screenshot showed
+        self._kinds: dict[int, bool] = {}     # window id: is it a real window (True) or a bubble (False)
+        self._bubbles: set[int] = set()       # the bubbles in front at the latest look
+        self.opened: list = []                # windows open_url opened, which close() closes
         Env.__init__(self, self._png, self._exec, fixed_wait_s=fixed_wait_s)
         self.waiter = Waiter(self._digest, rules=LOCAL_RULES)
         self.last_front: dict = {}
 
     # ------------------------------------------------------------ seeing
     def window(self) -> dict:
-        """The app's front window (layer 0), asking the app for one once if it has none on screen."""
+        """The app's front window (layer 0), asking the app for one once if it has none on screen. A bubble drawn as
+        a window of its own (TextEdit's autocorrect, Chrome's help bubbles) is passed over for the window under it."""
         for attempt in range(2):
             wins = [w for w in self.m.windows() if w["layer"] == 0 and w["w"] > 40 and w["h"] > 40]
             if wins:
-                self.win = wins[0]
+                kinds = [self._is_real(w) for w in wins]
+                self._bubbles = {w["id"] for w, k in zip(wins, kinds) if k is False}
+                self.win = next((w for w, k in zip(wins, kinds) if k), None) \
+                    or next((w for w, k in zip(wins, kinds) if k is None), wins[0])
                 self.size = (int(self.win["w"]), int(self.win["h"]))
                 return self.win
             if attempt == 0:
@@ -445,15 +490,49 @@ class BackgroundEnv(LocalEnv):
                         break
         raise RuntimeError(f"{self.app} has no window on screen (is it minimized or on another Space?)")
 
+    def _is_real(self, w: dict) -> bool | None:
+        """True for a window or sheet of the app's own (Accessibility calls it a standard window, a dialog or a
+        sheet), False for a bubble or popover drawn as a window, None when Accessibility can't tell. What its
+        Accessibility window says is kept per window; "not listed" is asked again (a new window is listed late)."""
+        if w["id"] in self._kinds:
+            return self._kinds[w["id"]]
+        listed = list(self.m.attr(self.m.app, "AXWindows") or [])
+        if not listed:
+            return None
+        for el in listed:
+            if _same(self.m.frame(el), w):
+                sub = self.m.attr(el, "AXSubrole")
+                if sub is None:
+                    return None
+                self._kinds[w["id"]] = sub in REAL_SUBROLES
+                return self._kinds[w["id"]]
+            if any(self.m.attr(k, "AXRole") == "AXSheet" and _same(self.m.frame(k), w)
+                   for k in self.m.attr(el, "AXChildren") or []):
+                self._kinds[w["id"]] = True
+                return True
+        return False                             # the app lists its windows, and not this one: a bubble
+
     def _capture(self) -> tuple[dict, bytes]:
         w = self.window()
+        try:
+            return w, self._take(w)
+        except RuntimeError:
+            if any(v["id"] == w["id"] for v in self.m.windows()):
+                raise
+            w = self.window()                    # the window closed between the look and the capture: look again
+            return w, self._take(w)
+
+    def _take(self, w: dict) -> bytes:
         x0, y0, x1, y1 = w["x"], w["y"], w["x"] + w["w"], w["y"] + w["h"]
-        # its sheets, popovers and menus too: any of the app's windows that overlap the front one
-        ids = [v["id"] for v in self.m.windows()
+        # its sheets, popovers, menus and bubbles too: the app's other windows that overlap it and are not windows of
+        # their own (a layer above, or a bubble in front of it)
+        wins = self.m.windows()
+        at = next((i for i, v in enumerate(wins) if v["id"] == w["id"]), len(wins))
+        ids = [v["id"] for i, v in enumerate(wins)
                if v["x"] < x1 and v["x"] + v["w"] > x0 and v["y"] < y1 and v["y"] + v["h"] > y0
-               and (v["layer"] != 0 or v["id"] == w["id"])]
+               and (v["layer"] != 0 or v["id"] == w["id"] or (i < at and v["id"] in self._bubbles))]
         ids.sort(key=lambda i: i != w["id"])          # the window first, what's on top of it after
-        return w, self.m.capture(ids, (w["x"], w["y"], w["w"], w["h"]))
+        return self.m.capture(ids, (w["x"], w["y"], w["w"], w["h"]))
 
     def _png(self) -> bytes:
         return self._capture()[1]
@@ -468,7 +547,7 @@ class BackgroundEnv(LocalEnv):
         """The window's text from its Accessibility tree: one line per element that says something, indented under
         what holds it, such as `- button "+1"` or `- text "Count: 1"`, with states in brackets ([focused],
         [disabled], [checked], [selected]). In a browser, the page only (its title and address first, the browser's
-        own toolbar left out). Cut at about `max_chars` characters."""
+        own toolbar left out). At most `max_chars` characters, the note saying it was cut included."""
         self.window()
         win = self._ax_window()
         if win is None:
@@ -478,9 +557,9 @@ class BackgroundEnv(LocalEnv):
         a = self._attrs(root, ["AXTitle", "AXURL"])
         title = _str(a.get("AXTitle")) or _str(self.m.attr(win, "AXTitle")) or self.app
         head = f"{'page' if page is not None else 'window'} {_quote(title)}"
-        if page is not None and (url := a.get("AXURL")) is not None:
-            head += f" {url.absoluteString() if hasattr(url, 'absoluteString') else url}"
-        return self._outline(root, head, max(200, int(max_chars)))
+        if page is not None and (url := _url(a.get("AXURL"))):
+            head += f" {url}"
+        return self._outline(root, head, max(1, int(max_chars)))
 
     def _attrs(self, el: Any, names: list[str]) -> dict:
         if hasattr(self.m, "attrs"):
@@ -500,7 +579,10 @@ class BackgroundEnv(LocalEnv):
         return None
 
     def _outline(self, root: Any, head: str, max_chars: int, max_nodes: int = 6000, max_s: float = 8.0) -> str:
-        lines, size, seen, cut = [head], len(head), 0, ""
+        lines, size, seen, cut, last = [head], len(head), 0, "", ""
+        note = f"[cut at {max_chars} characters: ask for more with max_chars]"
+        if len(note) * 3 > max_chars:
+            note = "[cut]"
         end = time.monotonic() + max_s
         a = self._attrs(root, ["AXChildren"])
         todo = [(k, 0, "") for k in reversed(list(a.get("AXChildren") or []))]
@@ -512,13 +594,15 @@ class BackgroundEnv(LocalEnv):
             seen += 1
             a = self._attrs(node, READ_ATTRS)
             role = str(a.get("AXRole") or "")
+            if role in SKIP_ROLES:
+                continue
             kids = list(a.get("AXChildren") or [])
             label = _str(a.get("AXTitle")) or _str(a.get("AXDescription"))
             value = a.get("AXValue")
             if role == "AXStaticText":
                 label, value = _str(value) or label, None
-                if not label or label == above:
-                    continue                      # empty, or the text of the line above it
+                if not label or label in (above, last):
+                    continue                      # empty, or the text of what holds it or of the line before
             elif not label and kids and role not in QUIET_ROLES and len(kids) <= 8:
                 texts = [self._attrs(k, ["AXRole", "AXValue"]) for k in kids]
                 if all(t.get("AXRole") == "AXStaticText" for t in texts):       # a heading or link: its text
@@ -528,15 +612,19 @@ class BackgroundEnv(LocalEnv):
                 todo.extend((k, depth, above) for k in reversed(kids))
                 continue
             line = "  " * depth + line
-            if size + len(line) + 1 > max_chars:
-                cut = f"[cut at {max_chars} characters: ask for more with max_chars]"
+            if size + len(line) + 1 + len(note) + 1 > max_chars:
+                cut = note
                 break
             lines.append(line)
             size += len(line) + 1
+            last = label
             todo.extend((k, depth + 1, label) for k in reversed(kids))
-        if len(lines) == 1:
+        if len(lines) == 1 and not cut:
             lines.append("(no text: the window's Accessibility tree is empty; use a screenshot)")
-        return "\n".join(lines + ([cut] if cut else []))
+        text = "\n".join(lines + ([cut] if cut else []))
+        if len(text) > max_chars:                 # the first line alone is longer (a long address)
+            text = text[:max_chars - 6] + "\n[cut]" if max_chars > 12 else text[:max_chars]
+        return text
 
     @staticmethod
     def _line(role: str, label: str, value: Any, a: dict, kids: bool) -> str | None:
@@ -553,6 +641,8 @@ class BackgroundEnv(LocalEnv):
                 states.append(f"placeholder {_quote(_str(a.get('AXPlaceholderValue')))}")
         elif role in ("AXCheckBox", "AXRadioButton", "AXSwitch") and isinstance(value, (bool, int, float)):
             states.append("checked" if value else "not checked")
+        elif role == "AXHeading":
+            pass                                  # its value is its level
         elif isinstance(value, (int, float)) and not isinstance(value, bool):
             out += f": {value:g}"
         elif _str(value) and _str(value) != label:
@@ -587,15 +677,73 @@ class BackgroundEnv(LocalEnv):
             self.m.activate(before)
             self.last["front_taken"] = f"{self.app} brought itself to the front; the front was given back"
 
-    def open_url(self, url: str) -> None:
-        """Open `url` in this app (a browser), keeping the person's app in front."""
+    def open_url(self, url: str, wait_s: float = 15.0) -> None:
+        """Open `url` in this app (a browser) in a window of its own, keeping the person's app in front, and return
+        once the page has loaded and has the keyboard focus. The window comes from the browser's New Window menu item
+        and the page from its address field, both through Accessibility (no Apple Events permission), so the
+        person's tabs stay as they were and out of sight, and a query string is kept. `close()` closes the window.
+        If that fails, the URL goes to the front window as a tab (`open -g`), as before."""
         before = self.m.front_pid()
-        self.m.open_url(url)
-        for _ in range(20):                       # a browser that takes the front does so within a second or two
-            time.sleep(0.1)
-            if self.m.front_pid() == self.m.pid:
-                break
-        self.give_back_front(before)
+        try:
+            win = self._new_window()
+            if win is not None:
+                self.opened.append(win)
+                if self._load(win, url, wait_s):
+                    return
+            self.m.open_url(url)
+            for _ in range(20):                   # a browser that takes the front does so within a second or two
+                time.sleep(0.1)
+                if self.m.front_pid() == self.m.pid:
+                    break
+        finally:
+            self.give_back_front(before)
+
+    def _new_window(self) -> Any:
+        """A new window from the app's New Window menu item (cmd+N), or None."""
+        item = self._menu_item("n", 0)
+        if item is None or self.m.attr(item, "AXEnabled") is False:
+            return None
+        had = list(self.m.attr(self.m.app, "AXWindows") or [])
+        if not self.m.perform(item, "AXPress"):
+            return None
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end:
+            new = [w for w in self.m.attr(self.m.app, "AXWindows") or [] if w not in had]
+            if new:
+                return new[0]
+            time.sleep(0.05)
+        return None
+
+    def _load(self, win: Any, url: str, wait_s: float) -> bool:
+        """Type `url` into `win`'s address field and confirm it; True once its page has loaded and has the focus (so
+        clicks and keys reach the page at once, not the address field)."""
+        field = self._find_role(win, "AXTextField", limit=500)
+        if field is None:
+            return False
+        self.m.set(field, "AXFocused", True)
+        if not (self.m.set(field, "AXValue", url) and self.m.perform(field, "AXConfirm")):
+            return False
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < wait_s:
+            page = self._find_role(win, "AXWebArea", limit=500)
+            a = self._attrs(page, ["AXURL", "AXElementBusy", "AXLoaded"]) if page is not None else {}
+            now = _url(a.get("AXURL"))
+            if _is_page(now, url):
+                if a.get("AXElementBusy") is not True and a.get("AXLoaded") is not False:
+                    self.m.set(page, "AXFocused", True)
+                    return True
+            elif time.monotonic() - t0 > 4.0:
+                return False                      # still the new window's own page: the field did not take it
+            time.sleep(0.05)
+        return False
+
+    def close(self) -> None:
+        """Close the windows `open_url` opened (their close button, through Accessibility); the app stays open."""
+        while self.opened:
+            win = self.opened.pop()
+            button = self.m.attr(win, "AXCloseButton")
+            if button is not None:
+                self.m.perform(button, "AXPress")
 
     def _screen(self, x: float, y: float) -> tuple[float, float]:
         w = self.win or self.window()
@@ -662,11 +810,10 @@ class BackgroundEnv(LocalEnv):
             return False
         return self.m.set(el, "AXSelectedTextRange", (0, len(str(self.m.attr(el, "AXValue") or ""))))
 
-    def _menu(self, key: str, flags: int) -> bool:
-        """Press the app's menu item whose shortcut is `flags`+`key` (Select All for cmd+a). An app in the back
-        handles key presses posted to it, but its menus never see them. False when no item has that shortcut."""
+    def _menu_item(self, key: str, flags: int) -> Any:
+        """The app's menu item whose shortcut is `flags`+`key`, or None."""
         if len(key) != 1:
-            return False
+            return None
         want = ((1 if flags & FLAGS["shift"] or key.isupper() else 0) | (2 if flags & FLAGS["alt"] else 0)
                 | (4 if flags & FLAGS["ctrl"] else 0))
         todo, seen = list(self.m.attr(self.m.app, "AXMenuBar") and [self.m.attr(self.m.app, "AXMenuBar")] or []), 0
@@ -675,12 +822,39 @@ class BackgroundEnv(LocalEnv):
             seen += 1
             ch = self.m.attr(node, "AXMenuItemCmdChar")
             if ch and str(ch).lower() == key.lower() and int(self.m.attr(node, "AXMenuItemCmdModifiers") or 0) == want:
-                if self.m.attr(node, "AXEnabled") is False:
-                    raise safety.Unavailable(f"key {key}: its menu item ({self.m.attr(node, 'AXTitle')}) is "
-                                             "turned off while the app is in the back; do it another way")
-                return self.m.perform(node, "AXPress")
+                return node
             todo.extend(self.m.attr(node, "AXChildren") or [])
-        return False
+        return None
+
+    def _menu(self, key: str, flags: int) -> bool:
+        """Press the app's menu item whose shortcut is `flags`+`key` (Select All for cmd+a). An app in the back
+        handles key presses posted to it, but its menus never see them. False when no item has that shortcut."""
+        node = self._menu_item(key, flags)
+        if node is None:
+            return False
+        if self.m.attr(node, "AXEnabled") is False:
+            item = self.m.attr(node, "AXTitle")
+            if _str(item).lower() in FONT_CONTROLS:
+                raise safety.Unavailable(f"key {key}: {self._no_format(item)}")
+            raise safety.Unavailable(f"key {key}: its menu item ({item}) is turned off while the app is in the back; "
+                                     "do it another way")
+        return self.m.perform(node, "AXPress")
+
+    def _no_format(self, what: Any) -> str:
+        return (f"{what or 'font'}: changing the font (bold, italic, typeface, size) isn't possible in the background, "
+                f"since {self.app} applies it only while it is the app in front: its controls may look switched on "
+                "while the text stays as it was. Don't report it as done: say it was not possible here (it needs the "
+                "whole screen)")
+
+    def _format_control(self, el: Any) -> str | None:
+        """The name of a font control (TextEdit's format bar: bold, italic, font size...), else None."""
+        if el is None or self.m.attr(el, "AXRole") not in FORMAT_ROLES:
+            return None
+        for name in ("AXDescription", "AXTitle"):
+            v = _str(self.m.attr(el, name)).lower()
+            if v in FONT_CONTROLS:
+                return None if self._in_web_page(el) else v     # a web editor's own buttons do work
+        return None
 
     # clicks, through Accessibility
     def _kind(self, el: Any) -> str | None:
@@ -743,14 +917,23 @@ class BackgroundEnv(LocalEnv):
             el, depth = self.m.attr(el, "AXParent"), depth + 1
         return "none", hit
 
+    def _in_web_page(self, el: Any) -> bool:
+        node = el
+        for _ in range(20):
+            node = self.m.attr(node, "AXParent")
+            if node is None:
+                return False
+            if self.m.attr(node, "AXRole") == "AXWebArea":
+                return True
+        return False
+
     def _ax_window(self) -> Any:
         """The Accessibility element of the window the screenshots show: the app's window with the same frame, else
         its main window."""
         w = self.win or self.window()
         wins = list(self.m.attr(self.m.app, "AXWindows") or [])
         for el in wins:
-            f = self.m.frame(el)
-            if f is not None and all(abs(a - b) <= 2 for a, b in zip(f, (w["x"], w["y"], w["w"], w["h"]))):
+            if _same(self.m.frame(el), w):
                 return el
         return self.m.attr(self.m.app, "AXMainWindow") or (wins[0] if wins else None)
 
@@ -773,6 +956,8 @@ class BackgroundEnv(LocalEnv):
     def _click(self, t: str, x: float, y: float, a: Action) -> None:
         what = a.describe()
         kind, el = self._target(x, y)
+        if fmt := self._format_control(el):
+            raise safety.Unavailable(f"{what}: {self._no_format(fmt)}")
         if button := self._window_button(x, y, el):
             # pressing them from the back left TextEdit not answering; and the agent needs the window as it is
             raise safety.Unavailable(f"{what}: that is the window's {button} button, which background mode doesn't "
@@ -795,6 +980,12 @@ class BackgroundEnv(LocalEnv):
             return
         if kind == "none":
             role = self.m.attr(el, "AXRole") if el is not None else None
+            if role in CONTROL_ROLES and CHROMIUM.search(self.app) and self._in_web_page(el):
+                name = ROLE_NAMES.get(role) or role[2:].lower()
+                who = "Chrome" if re.search("chrom", self.app, re.I) else self.app
+                raise safety.Unavailable(f"{what}: {who} ignores background clicks on web pages, so the {name} there "
+                                         "was not pressed. Use the keyboard (Tab to it, then space or Return), or open "
+                                         'the page in Safari: desktop_open(app="Safari", url=...)')
             there = "nothing at that point can" if role is None else f"the {role} at that point can't"
             raise safety.Unavailable(f"{what}: {there} be pressed, focused or selected in background mode; click a "
                                      "button, link, field or row, or use the keyboard")
