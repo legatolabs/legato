@@ -179,3 +179,18 @@ def test_legato_command_from_uvx(monkeypatch):
 
 def test_legato_run_is_legato_dot_run():
     assert legato.run is legato.agent.run
+
+
+def test_setup_does_not_save_a_model_that_does_not_answer(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {"ok": False, "error": "HTTP 401: invalid key"})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "bad")
+    assert main(["setup", "--yes", "--desktop", "screen"]) == 1
+    assert not own_config.exists() and "nothing was saved" in capsys.readouterr().err
+    assert main(["setup", "--yes", "--desktop", "screen", "--no-check"]) == 0 and own_config.exists()
+
+
+def test_a_thinking_model_that_answers_nothing_is_not_called_blind(no_machine, monkeypatch, capsys):
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {"ok": True, "seconds": 0.5, "sees_images": None})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert main(["setup", "--yes", "--desktop", "screen"]) == 0
+    assert "vision model" not in capsys.readouterr().out

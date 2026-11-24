@@ -234,7 +234,7 @@ def pick_app(task: str, cfg: Config | None = None) -> str:
 # ------------------------------------------------------------ checking a model
 def check_model(model: str, base_url: str, api_key: str = "", timeout_s: float = 30.0) -> dict:
     """One small vision call: does the endpoint answer, does the model take images, and how long a call takes.
-    {"ok": True, "reply", "seconds", "sees_images"} or {"ok": False, "error"}."""
+    {"ok": True, "reply", "seconds", "sees_images": True | False | None} or {"ok": False, "error"}."""
     import base64
     import io
 
@@ -249,10 +249,11 @@ def check_model(model: str, base_url: str, api_key: str = "", timeout_s: float =
         img = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
         rec = client.chat([{"role": "user", "content": [
             {"type": "text", "text": "What colour is this image? Answer with one word."},
-            {"type": "image_url", "image_url": {"url": img}}]}], max_tokens=20, temperature=0.0)
+            {"type": "image_url", "image_url": {"url": img}}]}], max_tokens=400, temperature=0.0)
         reply = (rec.get("content") or "").strip()
+        # None: it answered nothing readable (a thinking model may spend the call thinking), so it can't be told
         return {"ok": True, "reply": reply[:80], "seconds": round(rec.get("s", 0.0), 2),
-                "sees_images": "red" in reply.lower()}
+                "sees_images": ("red" in reply.lower()) if reply else None}
     except (PolicyError, KeyError, ValueError) as e:
         return {"ok": False, "error": str(e)[:300]}
 

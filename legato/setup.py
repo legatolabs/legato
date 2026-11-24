@@ -208,8 +208,8 @@ def _main(argv) -> int:
             print(*args, **kw)
     cfg = C.load(use_env=False)
     from legato import __version__
-    say(f"Legato {__version__} setup: your model, where it works, and your coding agents. "
-        f"Saved to {C.path()}.\n")
+    say(f"Legato {__version__} setup: your model, where it works, and your coding agents "
+        f"(kept in {C.path()}).\n")
 
     # 1. the model
     provider = a.provider or ("custom" if a.base_url and not a.provider else "")
@@ -273,11 +273,15 @@ def _main(argv) -> int:
         r = C.check_model(model, base_url, cfg.key)
         if not r["ok"]:
             say(f"\n   the model did not answer: {r['error']}")
-            if asking and not _yes("   Save it anyway?", False):
+            if not asking or not _yes("   Save it anyway?", False):
+                print("legato setup: nothing was saved. Check the key, the model name and the URL, or pass "
+                      "--no-check to save it as it is.", file=sys.stderr)
+                if a.json:
+                    print(json.dumps({**state(), "ready": False, "missing": [f"the model did not answer: {r['error']}"]}))
                 return 1
         else:
-            say(f"ok, {r['seconds']} s a call" + ("" if r["sees_images"] else
-                                                   "; it may not see images (computer use needs a vision model)"))
+            say(f"ok, {r['seconds']} s a call" + ("; it did not see the test image, and computer use needs a "
+                                                   "vision model" if r["sees_images"] is False else ""))
 
     # 2. the desktop
     mac = sys.platform == "darwin"
