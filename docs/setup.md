@@ -3,6 +3,13 @@
 Legato is a fast, open-source computer-use agent: it uses a computer (clicks, types, reads the screen) with the model
 you choose. Setup takes about two minutes.
 
+**Before you start:** you need a model key (OpenRouter, Anthropic, OpenAI, another provider, or a model server of
+your own with no key), and on a Mac, Accessibility and Screen Recording for the app that runs Legato (your terminal,
+or the Mac app). `legato run` prints what each task cost when it ends. Setup saves your choices in
+`~/.config/legato/config.json`, readable by you only; delete that file and `pip uninstall legatolabs` to remove
+everything. Legato sends no telemetry: screenshots and the task go to the model you chose and nowhere else. Risky
+actions (a typed `rm`, quitting an app) wait for your yes.
+
 **On a Mac, with no code:** [download Legato for Mac](https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg),
 open it and follow its first screen. The rest of this page is for the terminal and for coding agents.
 

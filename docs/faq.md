@@ -79,4 +79,6 @@ Compare `result.report()` from `legato.Harness` and `legato.Harness.reference` o
 (`examples/compare_with_reference.py`).
 
 **Is there a hosted version?**
-Not yet. Legato runs where you run it, with the model you bring.
+Not publicly. Legato runs where you run it, with the model you bring. Legato Cloud, which also runs the model and the
+desktop, is in a private beta: its measured parts are on the [benchmarks page](benchmarks.md), and the waitlist is on
+[legato.computer](https://legato.computer).
