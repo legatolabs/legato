@@ -1,0 +1,17 @@
+{
+ "rule": "Do it through the desktop with the mouse and keyboard, not with a shell or a script. Do not ask questions. When it is finished, reply with the single word DONE.",
+ "tasks": [
+  {"id": "notepad-save", "instruction": "Open Notepad, type the text: legato bench 8301, and save it as bench-note.txt on the Desktop.",
+   "check": "$d=[Environment]::GetFolderPath('Desktop'); $f=\"$d\\bench-note.txt\"; if ((Test-Path $f) -and ((Get-Content $f -Raw).Trim() -eq 'legato bench 8301')) {'PASS'} else {'FAIL'}"},
+  {"id": "folder-file", "instruction": "Using File Explorer, create a folder named Reports on the Desktop, and inside it a new text document named summary.txt.",
+   "check": "$d=[Environment]::GetFolderPath('Desktop'); if (Test-Path \"$d\\Reports\\summary.txt\" -PathType Leaf) {'PASS'} else {'FAIL'}"},
+  {"id": "timezone", "instruction": "In Windows Settings, change the time zone to (UTC-10:00) Hawaii.",
+   "check": "if ((tzutil /g) -eq 'Hawaiian Standard Time') {'PASS'} else {'FAIL'}"},
+  {"id": "wordpad-bold", "instruction": "Open WordPad, type the line: Quarterly Report, make that line bold, and save the document as report.rtf on the Desktop.",
+   "check": "$d=[Environment]::GetFolderPath('Desktop'); $f=\"$d\\report.rtf\"; if ((Test-Path $f) -and ((Get-Content $f -Raw) -match '\\\\b[\\\\ ][^}]*Quarterly Report')) {'PASS'} else {'FAIL'}"},
+  {"id": "shortcut", "instruction": "Create a shortcut on the Desktop named Editor that opens Notepad (notepad.exe).",
+   "check": "$d=[Environment]::GetFolderPath('Desktop'); $f=\"$d\\Editor.lnk\"; if ((Test-Path $f) -and ((New-Object -ComObject WScript.Shell).CreateShortcut($f).TargetPath -match 'notepad')) {'PASS'} else {'FAIL'}"},
+  {"id": "calc-to-note", "instruction": "Open Calculator and multiply 4827 by 96. Then write the result in Notepad and save it as product.txt on the Desktop.",
+   "check": "$d=[Environment]::GetFolderPath('Desktop'); $f=\"$d\\product.txt\"; if ((Test-Path $f) -and (((Get-Content $f -Raw) -replace '[^0-9]','') -eq '463392')) {'PASS'} else {'FAIL'}"}
+ ]
+}

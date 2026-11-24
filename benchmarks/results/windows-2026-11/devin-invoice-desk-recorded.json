@@ -1,0 +1,18 @@
+{
+ "session": "redacted",
+ "url": "redacted",
+ "created_at": 1795504090,
+ "recorder": "READY",
+ "notepad": {
+  "sent_at": 1795504349,
+  "done_at": 1795504384,
+  "seconds": 35
+ },
+ "invoice": {
+  "sent_at": 1795504425,
+  "done_at": 1795504483,
+  "seconds": 58,
+  "check": "PASS"
+ },
+ "acus": 0.0
+}
