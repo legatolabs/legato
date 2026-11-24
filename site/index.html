@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Legato · the runtime for agents that act</title>
-<meta name="description" content="Computer-use agents spend nearly half their time waiting on the machine, not thinking. Legato is the open-source runtime that cuts the wait, for any model: on your Mac, in a container or a cloud sandbox, and for RL rollouts.">
+<meta name="description" content="Agents spend more of their time waiting on machines than thinking. Legato is the open-source runtime between a model and the computer it controls, for computer-use agents and the RL that trains them.">
 <link rel="canonical" href="https://legato.computer/">
 <link rel="alternate" type="text/markdown" href="/docs/index.md">
 <link rel="ai-catalog" href="/.well-known/ai-catalog.json">
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Legato">
 <meta property="og:title" content="Legato · the runtime for agents that act">
-<meta property="og:description" content="Computer-use agents spend nearly half their time waiting on the machine. Legato is the open-source runtime that cuts the wait, for any model.">
+<meta property="og:description" content="Agents spend more of their time waiting on machines than thinking. Legato is the runtime between a model and the computer it controls.">
 <meta property="og:url" content="https://legato.computer/">
 <meta property="og:image" content="https://legato.computer/brand/og.png">
 <meta property="og:image:width" content="1200">
@@ -88,24 +88,22 @@
 <article id="memo" class="memo">
   <div class="wrap">
     <div class="col">
-      <p>Give Claude a computer and a spreadsheet-to-slides task, and run it in Anthropic's reference loop. On our 24 office tasks it takes 97 seconds on average. For 45 of them it isn't thinking. It's waiting: the loop sleeps two seconds before every screenshot, in case the screen is still changing.</p>
-      <p>That's how most computer-use agents work. They sleep a fixed time after every action, send a full-size screenshot every turn, ask the model for one click at a time, and click through menus that one shell command would skip. The model gets blamed for being slow, but nearly half the time isn't the model's.</p>
-      <p>Coding agents show the same thing. Across 434,912 steps of real Claude Code and Codex sessions, the machine took more of the wall clock than the model did: 53% and 45% of step time. If generation got five times faster, the machine's share would be 85% and 80%.</p>
-      <p>Labs make models faster every few months. The other half is the machine, and that's the half we work on.</p>
+      <p>Computer-use agents are slow, and the model is usually not the reason.</p>
+      <p>Watch one work. It clicks, then sits idle until the screen catches up. It takes a screenshot, sends it off, and waits for an answer. It goes through five menus to do what one command would. Every step is a round trip between a model and a machine, and much of the time goes to the trip, not the thinking.</p>
+      <p>Models will keep getting faster. That only makes the rest of the trip matter more.</p>
 
-      <h2>What Legato does</h2>
-      <p>Legato is an open-source runtime for computer-use agents. It sits between a model and the computer it controls, and works with any model behind an OpenAI-compatible API: Claude, GPT, Qwen, or one on your own GPU.</p>
-      <p><strong>It waits for the screen, not the clock.</strong> It acts as soon as the screen has settled, instead of sleeping a fixed time. Same model, same 24 tasks, run side by side: Claude finished in 0.68 times the reference loop's time, and passed 48 of 48 in both.</p>
-      <p><strong>It takes the fastest route.</strong> The model can plan several steps per call, and use a shell, a script or AppleScript where they're quicker than clicking. The screen is for what nothing else can do. It fills an 81-cell DCF in Excel in 7.2 seconds with one model call and one script, and still gets all 81 cells right in 7 to 16 seconds when the prompt leaves the formulas out.</p>
-      <p><strong>It works where your work is.</strong> On a Mac it works in one app's window in the background, so you can keep using the computer. It also runs in a Linux container, a cloud sandbox or one you bring, and coding agents get it as an MCP server.</p>
+      <h2>What we're building</h2>
+      <p>Legato is the runtime for agents that use computers: the layer between a model and the machine it controls. It decides when the screen is ready, what the model needs to see, and the quickest way to get something done. That's a click when clicking is the only way, and a command or a script when there's something faster.</p>
+      <p>It works with any model, and runs wherever the work is: your own computer, a container, a cloud sandbox. It's open source, because the part of an agent that touches your machine should be something you can read, run and change.</p>
 
-      <h2>Why speed is the point</h2>
-      <p>At 90 seconds a task, computer use is a demo: you sit and watch it. At 7 seconds it's a tool: you hand the task off and keep working. Most of the gap between the two is waiting, and waiting can be engineered away.</p>
-      <p>It matters even more for training. Agents will learn to use computers the way models learned to code: by attempting tasks over and over and being scored. Every attempt runs on a real machine, so the attempts you can run per hour set the price of a better agent. A faster runtime makes training cheaper.</p>
+      <h2>Why speed is the product</h2>
+      <p>A slow agent is something you watch. A fast one is something you hand work to and stop thinking about. That difference decides whether computer use stays a demo or becomes how work gets done, and most of it comes down to the runtime.</p>
+
+      <h2>Why it matters for training</h2>
+      <p>Agents get better at computer work by doing it: trying tasks, failing, and trying again. Every attempt runs on a real machine. The faster and cheaper each attempt is, the more of them you can run, and the better the agents get. The runtime that serves agents is also the one that trains them.</p>
 
       <h2>Legato Cloud</h2>
-      <p>The open-source runtime can only save time on its side of the network. Legato Cloud runs the model and the desktop next to each other. The model keeps a run's history cached between steps, so a new screenshot prefills in 70 ms instead of 158 ms on a 7B model.</p>
-      <p>Next we're building forks from memory. A running desktop restores in 0.7 to 0.9 seconds, against 3.9 to 7.4 seconds to boot one and replay to the same point. A run that goes wrong at step 30 can then try again from step 29, instead of from the start.</p>
+      <p>Some of the waiting can only go away when the model and the machine run side by side. Legato Cloud does that: managed runtimes where the model and the desktop sit together, and a run can be paused, resumed or forked instead of started over.</p>
 
       <h2 id="partners">Work with us</h2>
       <p>If you're building or training agents that use computers, tell us what's slow.</p>
