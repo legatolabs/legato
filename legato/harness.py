@@ -309,9 +309,15 @@ class RunResult:
         tot = {k: sum(t.get(k, 0.0) for t in self.timings) for k in ("model_s", "act_s", "settle_s", "obs_s", "tool_s")}
         other = max(0.0, self.wall_s - sum(tot.values()))
         share = lambda v: f"{100 * v / self.wall_s:.0f}%" if self.wall_s else "-"  # noqa: E731
-        status = ("done" if self.done else "failed" if self.failed else self.error or
-                  ("out of steps" if self.status == "max_steps" else self.status))
-        return (f"{status} in {self.wall_s:.1f} s, {self.steps} model turns, {len(self.actions)} actions\n"
+        cost = (self.usage or {}).get("cost_usd")
+        counts = f"{self.steps} model turns, {len(self.actions)} actions" + (f", ${cost:.4f}" if cost else "")
+        if self.done or self.failed or not self.error:
+            status = "done" if self.done else "failed" if self.failed else (
+                "out of steps" if self.status == "max_steps" else self.status)
+            head = f"{status} in {self.wall_s:.1f} s, {counts}"
+        else:                                            # the error first, then how long it took
+            head = f"{self.error} (after {self.wall_s:.1f} s, {counts})"
+        return (f"{head}\n"
                 f"model {tot['model_s']:.1f} s ({share(tot['model_s'])}) · actions {tot['act_s']:.1f} s "
                 f"({share(tot['act_s'])}) · waiting for the screen {tot['settle_s']:.1f} s ({share(tot['settle_s'])}) · "
                 f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])}) · "

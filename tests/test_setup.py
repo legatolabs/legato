@@ -325,7 +325,7 @@ def test_a_desktop_that_fails_mid_run_is_one_line_and_json(monkeypatch, own_conf
     assert "Traceback" not in err
     assert main(["run", "Say hello"]) == 2
     out, err = capsys.readouterr()
-    assert "\nthe desktop failed: the window could not be captured in " in out and "Traceback" not in err
+    assert "\nthe desktop failed: the window could not be captured (after " in out and "Traceback" not in err
 
 
 def test_legato_run_timeout_and_status_in_json(monkeypatch, own_config, capsys):

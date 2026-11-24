@@ -51,7 +51,8 @@ screen or files. On your own screen, move the mouse into a corner to stop it. Ri
 
 **Where does my data go?**
 Screenshots and the task go to the model you chose, and nowhere else. With a model on your own machine, nothing
-leaves it. Legato has no server of its own and sends no telemetry; the Mac app checks GitHub for updates.
+leaves it. Legato has no server of its own and sends no telemetry; the Mac app checks GitHub for updates. The apps
+Legato drives keep their own habits: TextEdit, for one, may autosave a new document to iCloud.
 
 **Should my coding agent test my app with Playwright MCP or Legato?**
 Playwright MCP, when the app is a web page and the accessibility tree describes what you are checking. Legato, when

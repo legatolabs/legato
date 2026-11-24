@@ -20,7 +20,8 @@ from legato import config as cfgmod
 
 # Added to a task run through legato.run, `legato run` and desktop_run_task, so a question gets its answer back.
 ANSWER_NOTE = ("\n\nIf the task asks for information, finish with done and put the answer itself in done's text "
-               "(the number, name or sentence asked for).")
+               "(the number, name or sentence asked for). If any part of the task couldn't be done, finish with fail "
+               "and say what didn't work.")
 from legato import safety
 from legato.env import DesktopStartError, Env
 from legato.harness import Harness, RunResult

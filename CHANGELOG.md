@@ -46,6 +46,9 @@ From the persona tests (six simulated launch users on a real Mac):
     left alone.
 - An app Legato just opened gets the rest of its launch time to show its first window (a cold start was an error
   after 5 s). Docs: `usage` is read as `usage["complete"]`; an attached desktop raises its own exceptions.
+- Runs are asked to finish with fail when any part of the task couldn't be done (a run ended `done` while saying
+  nothing worked). The text report puts an error before its timing and shows the cost. FAQ: the apps Legato
+  drives keep their own habits, e.g. TextEdit autosaving a new document to iCloud.
 - MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
   Chrome refusal says Chrome ignores background clicks on web pages.
 - `legato rl`: Python `collect()` raises `CollectError` when no rollout completed (and names the `__main__` guard);
