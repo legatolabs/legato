@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from pathlib import Path
 import os
 import platform
 import shutil
@@ -162,6 +163,20 @@ def checks(capture: bool = False) -> dict:
         "model_keys": sorted(k for k in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TOGETHER_API_KEY",
                                          "FIREWORKS_API_KEY") if os.environ.get(k)),
     }
+    # the `legato` command itself: pip can put it in a folder that is not on PATH (always so for --user on Windows)
+    import shutil
+    import sysconfig
+    if shutil.which("legato"):
+        out["command"] = {"ok": True, "fix": None}
+    else:
+        scripts = [sysconfig.get_path("scripts")]
+        try:
+            scripts.insert(0, sysconfig.get_path("scripts", f"{os.name}_user"))
+        except KeyError:
+            pass
+        where = next((s for s in scripts if s and (Path(s) / ("legato.exe" if sys.platform == "win32" else "legato")).exists()), scripts[0])
+        out["command"] = {"ok": False, "fix": f"`legato` is not on PATH: run it as `{Path(sys.executable).name.replace('.exe', '')} -m legato`, "
+                                              f"or add {where} to PATH"}
     out["model_note"] = ("a local model server (--base-url http://localhost:8000/v1) needs no key"
                          if not out["model_keys"] else None)
     from legato import config
@@ -201,6 +216,8 @@ def main(argv=None) -> int:
         sv = st["server"]
         print(f"      ok  model server answers at {st['base_url']} ({sv['seconds']} s)"
               + (f"; {sv['note']}" if sv.get("note") else ""))
+    if not c["command"]["ok"]:
+        print(f"  no  command: {c['command']['fix']}")
     for name, s in [*c["sandboxes"].items(), ("mcp", c["mcp"])]:
         line = f"  {'ok ' if s['ok'] else 'no '} {name}"
         if s.get("fix"):

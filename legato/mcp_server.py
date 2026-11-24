@@ -75,11 +75,13 @@ PAGE_RULE = {"page": {"floor": 0.1, "quiet": 0.3, "min_same": 2}}       # a page
 
 def launch_command(platform: str, url: str | None = None, app: str | None = None) -> str:
     """The shell command that opens `url` (in the default browser) or starts `app`, without waiting for it. `app` is
-    an app name on macOS (open -a) and a command elsewhere. `platform`: "darwin", "win32" or anything else for Linux."""
+    an app name on macOS (open -a) and a command elsewhere. `platform`: "darwin", "win32" (PowerShell, which is what
+    Legato's shell runs there) or anything else for Linux."""
     if platform == "darwin":
         return f"open -a {shlex.quote(app)}" + (f" {shlex.quote(url)}" if url else "") if app else f"open {shlex.quote(url or '')}"
     if platform == "win32":
-        return f'start "" {app} {url or ""}'.strip() if app else f'start "" "{url}"'
+        q = "'" + (url or "").replace("'", "''") + "'"           # PowerShell: Start-Process, as cmd's `start` is not there
+        return f"Start-Process {app}" + (f" {q}" if url else "") if app else f"Start-Process {q}"
     if app:
         return f"nohup {app}" + (f" {shlex.quote(url)}" if url else "") + " >/dev/null 2>&1 &"
     q = shlex.quote(url or "")
@@ -202,8 +204,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         screen, a desktop container, a cloud desktop or their own sandbox. With --sandbox docker, the first call can
         take a few minutes while the desktop image downloads. url: open it in the browser first. app: start it first
         (an app name on macOS, such as "TextEdit"; in the background, the app to work in, default the browser; a
-        command on Linux, such as "gnome-calculator"). With url or app the screenshot is taken once the window has
-        drawn."""
+        command on Linux or Windows, such as "gnome-calculator" or "notepad"). With url or app the screenshot is taken
+        once the window has drawn; if starting it failed, the text says so and nothing was opened."""
         if background is not None:
             return open_background(url, app)
         sb, env = factory((width, height))
@@ -219,7 +221,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                 t = time.monotonic()
                 out = env.shell(launch_command(platform, url, app), 30.0)
                 if not out.rstrip().endswith("[exit 0]"):
-                    note = f" (starting it failed: {out.strip()[-300:]})"
+                    note = f" (NOT started: starting {app or url} failed, so the desktop is as it was: {out.strip()[-300:]})"
                 else:
                     wait_for_launch(lambda: env.observe().screenshot, before)
                     note = f" (started {app or url} in {time.monotonic() - t:.1f} s)"
@@ -317,8 +319,9 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
     @_said
     def desktop_shell(desktop_id: str, command: str, timeout_s: float = 30.0) -> str:
         """Run a shell command on the desktop's computer and return its output (stdout and stderr) and exit code.
-        Use it to start apps, read and write files and check results; it is faster than the screen. Start a GUI app
-        in the background (nohup app >/dev/null 2>&1 &), or the command waits for it to exit. timeout_s: 1 to 300."""
+        Use it to start apps, read and write files and check results; it is faster than the screen. On Windows the
+        shell is PowerShell; elsewhere bash. Start a GUI app in the background, or the command waits for it to exit:
+        `nohup app >/dev/null 2>&1 &` (macOS, Linux), `Start-Process app` (Windows). timeout_s: 1 to 300."""
         from legato.tools import bash
         d = get(desktop_id)
         try:

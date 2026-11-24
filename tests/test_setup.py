@@ -155,6 +155,8 @@ def test_setup_adds_legato_to_coding_agents(no_machine, monkeypatch, tmp_path):
         returncode, stdout, stderr = 0, "", ""
     monkeypatch.setattr(setup, "coding_agents", lambda: ["claude", "cursor"])
     monkeypatch.setattr(setup.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or Done())
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/local/bin/{name}")
     cursor = tmp_path / ".cursor" / "mcp.json"
     cursor.parent.mkdir()
     cursor.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
@@ -358,3 +360,54 @@ def test_legato_run_timeout_covers_opening_the_desktop(monkeypatch, own_config, 
     assert main(["run", "Say hello", "--json", "--timeout", "0"]) == 1
     got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert seen["timeout_s"] == 0 and got["error"] == "the run's time limit (0 s) ran out"
+
+
+def test_a_coding_agent_that_is_not_installed_is_said_plainly(monkeypatch):
+    import shutil
+
+    from legato import setup
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    try:
+        setup.add_mcp("claude")
+    except RuntimeError as e:
+        assert "claude is not installed here" in str(e) and "nothing was added" in str(e)
+    else:
+        raise AssertionError("a missing client must not pass silently")
+
+
+def test_doctor_says_when_the_legato_command_is_not_on_path(monkeypatch, capsys):
+    import shutil
+
+    from legato import doctor
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    c = doctor.checks()
+    assert c["command"]["ok"] is False and "-m legato" in c["command"]["fix"] and "PATH" in c["command"]["fix"]
+
+
+def test_an_environment_variable_is_written_as_the_platforms_shell_writes_it(monkeypatch):
+    from legato import config
+    monkeypatch.setattr(config.sys, "platform", "win32")
+    assert config.env_name("OPENROUTER_API_KEY") == "$env:OPENROUTER_API_KEY"
+    monkeypatch.setattr(config.sys, "platform", "darwin")
+    assert config.env_name("OPENROUTER_API_KEY") == "$OPENROUTER_API_KEY"
+
+
+def test_a_saved_key_is_not_sent_to_a_server_named_by_the_environment(monkeypatch, tmp_path):
+    from legato import config
+    monkeypatch.setenv("LEGATO_CONFIG", str(tmp_path / "config.json"))
+    for v in ("LEGATO_API_KEY", "LEGATO_BASE_URL", "LEGATO_MODEL", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(v, raising=False)
+    config.save(config.Config(provider="openrouter", model="qwen/qwen3.8-27b", api_key="sk-or-saved"))
+    assert config.load().key == "sk-or-saved"
+    monkeypatch.setenv("LEGATO_BASE_URL", "http://localhost:8000/v1")
+    cfg = config.load()
+    assert cfg.base_url == "http://localhost:8000/v1" and cfg.key == "" and cfg.key_source == ""
+    monkeypatch.setenv("LEGATO_API_KEY", "its-own")
+    assert config.load().key == "its-own"
+    monkeypatch.delenv("LEGATO_API_KEY")
+    monkeypatch.setenv("LEGATO_BASE_URL", "https://openrouter.ai/api/v1/")        # the same server: the key stays
+    assert config.load().key == "sk-or-saved"
+    config.save(config.Config(provider="openrouter", model="m", api_key_env="OPENROUTER_API_KEY"))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")
+    monkeypatch.setenv("LEGATO_BASE_URL", "http://other.example/v1")
+    assert config.load().key == ""
