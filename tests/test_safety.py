@@ -224,3 +224,22 @@ def test_doctor_reports_permissions(monkeypatch, capsys):
     assert "ok  accessibility" in out and "no  screen recording" in out and "Privacy & Security" in out
     monkeypatch.setattr(safety, "permissions", lambda: {})
     assert doctor.checks()["sandboxes"]["local"] == {"ok": True, "fix": None, "permissions": {}}
+
+
+def test_the_same_impossible_action_ends_the_run_instead_of_a_loop(server):
+    """A background app's Save stays off however often it is pressed: the model is told plainly from the second
+    refusal, and the third ends the run as failed with the reason, instead of looping to the step limit."""
+    import legato
+    from legato import safety
+    from legato.rl.fake import tiny_png
+
+    import json
+
+    def act(a):
+        if a.type == "key":
+            raise safety.Unavailable("key s: its menu item (Save) is turned off while the app is in the back")
+    server["script"] = [{"tool_calls": [tc({"action": "key", "text": "cmd+s"})]}] * 5
+    env = legato.attach(screenshot=lambda: tiny_png(1, w=64, h=40), execute=act, fixed_wait_s=0.0)
+    res = legato.Harness("m", server["url"], "k").run("save it", env, max_steps=10)
+    assert (res.status, res.failed, res.steps) == ("failed", True, 3) and "refused 3 times" in res.error
+    assert "can't be done here: call fail now" in json.dumps(server["bodies"][2])

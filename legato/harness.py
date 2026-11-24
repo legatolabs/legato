@@ -84,6 +84,19 @@ UNAVAILABLE_NOTE = ("This desktop can't do that action, so it was NOT run, and n
 def _refused(e: Denied) -> str:
     return (UNAVAILABLE_NOTE if isinstance(e, Unavailable) else DENIED_NOTE).format(what=e)
 
+
+REFUSALS_TO_END = 3     # the same impossible action refused this often ends the run as failed, instead of a loop
+
+
+def _again(refusals: dict, e: Denied) -> str:
+    """Count an impossible action; from its second refusal, tell the model plainly to stop (a background app's Save
+    stays turned off however often it is pressed)."""
+    if not isinstance(e, Unavailable):
+        return ""
+    n = refusals[str(e)] = refusals.get(str(e), 0) + 1
+    return (f" It has now been refused {n} times and can't be done here: call fail now and say what couldn't be done."
+            if n >= 2 else "")
+
 END_NOTE = ("Your last reply had no action, so nothing happened. If the task is complete, call done; otherwise take "
             "the next step.")
 CUT_OFF_NOTE = ("Your last reply reached the token limit before you called the tool, so nothing happened. Keep your "
@@ -945,6 +958,7 @@ class Harness:
         ep = self.begin(task, obs.screenshot)
         seen = obs.screenshot                       # the screenshot the model plans on
         idle = 0                                    # replies in a row with no action (end_fix)
+        refusals: dict[str, int] = {}               # how often each impossible action was refused this run
         if self.plan_mode:                          # the text reader loads its model once (~10 s): during the first call
             threading.Thread(target=plans.warm_up, args=(obs.screenshot,), daemon=True).start()
         for turn in range(max_steps):
@@ -966,7 +980,7 @@ class Harness:
                 except Stopped as e:              # the person's stop, during a step
                     res.stopped, res.error = True, f"stopped by the person: {e}"
                 except Denied as e:               # the person's no to a step: the rest did not run
-                    note = _refused(e)
+                    note = _refused(e) + _again(refusals, e)
                     denied = f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}"
                     obs = env.observe()
                     pngs, results = [obs.screenshot], []
@@ -989,7 +1003,7 @@ class Harness:
                     res.stopped, res.error = True, f"stopped by the person: {e}"
                     break
                 except Denied as e:               # the person's no: nothing ran; the model is told and chooses again
-                    note = _refused(e)
+                    note = _refused(e) + _again(refusals, e)
                     denied = f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {a.describe()}"
                     obs = env.observe()
                     pngs.append(obs.screenshot)
@@ -1028,6 +1042,11 @@ class Harness:
                 on_step(turn, ran, timing)
             if res.stopped:
                 res.status = "stopped"
+                break
+            if note and max(refusals.values(), default=0) >= REFUSALS_TO_END:   # the same impossible action again
+                res.failed, res.status = True, "failed"
+                res.error = (f"not possible here, refused {REFUSALS_TO_END} times: "
+                             f"{max(refusals, key=refusals.get)}")
                 break
             if not note:                          # a "done" after an action that was not allowed does not count
                 res.done, res.failed = plan.done, plan.failed

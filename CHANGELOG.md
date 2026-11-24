@@ -60,6 +60,9 @@ From the persona tests (six simulated launch users on a real Mac):
     refused.
   - `desktop_run_task` returns structured output (`status`, `answer`, `seconds`, `steps`, `error`) and sets `isError`
     for failed, timeout and error; `--record` keeps its inner steps.
+- **The same impossible action no longer loops to the step limit.** From its second refusal the model is told
+  to call fail and say why; the third ends the run as failed with the reason. A background app's Save, Close and
+  Find stay turned off however often they're pressed (a TextEdit "save it" task looped to the call limit).
 - MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
   Chrome refusal says Chrome ignores background clicks on web pages.
 - `legato rl`: Python `collect()` raises `CollectError` when no rollout completed (and names the `__main__` guard);
