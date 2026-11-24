@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Legato · the runtime for agents that act</title>
-<meta name="description" content="Agents spend more of their time waiting on machines than thinking. Legato is the runtime for the loop between a model and the machine it controls: computer-use agents in production, RL rollouts at scale, and next, robots.">
+<meta name="description" content="Computer-use agents spend nearly half their time waiting on the machine, not thinking. Legato is the open-source runtime that cuts the wait, for any model: on your Mac, in a container or a cloud sandbox, and for RL rollouts.">
 <link rel="canonical" href="https://legato.computer/">
 <link rel="alternate" type="text/markdown" href="/docs/index.md">
 <link rel="ai-catalog" href="/.well-known/ai-catalog.json">
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Legato">
 <meta property="og:title" content="Legato · the runtime for agents that act">
-<meta property="og:description" content="Agents spend more of their time waiting on machines than thinking. Legato runs the loop between a model and the machine it controls.">
+<meta property="og:description" content="Computer-use agents spend nearly half their time waiting on the machine. Legato is the open-source runtime that cuts the wait, for any model.">
 <meta property="og:url" content="https://legato.computer/">
 <meta property="og:image" content="https://legato.computer/brand/og.png">
 <meta property="og:image:width" content="1200">
@@ -88,33 +88,27 @@
 <article id="memo" class="memo">
   <div class="wrap">
     <div class="col">
-      <p>Reinforcement learning has always gone where practice is cheap.</p>
-      <p>It got good at backgammon first, then Go, because a board game costs almost nothing to play again. A program can play itself all night, and by morning it has played more games than a person could in a lifetime.</p>
-      <p>Then it got good at math and code, because there an answer can be checked by another program. Reasoning models were given problems, a way to tell right from wrong, and a great deal of practice, and they kept getting better.</p>
-      <p>The next thing to learn is work. Work is harder in a very unglamorous way: it happens on computers, and computers are slow.</p>
+      <p>Give Claude a computer and an Excel-to-PowerPoint task, and run it in Anthropic's reference loop. It takes 97 seconds. For 45 of them it isn't thinking. It's waiting: the loop sleeps two seconds before every screenshot, in case the screen is still changing.</p>
+      <p>That's how most computer-use agents work. They sleep a fixed time after every action, send a full-size screenshot every turn, ask the model for one click at a time, and click through menus that one shell command would skip. The model gets blamed for being slow, but nearly half the time isn't the model's.</p>
+      <p>Coding agents show the same thing. Across 434,912 steps of real Claude Code and Codex sessions, the machine took more of the wall clock than the model did: 53% and 45% of step time. If generation got five times faster, the machine's share would be 85% and 80%.</p>
+      <p>Labs make models faster every few months. The other half is the machine, and that's the half we work on.</p>
 
-      <h2>The boring bottleneck</h2>
-      <p>Watch an agent do a task on a real machine. It clicks, then waits. A window opens, a page loads, a spreadsheet recalculates, and only then does it find out whether the click did what it meant. A game of Go never made anyone wait for a spinner.</p>
-      <p>So the limit on how fast agents learn to work sits in an odd place: in the machines. How many you can run at once, how quickly each one settles after an action, how cheaply you can rewind one to the moment before a mistake and try again. Whoever makes that cheap gets to train the best agents.</p>
-      <p>The scaling law for agents is a scaling law for environments.</p>
+      <h2>What Legato does</h2>
+      <p>Legato is an open-source runtime for computer-use agents. It sits between a model and the computer it controls, and works with any model behind an OpenAI-compatible API: Claude, GPT, Qwen, or one on your own GPU.</p>
+      <p><strong>It waits for the screen, not the clock.</strong> It acts as soon as the screen has settled, instead of sleeping a fixed time. Same model, same 24 tasks, run side by side: Claude finished in 0.68 times the reference loop's time, and passed 48 of 48 in both.</p>
+      <p><strong>It takes the fastest route.</strong> The model can plan several steps per call, and use a shell, a script or AppleScript where they're quicker than clicking. The screen is for what nothing else can do. Given the formulas, it fills an 81-cell DCF in Excel in 7.2 seconds: one model call, one script, all 81 cells right.</p>
+      <p><strong>It works where your work is.</strong> On a Mac it works in one app's window in the background, so you can keep using the computer. It also runs in a Linux container, a cloud sandbox or one you bring, and coding agents get it as an MCP server.</p>
 
-      <h2>Over the shoulder</h2>
-      <p>Most of what a company knows is passed on the way trades used to be, by one person watching another. Nobody wrote down the workaround in the ERP, or why one tab of that spreadsheet must never be sorted. New hires pick it up over someone's shoulder, on a screen share.</p>
-      <p>A machine can watch over a shoulder too. Every day, a company performs its own expertise on screens, step by step, and almost none of it is kept. Recorded, kept private inside the company, and turned into places an agent can practice with the real outcome as the reward, that work becomes a curriculum no lab could assemble: the company's own know-how, taught back to it.</p>
-      <p>We think the most useful enterprise models will be trained this way. They'll learn the job the way everyone else at the company did.</p>
+      <h2>Why speed is the point</h2>
+      <p>At 90 seconds a task, computer use is a demo: you sit and watch it. At 7 seconds it's a tool: you hand the task off and keep working. Most of the gap between the two is waiting, and waiting can be engineered away.</p>
+      <p>It matters even more for training. Agents will learn to use computers the way models learned to code: by attempting tasks over and over and being scored. Every attempt runs on a real machine, so the attempts you can run per hour set the price of a better agent. A faster runtime makes training cheaper.</p>
 
-      <h2>What we're building</h2>
-      <p>Both of these ideas run into the same wall. Every rollout an agent learns from has to happen on a machine, and the machine sets the pace. So that's where we've decided to work.</p>
-      <p>There's an old pattern here. When compiling a program took all night, programmers wrote carefully and tried few ideas. When it took seconds, they started experimenting, and software got better much faster. Research has always moved at the speed of its slowest loop.</p>
-      <p>Agent training is about to go through the same change. A faster runtime means more rollouts from the same machines, shorter experiments, and more ideas tried before lunch. Better agents waste fewer steps, so the next round of rollouts is cheaper still. Each turn of the loop pays for part of the next one.</p>
-      <p>Open that bottleneck, and agents get to scale the way the rest of computing has: exponentially.</p>
-      <p class="pull">The road to general agents runs through experience. Experience runs through machines.</p>
-
-      <h2>And then, atoms</h2>
-      <p>A robot is the same loop with the stakes raised: a camera where the screen was, motors where the mouse was, and much less patience for a slow step. It will learn the way agents on screens do, by acting, failing and trying again, and all of that experience has to be made by someone. We'd like the runtime that makes it cheap on screens to be the one robots use too.</p>
+      <h2>Legato Cloud</h2>
+      <p>The open-source runtime can only save time on its side of the network. Legato Cloud runs the model and the desktop next to each other. The model keeps a run's history cached between steps, so a new screenshot prefills in 70 ms instead of 158 ms on a 7B model.</p>
+      <p>Next we're building forks from memory. A running desktop restores in 0.7 to 0.9 seconds, against 3.9 to 7.4 seconds to boot one and replay to the same point. A run that goes wrong at step 30 can then try again from step 29, instead of from the start.</p>
 
       <h2 id="partners">Work with us</h2>
-      <p>If you're training agents that act, or your company has years of its own work sitting on screens, we'd like to hear from you.</p>
+      <p>If you're building or training agents that use computers, tell us what's slow.</p>
       <form class="wl one" id="wl" novalidate>
         <input type="email" name="email" required autocomplete="email" placeholder="you@company.com" aria-label="email">
         <input type="hidden" name="company" value=""><input type="hidden" name="use_case" value=""><input type="hidden" name="name" value="">
