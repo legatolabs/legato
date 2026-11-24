@@ -31,6 +31,24 @@ From the persona tests (six simulated launch users on a real Mac):
 - A model that doesn't answer says where and what to do ("the model at http://localhost:11434/v1 did not answer (2
   attempts): ConnectError... Is the model server running?"). `legato setup` suggests Ollama's or LM Studio's port when
   that server is installed. README and llms.txt: vLLM is the tested local server; Ollama and LM Studio aren't yet.
+- `legato.run(timeout_s=)` covers opening the desktop too. New `legato.DesktopError` and `DesktopStartError` (both
+  RuntimeErrors) when a desktop can't open or act. `usage["complete"]` is False when a call was cut off and may still
+  be billed. A refused key (HTTP 401/403) says which key (by its variable's name, never its value) and how to fix it.
+- **Unattended runs refuse risky actions by default:** with no terminal, `legato.run`'s `confirm="auto"` refuses them
+  and tells the model. Pass `confirm` (a function, `None`, or `"deny"`) to choose.
+- **Background mode, round two:**
+  - It works in the app's real window, skipping bubbles and popovers (TextEdit's autocorrect, Chrome's help), and
+    picks again when a window closes instead of blaming Screen Recording.
+  - Bold, italic and font changes are refused: a background app turns those menu items off, and its format bar
+    lights up without changing the text, so a model reported bold that never happened. Underline and alignment work.
+  - In Safari, `desktop_open(url)` opens the page in its own window (no Apple Events permission needed), ready to
+    read and click when it returns: 2.8 s, was 15.7 s. `desktop_close` closes that window; the person's tabs are
+    left alone.
+- MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
+  Chrome refusal says Chrome ignores background clicks on web pages.
+- `legato rl`: Python `collect()` raises `CollectError` when no rollout completed (and names the `__main__` guard);
+  rollouts per hour come from real time; `--start-stagger`; the fake screen is 640×400 and readable; export rows have
+  `attempt`, and steps record `retry_reasons`.
 - **`legato rl collect --backend fake` works out of the box** (the fake harness is its default). A harness or backend
   that can't load stops before any worker starts, naming the fix, and `collect` exits 1 when no rollout completed.
 - **Sampling for GRPO:**
