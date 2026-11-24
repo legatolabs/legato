@@ -238,10 +238,13 @@ def test_run_task_reports_its_status_and_a_desktop_error(monkeypatch):
         did = r.content[0].text.split()[1]
         r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
         assert kinds(r) == ["text", "image"] and r.content[0].text.startswith("status: done\n")
+        assert r.structured_content["status"] == "done" and r.structured_content["steps"] == 2 and not r.is_error
+        assert set(r.structured_content) == {"status", "answer", "seconds", "steps", "error"}
         shots["fail_after"] = shots["n"] + 1               # the first screenshot works, the one after the click fails
         r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
         assert kinds(r) == ["text"] and r.content[0].text.startswith(
             "status: error\nthe desktop failed: the window could not be captured")
+        assert r.is_error and r.structured_content["status"] == "error" and "captured" in r.structured_content["error"]
     asyncio.run(go())
 
 
@@ -265,7 +268,40 @@ def test_run_task_passes_its_deadline_and_says_status_in_its_description(monkeyp
         assert "status" in tool.description and "timeout_s" in tool.description
         did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
         r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t", "timeout_s": 90})
-        assert r.content[0].text.startswith("status: timeout\n")
+        assert r.content[0].text.startswith("status: timeout\n") and r.is_error            # a client can branch on it
+        assert r.structured_content["status"] == "timeout"
+        assert tool.output_schema["required"] == ["status", "answer", "seconds", "steps", "error"]
         await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t"})
     asyncio.run(go())
     assert got[0]["timeout_s"] == 90.0 and got[1]["timeout_s"] is None
+
+
+def test_run_task_under_record_keeps_each_step(monkeypatch, tmp_path):
+    import json
+    import legato.agent
+    sent = []
+
+    def agent_for(env, **kw):
+        h = legato.Harness("m", "http://x/v1", "", coords="pixels", model_size=None)
+
+        def chat(msgs, **k):
+            sent.append(msgs)
+            call = {"action": "left_click", "coordinate": [5, 5]} if len(sent) < 3 else {"action": "done"}
+            return {"content": "", "tool_calls": [{"type": "function", "function": {
+                "name": "computer", "arguments": json.dumps(call)}}], "usage": {"prompt": 7}, "s": 0.01}
+        h.client.chat = chat
+        return h
+    monkeypatch.setattr(legato.agent, "agent_for", agent_for)
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)), record=str(tmp_path))
+
+    async def go():
+        did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
+        await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it twice"})
+        return did
+    did = asyncio.run(go())
+    log = [json.loads(line) for line in (tmp_path / did / "log.jsonl").read_text().splitlines()]
+    steps = [e for e in log if e["event"] == "run_step"]
+    assert [e["event"] for e in log] == ["open", "run_step", "run_step", "run_step", "run_task"]
+    assert steps[0]["actions"] == ["click (5, 5)"] and all(e["screenshot"] for e in steps[:2])
+    assert (tmp_path / did / steps[0]["screenshot"]).read_bytes().startswith(b"\x89PNG")

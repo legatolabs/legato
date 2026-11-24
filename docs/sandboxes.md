@@ -74,10 +74,18 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 
 ### In the background, while you keep working (macOS)
 
-`legato.local(background="TextEdit")` works in one app's front window and leaves the rest of the Mac to you: your
-pointer, the app in front and the clipboard stay yours. It is the default on a Mac: `legato run "..."` works in the
-app the task names ("... in Notes", "... on Spotify"), else in Safari;
-`--app NAME` picks one. In the MCP server: `desktop_open(app="Safari", url=...)`.
+`legato.local(background="TextEdit")` works in a window of one app and leaves the rest of the Mac to you: your
+pointer, the app in front, the clipboard and your own windows stay yours. It is the default on a Mac: `legato run
+"..."` works in the app the task names ("... in Notes", "... on Spotify"), else in Safari; `--app NAME` picks one. In
+the MCP server: `desktop_open(app="Safari", url=...)`.
+
+**It works in a window of its own, never in yours.** When the desktop opens, Legato makes one through the app's menu
+(no Apple Events permission): a new window in a browser (Safari's New Window), a new document in a document app
+(TextEdit's New). Windows that open from its own actions (a document it opens, a save sheet) are followed; your
+windows and tabs, and other desktops' windows, never are, and if its window closes the desktop says so rather than
+moving to another. The browser window is closed when the run ends (`legato run`, `legato.run`, `desktop_close`,
+`env.close()`); a new document stays open, with what the agent wrote in it. An app with neither (Calculator, Chess,
+Notes, where New would add a note) is worked in its front window, and the desktop names that window when it opens.
 
 ```python
 env = legato.local(background="Safari")
@@ -93,14 +101,19 @@ agent.run("Sign up with the name Ada Lovelace", env)
   the point is pressed (buttons, links, checkboxes, menu items), focused (fields), or selected (rows), and in text the
   insertion point goes to that character; a double or triple click there selects the word or the line.
 - **Scrolling** moves the scroll bar under the point; a page with none (Chrome) scrolls with the arrow keys.
-- **A page opens in a window of its own** (`env.open_url(url)`, `desktop_open(url=...)`): the browser's New Window
-  menu item and address field, through Accessibility, so your tabs stay as they were. `env.close()` closes it.
+- **A page opens in its window** (`env.open_url(url)`, `desktop_open(url=...)`) through the address field, with any
+  query string, and is ready to read and click when the call returns. Reload, Back and Forward (Cmd+R, Cmd+[, Cmd+])
+  press the toolbar's buttons, since their menu items are off while Safari is in the back.
+- **Two desktops in one app** (two `desktop_open(app="Safari")`) each keep their own window: reads, screenshots, clicks
+  and keys go to that window only. Keys reach it because it is made the app's main window first; a click where another
+  of the app's windows is in front raises its window among the app's windows (the app stays in the back).
 - **If the app takes the front** (Chrome does when it opens a URL), it is given back to the app you were in.
 - **Not possible in the background,** and reported to the model as "this desktop can't do that": drags, a click on
   something that can't be pressed, focused or selected (a canvas, an empty area), a click with keys held, copy, cut and
-  paste (the clipboard is yours), anything outside the app (the Dock, the menu bar, Spotlight, other apps), and font
-  changes such as bold and italic: an app in the back doesn't apply them, though its Bold button may look on
-  (underline and alignment do work).
+  paste (the clipboard is yours), anything outside the app (the Dock, the menu bar, other apps), system shortcuts
+  (Cmd+Space for Spotlight, Cmd+Tab, Mission Control: posted to the app they would do nothing, and the search typed
+  next would land in the window), and font changes such as bold and italic: an app in the back doesn't apply them,
+  though its Bold button may look on (underline and alignment do work).
 - **Don't use the same app yourself** while it works: its keys go to whatever has the focus in that app. Give it its own
   app, or its own browser (Chrome while you use Safari).
 - The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it. An app

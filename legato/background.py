@@ -3,9 +3,12 @@
     env = legato.local(background="TextEdit")
     agent.run("Write a short note and save it as note", env)
 
-The agent sees only that app's front window, captured even when other windows cover it, and its coordinates are
-points in that window. Nothing it does moves the person's pointer, changes the app in front or touches the
-clipboard:
+The agent works in a window of its own: a new window (a browser's New Window) or a new document (TextEdit's New),
+opened through the app's menu when the desktop opens, and the windows that appear from its own actions (a document
+it opens, a sheet). It never steers the person's other windows or tabs. Only an app with neither (Calculator, Chess,
+Notes) is worked in its front window, and `describe()` says so. It sees only its window, captured even when other
+windows cover it, and its coordinates are points in that window. Nothing it does moves the person's pointer, changes
+the app in front or touches the clipboard:
 
 - **Typing and shortcuts** are key events posted to the app's process (`CGEventPostToPid`), not to the system.
 - **Clicks** go through Accessibility, because a mouse click posted to a process lands nowhere (tested on TextEdit,
@@ -31,6 +34,7 @@ import hashlib
 import re
 import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
@@ -57,6 +61,23 @@ TEXT_ROLES = {"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXSec
 STOP_ROLES = {"AXWindow", "AXApplication", "AXWebArea", "AXScrollArea", "AXSheet", "AXDialog"}
 PRESS = ("AXPress", "AXPick", "AXConfirm")
 HIDES = re.compile(r"(cmd|command|super|meta)(\+(alt|option))?\+[hm]")   # hide the app, minimize the window
+# shortcuts the system handles, not the app: posted to the app they do nothing (cmd+space then typed "Terminal" into
+# the document), so they are refused: (flags, key) -> what it is
+SYSTEM_KEYS = {(1 << 20, "space"): "Spotlight", (1 << 18, "space"): "Spotlight or the input source",
+               ((1 << 20) | (1 << 19), "space"): "Finder search", (1 << 20, "tab"): "the app switcher",
+               ((1 << 20) | (1 << 17), "tab"): "the app switcher", ((1 << 20) | (1 << 19), "esc"): "Force Quit",
+               ((1 << 20) | (1 << 18), "q"): "Lock Screen", ((1 << 20) | (1 << 18), "f"): "full screen",
+               ((1 << 20) | (1 << 19), "d"): "the Dock", (1 << 18, "up"): "Mission Control",
+               (1 << 18, "down"): "App Exposé", (1 << 18, "left"): "switching Spaces",
+               (1 << 18, "right"): "switching Spaces"}
+# a cmd+N menu item that makes a fresh window ("New Window", "New Finder Window") or document ("New", "New Document");
+# others ("New Note", "New Game", "New Playlist") would change the person's data, so they are not pressed
+FRESH_WINDOW = re.compile(r"new(\s+\w+)?\s+window", re.I)
+FRESH_DOCUMENT = re.compile(r"new((\s+\w+)?\s+document)?", re.I)
+# which desktop works in which window, across the desktops of this process (two MCP desktops in one app)
+_CLAIMS: dict[tuple[int, int], int] = {}
+_MAKING: dict[int, int] = {}              # pid -> desktops opening a window there right now
+_LOCK = threading.Lock()
 # the title bar's buttons (the window's attribute and the button's subrole have the same name)
 WINDOW_BUTTONS = {"AXCloseButton": "close", "AXMinimizeButton": "minimize", "AXZoomButton": "zoom",
                   "AXFullScreenButton": "full screen"}
@@ -279,7 +300,7 @@ class MacApp:
                        timeout=30)
 
     def windows(self) -> list[dict]:
-        """The app's on-screen windows, front to back: {"id", "x", "y", "w", "h", "layer"}."""
+        """The app's on-screen windows, front to back: {"id", "x", "y", "w", "h", "layer", "name"}."""
         q = self.Q
         info = q.CGWindowListCopyWindowInfo(q.kCGWindowListOptionOnScreenOnly, q.kCGNullWindowID) or []
         out = []
@@ -289,7 +310,7 @@ class MacApp:
             b = w.get("kCGWindowBounds") or {}
             out.append({"id": int(w["kCGWindowNumber"]), "x": float(b.get("X", 0)), "y": float(b.get("Y", 0)),
                         "w": float(b.get("Width", 0)), "h": float(b.get("Height", 0)),
-                        "layer": int(w.get("kCGWindowLayer", 0))})
+                        "layer": int(w.get("kCGWindowLayer", 0)), "name": str(w.get("kCGWindowName") or "")})
         return out
 
     API_WAIT_S = 3.0          # longer than this, and macOS's window capture is stalled (it gives up only after 30 s)
@@ -440,15 +461,19 @@ class MacApp:
 
 
 class BackgroundEnv(LocalEnv):
-    """One app's front window on this Mac, driven without taking the screen (see the module docstring).
+    """A window of one app on this Mac, driven without taking the screen (see the module docstring).
 
     `app` is the app's name ("TextEdit") or bundle id ("com.apple.Safari"); it is started in the background if it is
-    not running. `mac` is the macOS layer (`MacApp`), for tests. `confirm` works as in `legato.local`: risky keys and
-    typed commands wait for the person's yes. The person's own stop signals (the mouse in a corner, Escape held)
-    don't apply here, since the mouse and keyboard stay theirs: stop the run from the program running it."""
+    not running. window="own" (the default) opens a window or document of its own through the app's menu when it can
+    (`describe()` says which); window="front" works in the app's front window, the person's, as before. `close()`
+    closes the browser windows it opened. `mac` is the macOS layer (`MacApp`), for tests. `confirm` works as in
+    `legato.local`: risky keys and typed commands wait for the person's yes. The person's own stop signals (the mouse
+    in a corner, Escape held) don't apply here, since the mouse and keyboard stay theirs: stop the run from the program
+    running it."""
 
     def __init__(self, app: str, mac_cmd: bool = True, fixed_wait_s: float | None = None, *,
-                 confirm: safety.Confirm | str | None = "auto", mac: Any = None, launch_s: float = 30.0):
+                 confirm: safety.Confirm | str | None = "auto", mac: Any = None, launch_s: float = 30.0,
+                 window: str = "own"):
         if mac is None and sys.platform != "darwin":
             raise DesktopStartError("background mode is macOS only: use legato.local() or a sandbox elsewhere")
         self.mac = True                       # LocalEnv: Ctrl shortcuts are sent as Cmd
@@ -468,27 +493,126 @@ class BackgroundEnv(LocalEnv):
         self.win: dict | None = None          # the window the latest screenshot showed
         self._kinds: dict[int, bool] = {}     # window id: is it a real window (True) or a bubble (False)
         self._bubbles: set[int] = set()       # the bubbles in front at the latest look
-        self.opened: list = []                # windows open_url opened, which close() closes
+        self.opened: list = []                # browser windows this desktop opened, which close() closes
+        self.own: list[int] = []              # the windows this desktop works in (window ids), oldest first
+        self.known: set[int] = set()          # the app's other windows: the person's, or other desktops'
+        self.kind = "attached"                # "window" or "document" (its own), or "attached" (the front one)
+        self.fresh: Any = None                # its own browser window, before any page was loaded in it
+        self._ax: dict[int, Any] = {}         # window id -> its Accessibility element, for the windows it opened
+        self._acting = False                  # windows that appear while it acts are its own
         Env.__init__(self, self._png, self._exec, fixed_wait_s=fixed_wait_s)
         self.waiter = Waiter(self._digest, rules=LOCAL_RULES)
         self.last_front: dict = {}
+        if window == "own":
+            self._open_own()
+
+    # ------------------------------------------------------------ its own window
+    def _open_own(self) -> None:
+        """Open a window of its own: the app's cmd+N menu item when it makes a fresh window or document. An app that
+        just started gets a moment for its menu bar (a restored window of the person's must not be taken instead)."""
+        until = getattr(self.m, "window_until", 0.0)
+        item = self._menu_item("n", 0)
+        while item is None and time.monotonic() < min(until, time.monotonic() + 10.0):
+            time.sleep(0.25)
+            item = self._menu_item("n", 0)
+        title = _str(self.m.attr(item, "AXTitle")) if item is not None else ""
+        kind = "window" if FRESH_WINDOW.fullmatch(title) else "document" if FRESH_DOCUMENT.fullmatch(title) else ""
+        if not kind or self.m.attr(item, "AXEnabled") is False:
+            return                                # attached: its front window, named by describe()
+        made = self._make_window(item)
+        if made is not None:
+            self.kind = kind
+            if kind == "window":
+                self.opened.append(made)
+                self.fresh = made
+
+    def _make_window(self, item: Any) -> Any:
+        """Press `item` (New Window, New) and take the window it opens as this desktop's: its Accessibility element,
+        or None. The app's windows before it are left alone from then on."""
+        pid = getattr(self.m, "pid", 0)
+        with _LOCK:
+            _MAKING[pid] = _MAKING.get(pid, 0) + 1
+        try:
+            before = {w["id"] for w in self.m.windows()}
+            had = list(self.m.attr(self.m.app, "AXWindows") or [])
+            if not self.m.perform(item, "AXPress"):
+                return None
+            end = time.monotonic() + 5.0
+            while time.monotonic() < end:
+                new_ax = [w for w in self.m.attr(self.m.app, "AXWindows") or [] if w not in had]
+                if new_ax:
+                    frame = self.m.frame(new_ax[0])
+                    for w in self.m.windows():
+                        if w["id"] not in before and w["layer"] == 0 and (frame is None or _same(frame, w)):
+                            self.known |= before - set(self.own)
+                            self._claim(w["id"])
+                            self._ax[w["id"]] = new_ax[0]
+                            return new_ax[0]
+                time.sleep(0.05)
+            return None
+        finally:
+            with _LOCK:
+                _MAKING[pid] -= 1
+
+    def _claim(self, wid: int, exclusive: bool = True) -> None:
+        """Take window `wid` as its own. Exclusive (a window it opened, or one that appeared while it acted): no other
+        desktop takes it. The front window an attached desktop works in is the person's, so it is not."""
+        if exclusive:
+            with _LOCK:
+                _CLAIMS[(getattr(self.m, "pid", 0), wid)] = id(self)
+        if wid not in self.own:
+            self.own.append(wid)
+        self.known.discard(wid)
+
+    def _others(self, wid: int) -> bool:
+        """Is window `wid` another desktop's, or about to be (one is opening a window in this app)?"""
+        pid = getattr(self.m, "pid", 0)
+        with _LOCK:
+            return _CLAIMS.get((pid, wid), id(self)) != id(self) or _MAKING.get(pid, 0) > 0
+
+    def describe(self) -> str:
+        """Which window this desktop works in, for the person and the model: 'a new Safari window', 'a new TextEdit
+        document ("Untitled 7")', or the front window it was attached to, named."""
+        title = ""
+        try:
+            el = self._ax_window() if (self.win is not None or self.own) else None
+            title = _str(self.m.attr(el, "AXTitle")) if el is not None else ""
+        except DesktopError:
+            pass
+        named = f' ("{title}")' if title else ""
+        if self.kind == "window":
+            return f"a new {self.app} window of its own"
+        if self.kind == "document":
+            return f"a new {self.app} document{named}"
+        return (f"{self.app}'s front window{named}, already open ({self.app} has no New Window or New Document, so "
+                "the agent works in it)")
 
     # ------------------------------------------------------------ seeing
     def window(self) -> dict:
-        """The app's front window (layer 0), asking the app for one once if it has none on screen. A bubble drawn as
-        a window of its own (TextEdit's autocorrect, Chrome's help bubbles) is passed over for the window under it."""
+        """The front one of this desktop's own windows (layer 0). A window that appeared while it acted is its own (a
+        document it opened, a sheet); the person's windows and other desktops' never are. Attached to an app with
+        no window of its own (Calculator), it takes the app's front window on the first look, asking the app for one
+        once if it has none on screen. A bubble drawn as a window of its own (TextEdit's autocorrect, Chrome's help
+        bubbles) is passed over and drawn over the window under it."""
         for attempt in range(2):
             wins = [w for w in self.m.windows() if w["layer"] == 0 and w["w"] > 40 and w["h"] > 40]
-            if wins:
-                kinds = [self._is_real(w) for w in wins]
-                self._bubbles = {w["id"] for w, k in zip(wins, kinds) if k is False}
-                self.win = next((w for w, k in zip(wins, kinds) if k), None) \
-                    or next((w for w, k in zip(wins, kinds) if k is None), wins[0])
+            kinds = [self._is_real(w) for w in wins]
+            self._bubbles = {w["id"] for w, k in zip(wins, kinds) if k is False}
+            self._adopt(wins, kinds)
+            mine = [w for w in wins if w["id"] in self.own]
+            if mine:
+                self.win = mine[0]
                 self.size = (int(self.win["w"]), int(self.win["h"]))
                 return self.win
+            closed = DesktopError(f"the {self.app} window this desktop worked in was closed (or minimized); the "
+                                  "app's other windows are the person's, so open a new desktop")
+            if self.own and attempt == 1:
+                raise closed
             if attempt == 0:
                 unhide = getattr(self.m, "unhide", None)      # hidden with cmd+H: show it again, not in front
                 if not (unhide and unhide()):
+                    if self.own:
+                        raise closed
                     self.m.reopen()
                 # 5 s for an app that was running; an app Legato just opened gets the rest of its launch time
                 until = max(time.monotonic() + 5.0, getattr(self.m, "window_until", 0.0))
@@ -497,6 +621,37 @@ class BackgroundEnv(LocalEnv):
                     if any(w["layer"] == 0 for w in self.m.windows()):
                         break
         raise DesktopError(f"{self.app} has no window on screen (is it minimized or on another Space?)")
+
+    def _adopt(self, wins: list[dict], kinds: list) -> None:
+        """Take as its own the windows that appeared while it acted, and the sheets of its windows; on the first look
+        of an attached desktop, the app's front window."""
+        if not self.own and self.kind == "attached":
+            free = [(w, k) for w, k in zip(wins, kinds) if not self._others(w["id"])]
+            front = next((w for w, k in free if k is not False), free[0][0] if free else None)
+            if front is not None:
+                self._claim(front["id"], exclusive=False)
+                self.known |= {w["id"] for w in wins if w["id"] != front["id"]}
+            return
+        for w, k in zip(wins, kinds):
+            wid = w["id"]
+            if k is False or wid in self.own or wid in self.known:
+                continue
+            if self._others(wid):
+                continue                          # another desktop's, or about to be: decided on a later look
+            if self._acting or self._sheet_of_own(w):
+                self._claim(wid)
+            else:
+                self.known.add(wid)               # appeared while it did nothing: the person's
+
+    def _sheet_of_own(self, w: dict) -> bool:
+        """Is `w` a sheet of the window it works in (a save sheet that came after its action had settled)?"""
+        if self.win is None:
+            return False
+        for el in self.m.attr(self.m.app, "AXWindows") or []:
+            if _same(self.m.frame(el), self.win):
+                return any(self.m.attr(k, "AXRole") == "AXSheet" and _same(self.m.frame(k), w)
+                           for k in self.m.attr(el, "AXChildren") or [])
+        return False
 
     def _is_real(self, w: dict) -> bool | None:
         """True for a window or sheet of the app's own (Accessibility calls it a standard window, a dialog or a
@@ -536,10 +691,10 @@ class BackgroundEnv(LocalEnv):
         # their own (a layer above, or a bubble in front of it)
         wins = self.m.windows()
         at = next((i for i, v in enumerate(wins) if v["id"] == w["id"]), len(wins))
-        ids = [v["id"] for i, v in enumerate(wins)
-               if v["x"] < x1 and v["x"] + v["w"] > x0 and v["y"] < y1 and v["y"] + v["h"] > y0
-               and (v["layer"] != 0 or v["id"] == w["id"] or (i < at and v["id"] in self._bubbles))]
-        ids.sort(key=lambda i: i != w["id"])          # the window first, what's on top of it after
+        ids = [w["id"]] + [v["id"] for i, v in enumerate(wins)   # the window first (listed or not just now: a run
+               if v["id"] != w["id"]                               # failed on an empty list), what's on top after
+               and v["x"] < x1 and v["x"] + v["w"] > x0 and v["y"] < y1 and v["y"] + v["h"] > y0
+               and (v["layer"] != 0 or (i < at and v["id"] in self._bubbles))]
         return self.m.capture(ids, (w["x"], w["y"], w["w"], w["h"]))
 
     def _png(self) -> bytes:
@@ -673,11 +828,59 @@ class BackgroundEnv(LocalEnv):
         if action.type == "key" and action.keys and HIDES.fullmatch(action.keys.lower().replace("ctrl", "cmd")):
             raise safety.Unavailable(f"{action.keys} would hide or minimize {self.app}'s window, the one this agent "
                                      "works in")
+        if action.type == "key" and action.keys:
+            for combo in action.keys.split():
+                if what := self._system_key(combo):
+                    raise safety.Unavailable(f"key {combo}: that is {what}, which the system handles, not {self.app}; "
+                                             f"in the background it would only reach {self.app}, and what is typed "
+                                             f"next would land in the window. This desktop works in {self.app}'s "
+                                             "window only: use its menus and shortcuts, and another desktop for "
+                                             "another app")
         before = self.m.front_pid()
+        self._acting = True                       # a window that appears now is its own (a document it opens)
         try:
+            if action.type in ("key", "type") and self._focus_own() is False:
+                raise safety.Unavailable(f"{action.describe()}: another {self.app} window has the keyboard right now "
+                                         "(the person's, or another agent's), so the keys were not sent; try again")
             return super().act(action)
         finally:
+            self._acting = False
             self.give_back_front(before)
+
+    def _system_key(self, combo: str) -> str | None:
+        flags, keys = 0, []
+        for n in (self.key(k) for k in combo.split("+") if k):
+            if n in FLAGS:
+                flags |= FLAGS[n]
+            elif n in ("command", "cmd", "win"):
+                flags |= FLAGS["command"]
+            else:
+                keys.append(n.lower())
+        return SYSTEM_KEYS.get((flags, keys[0])) if len(keys) == 1 else None
+
+    def _focus_own(self) -> bool | None:
+        """Make its window the app's main window, so keys posted to the app (and menu items) reach it rather than
+        another window of the app (the person's, or another desktop's): checked on Safari with two windows. False
+        when another window still has the keyboard after that (something else made it main), None when it can't be
+        told."""
+        try:
+            self.window()
+            el = self._ax_window()
+        except DesktopError:
+            return None
+        if el is None:
+            return None
+        for _ in range(3):
+            if self.m.attr(el, "AXMain") is not True:
+                self.m.set(el, "AXMain", True)
+            focused = self.m.attr(self.m.app, "AXFocusedWindow")
+            if focused is None or focused == el or self._sheet_on(focused, el):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def _sheet_on(self, el: Any, win: Any) -> bool:
+        return self.m.attr(el, "AXRole") == "AXSheet" and self.m.attr(el, "AXParent") == win
 
     def give_back_front(self, before: int | None) -> None:
         """If the app took the front (some apps and browsers do on their own), give it back to the person's app."""
@@ -686,18 +889,26 @@ class BackgroundEnv(LocalEnv):
             self.last["front_taken"] = f"{self.app} brought itself to the front; the front was given back"
 
     def open_url(self, url: str, wait_s: float = 15.0) -> None:
-        """Open `url` in this app (a browser) in a window of its own, keeping the person's app in front, and return
-        once the page has loaded and has the keyboard focus. The window comes from the browser's New Window menu item
-        and the page from its address field, both through Accessibility (no Apple Events permission), so the
-        person's tabs stay as they were and out of sight, and a query string is kept. `close()` closes the window.
-        If that fails, the URL goes to the front window as a tab (`open -g`), as before."""
+        """Open `url` in this desktop's own browser window (a new one if it has none, or has a page in it already),
+        keeping the person's app in front, and return once the page has loaded and has the keyboard focus. The window
+        comes from the browser's New Window menu item and the page from its address field, both through
+        Accessibility (no Apple Events permission), so the person's tabs stay as they were and out of sight, and a
+        query string is kept. `close()` closes the window. If that fails, the URL goes to its window as a tab
+        (`open -g`)."""
         before = self.m.front_pid()
         try:
-            win = self._new_window()
-            if win is not None:
-                self.opened.append(win)
-                if self._load(win, url, wait_s):
-                    return
+            win, self.fresh = self.fresh, None
+            if win is None:
+                item = self._menu_item("n", 0)
+                if item is not None and FRESH_WINDOW.fullmatch(_str(self.m.attr(item, "AXTitle"))) \
+                        and self.m.attr(item, "AXEnabled") is not False:
+                    win = self._make_window(item)
+                    if win is not None:
+                        self.opened.append(win)
+                        self.kind = "window"
+            if win is not None and self._load(win, url, wait_s):
+                return
+            self._focus_own()                     # its own window takes the tab, not the person's
             self.m.open_url(url)
             for _ in range(20):                   # a browser that takes the front does so within a second or two
                 time.sleep(0.1)
@@ -705,22 +916,6 @@ class BackgroundEnv(LocalEnv):
                     break
         finally:
             self.give_back_front(before)
-
-    def _new_window(self) -> Any:
-        """A new window from the app's New Window menu item (cmd+N), or None."""
-        item = self._menu_item("n", 0)
-        if item is None or self.m.attr(item, "AXEnabled") is False:
-            return None
-        had = list(self.m.attr(self.m.app, "AXWindows") or [])
-        if not self.m.perform(item, "AXPress"):
-            return None
-        end = time.monotonic() + 5.0
-        while time.monotonic() < end:
-            new = [w for w in self.m.attr(self.m.app, "AXWindows") or [] if w not in had]
-            if new:
-                return new[0]
-            time.sleep(0.05)
-        return None
 
     def _load(self, win: Any, url: str, wait_s: float) -> bool:
         """Type `url` into `win`'s address field and confirm it; True once its page has loaded and has the focus (so
@@ -746,12 +941,16 @@ class BackgroundEnv(LocalEnv):
         return False
 
     def close(self) -> None:
-        """Close the windows `open_url` opened (their close button, through Accessibility); the app stays open."""
+        """Close the browser windows it opened (their close button, through Accessibility) and let go of its windows.
+        A document it opened stays open, with what the agent wrote in it, and so does the app."""
         while self.opened:
             win = self.opened.pop()
             button = self.m.attr(win, "AXCloseButton")
             if button is not None:
                 self.m.perform(button, "AXPress")
+        with _LOCK:
+            for wid in self.own:
+                _CLAIMS.pop((getattr(self.m, "pid", 0), wid), None)
 
     def _screen(self, x: float, y: float) -> tuple[float, float]:
         w = self.win or self.window()
@@ -842,11 +1041,36 @@ class BackgroundEnv(LocalEnv):
             return False
         if self.m.attr(node, "AXEnabled") is False:
             item = self.m.attr(node, "AXTitle")
+            if self._toolbar_instead(_str(item)):
+                return True
             if _str(item).lower() in FONT_CONTROLS:
                 raise safety.Unavailable(f"key {key}: {self._no_format(item)}")
             raise safety.Unavailable(f"key {key}: its menu item ({item}) is turned off while the app is in the back; "
                                      "do it another way")
         return self.m.perform(node, "AXPress")
+
+    def _toolbar_instead(self, item: str) -> bool:
+        """Press the window's toolbar button for a menu item that is off in the back: Safari's Reload Page (cmd+R),
+        Back and Forward are, while its toolbar's Reload, Back and Forward buttons still work. False if none."""
+        word = (item.lower().split() or [""])[0]
+        if word not in ("reload", "back", "forward", "stop"):
+            return False
+        try:
+            win = self._ax_window()
+        except DesktopError:
+            return False
+        todo, seen = [win] if win is not None else [], 0
+        while todo and seen < 600:
+            node = todo.pop(0)
+            seen += 1
+            a = self._attrs(node, ["AXRole", "AXTitle", "AXDescription", "AXChildren"])
+            if a.get("AXRole") == "AXWebArea":
+                continue                          # the page's own buttons are not the browser's
+            label = f"{_str(a.get('AXDescription'))} {_str(a.get('AXTitle'))}".lower()
+            if a.get("AXRole") == "AXButton" and re.search(rf"\b{word}\b", label) and "AXPress" in self.m.actions(node):
+                return self.m.perform(node, "AXPress")
+            todo.extend(a.get("AXChildren") or [])
+        return False
 
     def _no_format(self, what: Any) -> str:
         return (f"{what or 'font'}: changing the font (bold, italic, typeface, size) isn't possible in the background, "
@@ -905,7 +1129,7 @@ class BackgroundEnv(LocalEnv):
 
     def _target(self, x: float, y: float) -> tuple[str, Any]:
         """(what to do, element) for a click at screen (x, y): "text", "press", "select", or ("none", element)."""
-        el = self.m.element_at(x, y)
+        el = self._hit(x, y)
         if el is None:
             return "none", None
         if (inner := self._in_page(el, x, y)) is not None:
@@ -925,6 +1149,38 @@ class BackgroundEnv(LocalEnv):
             el, depth = self.m.attr(el, "AXParent"), depth + 1
         return "none", hit
 
+    def _hit(self, x: float, y: float) -> Any:
+        """The element at screen point (x, y) in its own window. The app's hit test answers for the app's front window
+        there, which can be another one (the person's, or another desktop's: a click on desktop 1 pressed desktop 2's
+        button): then its window is raised among the app's windows (the app stays in the back) and asked again."""
+        el = self.m.element_at(x, y)
+        if el is None or self._owns(el) is not False:
+            return el
+        win = self._ax_window()
+        if win is not None and "AXRaise" in self.m.actions(win):
+            self.m.perform(win, "AXRaise")            # takes effect within 0.1 s (Safari, two windows)
+            end = time.monotonic() + 0.6
+            while True:
+                el = self.m.element_at(x, y)
+                if el is None or self._owns(el) is not False:
+                    return el
+                if time.monotonic() > end:
+                    break
+                time.sleep(0.03)
+        raise safety.Unavailable("another window covers that point of this desktop's window, so nothing was done "
+                                 "there")
+
+    def _owns(self, el: Any) -> bool | None:
+        """Is `el` in the window this desktop works in? None when it can't be told."""
+        top = self.m.attr(el, "AXWindow") or self.m.attr(el, "AXTopLevelUIElement")
+        mine = self._ax_window() if top is not None else None
+        if top is None or mine is None:
+            return None
+        if top == mine:
+            return True
+        # a sheet of its window: the sheet's own parent is the window
+        return self.m.attr(top, "AXRole") == "AXSheet" and self.m.attr(top, "AXParent") == mine
+
     def _in_web_page(self, el: Any) -> bool:
         node = el
         for _ in range(20):
@@ -936,14 +1192,21 @@ class BackgroundEnv(LocalEnv):
         return False
 
     def _ax_window(self) -> Any:
-        """The Accessibility element of the window the screenshots show: the app's window with the same frame, else
-        its main window."""
+        """The Accessibility element of the window the screenshots show: the one it opened, else the app's window with
+        the same frame (and title, when two have the same frame), else the window a sheet in front hangs from. Never
+        a window of the person's in its place."""
         w = self.win or self.window()
+        made = self._ax.get(w["id"])
+        if made is not None and _same(self.m.frame(made), w):
+            return made
         wins = list(self.m.attr(self.m.app, "AXWindows") or [])
-        for el in wins:
-            if _same(self.m.frame(el), w):
-                return el
-        return self.m.attr(self.m.app, "AXMainWindow") or (wins[0] if wins else None)
+        same = [el for el in wins if _same(self.m.frame(el), w)]
+        if len(same) > 1 and w.get("name"):
+            same = [el for el in same if _str(self.m.attr(el, "AXTitle")) == w["name"]] or same[:1]
+        if same:
+            return same[0]
+        return next((el for el in wins if any(self.m.attr(k, "AXRole") == "AXSheet" and _same(self.m.frame(k), w)
+                                                for k in self.m.attr(el, "AXChildren") or [])), None)
 
     def _window_button(self, x: float, y: float, el: Any = None) -> str | None:
         """"close", "minimize", "zoom" or "full screen" when screen point (x, y), or the element `el` hit there, is
@@ -1053,7 +1316,7 @@ class BackgroundEnv(LocalEnv):
         w = self.win or self.window()
         x, y = (a.x, a.y) if a.x is not None and a.y is not None else (w["w"] / 2, w["h"] / 2)
         sx, sy = self._screen(x, y)
-        el = self.m.element_at(sx, sy)
+        el = self._hit(sx, sy)
         if el is None or self.m.attr(el, "AXRole") in ("AXWindow", "AXApplication"):
             el = self._page_at(sx, sy) or el      # Chrome's hit test can come back empty over its page
         hit = self.m.attr(el, "AXRole") if el is not None else None
@@ -1097,7 +1360,10 @@ class BackgroundEnv(LocalEnv):
 
     def _page_at(self, x: float, y: float) -> Any:
         """The web page (AXWebArea) in the app's windows that covers screen point (x, y), if any."""
-        todo, seen = list(self.m.attr(self.m.app, "AXWindows") or [])[:1], 0
+        win = self._ax_window()
+        if win is None and self.kind == "attached":     # its window has no frame to match: the app's front one
+            win = next(iter(self.m.attr(self.m.app, "AXWindows") or []), None)
+        todo, seen = [win] if win is not None else [], 0
         while todo and seen < 3000:
             node = todo.pop()
             seen += 1
