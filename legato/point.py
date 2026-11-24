@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Callable
 
 from legato.rl.policy import PolicyError
 from legato.safety import Denied, Stopped, Unavailable
+from legato.tools import ToolCall, clip
 
 if TYPE_CHECKING:
     from legato.env import Env
@@ -181,6 +182,26 @@ def _point_args(rec: dict) -> dict:
     return {"found": True, "coordinate": [float(m.group(1)), float(m.group(2))]} if m else {}
 
 
+SHELL_NOTE = """
+You also have the computer's shell. Take the fastest route that gets the task right: a command wherever one can do \
+the step or read what you need (files, documents, text, settings, an app's own data), the screen for what only the \
+screen reaches. Read a file with a command rather than opening it in a window.
+- {{"shell": "<command>"}}: runs in {shell} on this computer; its output and exit code are in the list you read next.{osa}
+Several of these can go in one list. Their output is shown to you before you say done: check it, and the screen, then \
+say done."""
+OSA_NOTE = """
+- {{"applescript": "<script>"}}: runs with osascript; prefer it for Calendar, Reminders, Notes, Contacts, Finder and \
+System Events."""
+SHELL_PROPS = {"shell": {"type": "string"}, "applescript": {"type": "string"}}
+NOTES_NOTE = """
+Every call may also carry `notes`: what you have worked out and must not lose (values read from a file or a screen, \
+the items still to do, what is already checked). Your notes are given back to you at every later call, in full, and \
+a new `notes` replaces them: keep what still matters. Work from your notes instead of reading the same thing twice."""
+NOTES = {"type": "string", "description": "what you have worked out and must keep; replaces your earlier notes"}
+NOTES_MAX = 4000
+SHELL_OUT = 1500                   # characters of a command's output kept in the list the planner reads
+
+
 PROGRESS = {"type": "string", "description": "one line: what is done so far and what is left"}
 PROGRESS_NOTE = ("\nEvery call also carries `progress`: one line, what is done so far, what you have checked and "
                  "what is left. Your next call sees only the task, the list of actions run with these lines, and the "
@@ -188,14 +209,22 @@ PROGRESS_NOTE = ("\nEvery call also carries `progress`: one line, what is done s
                  "checked.")
 
 
-def act_tool(progress: bool = False) -> dict:
+def act_tool(progress: bool = False, shell: tuple = (), notes: bool = False) -> dict:
     """The planner's `act` tool (progress: a required one-line `progress`, as Harness(progress_note=True) asks of
-    a plan)."""
-    if not progress:
+    a plan; shell: the names among "shell" and "applescript" its actions may carry; notes: a `notes` text it keeps)."""
+    if not progress and not shell and not notes:
         return ACT_TOOL
     f = dict(ACT_TOOL["function"])
-    f["parameters"] = {**f["parameters"], "properties": {**f["parameters"]["properties"], "progress": PROGRESS},
-                       "required": ["status", "progress"]}
+    f["parameters"] = par = dict(f["parameters"])
+    if shell:
+        items = par["properties"]["actions"]["items"]
+        items = {**items, "properties": {**items["properties"], **{k: SHELL_PROPS[k] for k in shell}}}
+        par["properties"] = {**par["properties"], "actions": {**par["properties"]["actions"], "items": items}}
+    if notes:
+        par["properties"] = {**par["properties"], "notes": NOTES}
+    if progress:
+        par["properties"] = {**par["properties"], "progress": PROGRESS}
+        par["required"] = ["status", "progress"]
     return {"type": "function", "function": f}
 
 
@@ -232,6 +261,9 @@ class Pointing:
         self.pointer = {"s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
         self.trace: list[dict] = []
         self.calls: list[tuple] = []            # (request, record) of every model call made by the latest next()
+        # the harness's bash and applescript tools, if it has them: the planner may then name commands to run
+        self.shell = tuple(k for k, t in (("shell", "bash"), ("applescript", "applescript")) if t in h.tools)
+        self.notes = ""                         # the planner's own notes (Planner(notes=True)), given back every call
 
     @property
     def ended(self) -> bool:
@@ -248,7 +280,8 @@ class Pointing:
         self.seen = png
         first = max(0, len(self.history) - 40)
         ran = "\n".join(f"{first + i + 1}. {x}" for i, x in enumerate(self.history[first:])) or "nothing yet"
-        content = [{"type": "text", "text": f"Task: {self.task}\n\nRun so far:\n{ran}\n\n{why}"}]
+        kept = f"\n\nYour notes:\n{self.notes}" if self.notes else ""
+        content = [{"type": "text", "text": f"Task: {self.task}{kept}\n\nRun so far:\n{ran}\n\n{why}"}]
         shown = pick_frames(self.frames)
         for n, f in shown:
             url = h._image_url(base64.b64encode(small_png(f)).decode())
@@ -259,20 +292,26 @@ class Pointing:
         # the planner sees the screen now at full size and answers in its pixels, whatever the pointer's convention
         content.append({"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(png).decode())}})
         system = PLANNER_SYSTEM.format(max_actions=p.max_steps, w=self.ep.w, h=self.ep.h)
+        if self.shell:
+            system += SHELL_NOTE.format(shell=p.shell_name, osa=OSA_NOTE.format() if "applescript" in self.shell else "")
+        if p.notes:
+            system += NOTES_NOTE
         msgs = [{"role": "system", "content": system + (PROGRESS_NOTE if h.progress_note else "")},
                 {"role": "user", "content": content}]
         rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature,
-                            tools=[act_tool(h.progress_note)],
+                            tools=[act_tool(h.progress_note, self.shell, p.notes)],
                             tool_choice={"type": "function", "function": {"name": "act"}})
         self.calls.append(({"messages": msgs, "max_tokens": p.max_tokens, "temperature": p.temperature}, rec))
         a = _args(rec)
         status = str(a.get("status") or "").lower()
         acts = [x for x in a.get("actions") or [] if isinstance(x, dict) and
-                any(k in x for k in ("click", "key", "type", "scroll", "drag", "wait"))][: p.max_steps]
+                any(k in x for k in ("click", "key", "type", "scroll", "drag", "wait") + self.shell)][: p.max_steps]
         if status not in ("continue", "done", "fail"):
             status = "continue" if acts else "fail"
         if status == "continue" and not acts:
             status = "fail"
+        if p.notes and isinstance(a.get("notes"), str) and a["notes"].strip():
+            self.notes = a["notes"].strip()[:NOTES_MAX]
         progress = " ".join(str(a.get("progress") or "").split())[:400]
         if progress and h.progress_note:
             self.history.append(f"(progress: {progress})")
@@ -338,6 +377,10 @@ class Pointing:
         """A planned action as a legato Action: (action, what it is on, None), or (None, None, why not)."""
         from legato.actions import parse as parse_action
         h, ep = self.h, self.ep
+        for k in self.shell:                    # a command: run by the harness's tool, no screen needed
+            if isinstance(x.get(k), str) and x[k].strip():
+                return (ToolCall("bash", {"command": x[k]}) if k == "shell" else
+                        ToolCall("applescript", {"script": x[k]})), None, None
         if "key" in x or "type" in x or "wait" in x:
             args = ({"action": "key", "keys": str(x["key"])} if "key" in x else
                     {"action": "type", "text": str(x["type"])} if "type" in x else
@@ -392,10 +435,15 @@ class Pointing:
             self.quick.append(inert(x) and nxt is not None and ("key" in nxt or "type" in nxt))
         return [a for a, _what, _x in self.running]
 
-    def ran(self, png: bytes) -> str:
-        """The first action next() gave has run and this is the screen after it. Returns its line in the history."""
-        a, what, _x = self.running.pop(0)
-        said = f'{a.describe()} on "{what}"' if what else a.describe()
+    def ran(self, png: bytes, result: str | None = None) -> str:
+        """The first action next() gave has run and this is the screen after it (result: a command's output).
+        Returns its line in the history."""
+        a, what, x = self.running.pop(0)
+        if isinstance(a, ToolCall):
+            k = "shell" if a.name == "bash" else a.name
+            said = f"{k}: {clip(str(x.get(k)), 600)}\n   -> {clip(str(result or '').strip(), SHELL_OUT)}"
+        else:
+            said = f'{a.describe()} on "{what}"' if what else a.describe()
         self.history.append(said)
         self.frames.append((len(self.history), png))
         return said
@@ -446,6 +494,16 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                 break
             try:
                 for a, quick in zip(actions, list(s.quick)):
+                    if isinstance(a, ToolCall):     # a command: its output goes into the list the planner reads
+                        t1 = time.monotonic()
+                        out = h.call_tool(a)
+                        timing["act_s"] += time.monotonic() - t1
+                        timing["shell"] = timing.get("shell", 0) + 1
+                        obs = env.observe()
+                        png = obs.screenshot
+                        res.actions.append(a.describe())
+                        s.ran(png, out)
+                        continue
                     if quick:      # it only edits the focused field and a key or text follows: a short fixed pause
                         wait_before, env.fixed_wait_s = env.fixed_wait_s, QUICK_WAIT_S
                         try:
