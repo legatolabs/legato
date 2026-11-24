@@ -611,6 +611,31 @@ def test_a_stalled_window_capture_falls_back_to_screencapture(monkeypatch):
         app.capture([7], (10, 20, 300, 200))
 
 
+def test_menus_go_in_front_of_the_window_in_the_capture(monkeypatch):
+    """The window capture API draws the first window of its list on top: with the window first, an open menu or
+    popover was hidden behind it (seen with a Chess pop-up). The fallback still takes the window itself."""
+    import legato.background as bg
+    seen, taken = [], []
+
+    class Q:
+        kCGWindowImageBoundsIgnoreFraming = kCGWindowImageNominalResolution = 0
+
+        @staticmethod
+        def CGRectMake(*r):
+            return r
+
+        @staticmethod
+        def CGWindowListCreateImageFromArray(rect, ids, opts):
+            seen.append(list(ids))
+            return None                           # then the fallback, which shows what it was given
+
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.Q = Q
+    monkeypatch.setattr(bg, "_screencapture", lambda *a: taken.append(a) or b"png")
+    assert app.capture([7, 9, 8], (120, 60, 40, 30)) == b"png"
+    assert seen == [[9, 8, 7]] and taken[0][0] == 7
+
+
 def test_an_app_missing_from_the_stale_list_is_found_by_bundle_id(monkeypatch):
     """In the MCP server (tools on worker threads) NSWorkspace's list can stay stale: a lookup by bundle id is fresh."""
     import sys

@@ -188,6 +188,7 @@ class MacApp:
 
     def capture(self, ids: list[int], rect: tuple[float, float, float, float]) -> bytes:
         """PNG of windows `ids` composited in `rect` (screen points), one pixel per point, other apps left out.
+        `ids` is the window first, then what is on top of it (menus, popovers), front to back.
 
         macOS's window capture can stall for 30 s and return nothing while its capture service is busy (seen with a
         screen recorder running and several captures at once), while `screencapture` still works. So the API call
@@ -195,8 +196,10 @@ class MacApp:
         and menus are then left out)."""
         q = self.Q
         if time.monotonic() >= getattr(self, "_api_off_until", 0.0):
+            # the API draws the first window in its list on top: what covers the window goes first, or it is hidden
             img = _within(self.API_WAIT_S, lambda: q.CGWindowListCreateImageFromArray(
-                q.CGRectMake(*rect), ids, q.kCGWindowImageBoundsIgnoreFraming | q.kCGWindowImageNominalResolution))
+                q.CGRectMake(*rect), ids[1:] + ids[:1],
+                q.kCGWindowImageBoundsIgnoreFraming | q.kCGWindowImageNominalResolution))
             if img is not None:
                 from AppKit import NSBitmapImageRep, NSPNGFileType
                 rep = NSBitmapImageRep.alloc().initWithCGImage_(img)
