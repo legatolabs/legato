@@ -79,6 +79,9 @@ FRESH_DOCUMENT = re.compile(r"new((\s+\w+)?\s+document)?", re.I)
 _CLAIMS: dict[tuple[int, int], int] = {}
 _MAKING: dict[int, int] = {}              # pid -> desktops opening a window there right now
 _LOCK = threading.Lock()
+# menu items whose sheet or dialog can't be worked from the back (TextEdit's Save opened a sheet no click could reach;
+# Cmd+Shift+S ran Duplicate, and Cmd+S then opened a Save sheet on the copy): refused whether they're on or off
+FILE_ITEMS = re.compile(r"(save|duplicate|export|print|revert|rename|move to)\b", re.I)
 # the title bar's buttons (the window's attribute and the button's subrole have the same name)
 WINDOW_BUTTONS = {"AXCloseButton": "close", "AXMinimizeButton": "minimize", "AXZoomButton": "zoom",
                   "AXFullScreenButton": "full screen"}
@@ -772,9 +775,24 @@ class BackgroundEnv(LocalEnv):
             if self._others(wid):
                 continue                          # about to be another desktop's: decided on a later look
             if self._acting or self._sheet_of_own(w):
+                if self._sheet_of_another(w, wins):
+                    self.known.add(wid)           # another window's sheet (another tester's close prompt)
+                    continue
                 self._claim(wid)
             else:
                 self.known.add(wid)               # appeared while it did nothing: the person's
+
+    def _sheet_of_another(self, w: dict, wins: list[dict]) -> bool:
+        """Is `w` a sheet hanging from a window that isn't this desktop's? A close prompt on another process's window
+        appeared while this desktop acted, and was taken as its own: its form reached the model."""
+        mine = [x for x in wins if x["id"] in self.own]
+        for el in self.m.attr(self.m.app, "AXWindows") or []:
+            if any(_same(self.m.frame(el), x) for x in mine):
+                continue
+            if any(self.m.attr(k, "AXRole") == "AXSheet" and _same(self.m.frame(k), w)
+                   for k in self.m.attr(el, "AXChildren") or []):
+                return True
+        return False
 
     def _sheet_of_own(self, w: dict) -> bool:
         """Is `w` a sheet of the window it works in (a save sheet that came after its action had settled)?"""
@@ -1077,14 +1095,34 @@ class BackgroundEnv(LocalEnv):
         """Close the browser windows it opened (their close button, through Accessibility) and let go of its windows.
         A document it opened stays open, with what the agent wrote in it, and so does the app."""
         while self.opened:
-            win = self.opened.pop()
-            button = self.m.attr(win, "AXCloseButton")
-            if button is not None:
-                self.m.perform(button, "AXPress")
+            self._close_window(self.opened.pop())
         with _LOCK:
             for wid in self.own:
                 if _CLAIMS.pop((getattr(self.m, "pid", 0), wid), None) is not None:
                     _mark(f"{getattr(self.m, 'pid', 0)}-{wid}", "closed")
+
+    def _close_window(self, win: Any, wait_s: float = 2.0) -> None:
+        """Press the window's close button, and the Close of the prompt a page with typed text puts up ("Are you sure
+        you want to close this window?"): the window is its own, and five sign-up checks each left one open."""
+        button = self.m.attr(win, "AXCloseButton")
+        if button is None or not self.m.perform(button, "AXPress"):
+            return
+        end = time.monotonic() + wait_s
+        while time.monotonic() < end:
+            if win not in (self.m.attr(self.m.app, "AXWindows") or []):
+                return
+            for sheet in self.m.attr(win, "AXChildren") or []:
+                if self.m.attr(sheet, "AXRole") != "AXSheet":
+                    continue
+                todo, seen = list(self.m.attr(sheet, "AXChildren") or []), 0
+                while todo and seen < 200:
+                    el, seen = todo.pop(0), seen + 1
+                    if self.m.attr(el, "AXRole") == "AXButton" and \
+                            _str(self.m.attr(el, "AXTitle")).strip().lower() in ("close", "close window"):
+                        self.m.perform(el, "AXPress")
+                        return
+                    todo += list(self.m.attr(el, "AXChildren") or [])
+            time.sleep(0.1)
 
     def _screen(self, x: float, y: float) -> tuple[float, float]:
         w = self.win or self.window()
@@ -1202,16 +1240,17 @@ class BackgroundEnv(LocalEnv):
         node = self._menu_item(key, flags)
         if node is None:
             return False
+        title = _str(self.m.attr(node, "AXTitle"))
+        if FILE_ITEMS.match(title.strip()):          # on or off: a sheet it opens can't be worked from the back
+            raise safety.Unavailable(f"key {key}: {title} isn't possible in background mode: saving, duplicating, "
+                                     "exporting and printing aren't, by key, menu or button. If the task needs it, "
+                                     "call fail and say so")
         if self.m.attr(node, "AXEnabled") is False:
             item = self.m.attr(node, "AXTitle")
             if self._toolbar_instead(_str(item)):
                 return True
             if _str(item).lower() in FONT_CONTROLS:
                 raise safety.Unavailable(f"key {key}: {self._no_format(item)}")
-            if re.search(r"save|export|print|duplicate|revert", _str(item), re.I):
-                raise safety.Unavailable(f"key {key}: {item} is turned off while the app is in the back, and stays off: "
-                                         "saving, exporting and printing aren't possible in background mode, by key, "
-                                         "menu or button. If the task needs it, call fail and say so")
             raise safety.Unavailable(f"key {key}: its menu item ({item}) is turned off while the app is in the back; "
                                      "do it another way")
         return self.m.perform(node, "AXPress")

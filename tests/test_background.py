@@ -257,6 +257,19 @@ def test_menu_shortcuts_press_the_menu_item_since_posted_keys_never_reach_menus(
     assert m.keys == [(KEYCODES["down"], FLAGS["command"], None)]
 
 
+def test_save_duplicate_export_and_print_are_refused_whether_their_menu_item_is_on_or_off():
+    """Cmd+S opened a real Save sheet that no click could reach, and Cmd+Shift+S ran TextEdit's Duplicate first (a
+    round-five tester, as super+shift+s; shift+super+s had been refused): every key order and every such item is
+    refused, on or off, with the same reason."""
+    e, m = env()
+    items = menu(m, ("Save…", "S", 0, True), ("Duplicate", "S", 1, True), ("Export as PDF…", "E", 0, True),
+                 ("Print…", "P", 0, False))
+    for keys in ("super+s", "super+shift+s", "shift+super+s", "super+e", "super+p"):
+        with pytest.raises(safety.Unavailable, match="isn't possible in background mode: saving, duplicating"):
+            e.act(Action("key", keys=keys))
+    assert m.performed == [] and m.keys == [] and len(items) == 4
+
+
 def test_select_all_in_a_field_selects_its_text_without_the_menu():
     e, m = env()
     (select_all,) = menu(m, ("Select All", "A", 0, False))      # off while the app is in the back
@@ -1080,6 +1093,15 @@ class Browser(FakeMac):
             page.extra = {"AXURL": el.value, "AXLoaded": True}
         elif action == "AXPress" and el.role == "AXButton" and el.parent.role == "AXWindow":
             self.closed.append(el.parent)
+            if getattr(self, "asks_to_close", False):    # a page with typed text: Safari asks first
+                sheet = El("AXSheet", el.parent)
+                El("AXButton", sheet, actions=["AXPress"], title="Cancel")
+                El("AXButton", sheet, actions=["AXPress"], title="Close").extra = {"closes": el.parent}
+            elif el.parent in self.app.extra["AXWindows"]:
+                self.app.extra["AXWindows"].remove(el.parent)
+        elif action == "AXPress" and getattr(el, "extra", {}).get("closes") is not None:
+            self.app.extra["AXWindows"].remove(el.extra["closes"])
+            self.confirmed = True
         return True
 
     def attr(self, el, name):
@@ -1374,3 +1396,31 @@ def test_another_desktops_window_is_never_taken_even_after_it_closes_or_from_ano
     (bg._windows_dir() / f"{m.pid}-77").write_text(str(os.getppid()))
     a.window()
     assert 77 not in a.own and a._taken(77) and not c._taken(c.own[0])
+
+
+def test_a_page_that_asks_before_closing_is_closed_with_its_prompt():
+    """Five sign-up checks each left their window open behind "Are you sure you want to close this window? You have
+    entered text": close() now answers its own window's prompt with Close."""
+    m = Browser()
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    e.open_url("http://127.0.0.1:8765/")
+    new = m.app.extra["AXWindows"][0]
+    m.asks_to_close = True
+    t = time.monotonic()
+    e.close()
+    assert getattr(m, "confirmed", False) and new not in m.app.extra["AXWindows"] and time.monotonic() - t < 1.0
+
+
+def test_a_sheet_on_another_window_is_not_taken_while_acting():
+    """Another tester's close prompt appeared on their window while this desktop clicked; it was taken as this
+    desktop's, and their form reached the model."""
+    m = Browser()
+    a = BackgroundEnv("Safari", mac=m, confirm=None)
+    theirs = next(w for w in m.app.extra["AXWindows"] if w not in m.made)    # the person's (or another process's)
+    tw = next(w for w in m.wins if w["id"] not in a.own)
+    sheet = El("AXSheet", theirs, frame=(tw["x"] + 50, tw["y"] + 20, 300.0, 120.0))
+    sheet.extra = {"AXSubrole": "AXStandardWindow"}
+    m.wins.insert(0, {"id": 90, "x": tw["x"] + 50, "y": tw["y"] + 20, "w": 300.0, "h": 120.0, "layer": 0})
+    a._acting = True
+    a.window()
+    assert 90 not in a.own and 90 in a.known

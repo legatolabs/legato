@@ -1084,6 +1084,8 @@ class Harness:
                 if plan.done or plan.failed:
                     res.status = "done" if plan.done else "failed"
                     res.answer = _answer(plan.rec, plan.actions)
+                    if plan.failed and not res.answer and refusals:    # it gave up without saying why: the refusal
+                        res.error = f"not possible here: {list(refusals)[-1]}"
                     if not (plan.done and not res.answer and self.ask_answer and asked < 0 and turn + 1 < max_steps):
                         break
                     asked, note = turn + 1, ANSWER_ASK       # one more turn to read the answer off the screen

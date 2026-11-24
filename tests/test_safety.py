@@ -265,3 +265,20 @@ def test_many_different_impossible_actions_end_the_run_too(server):
     assert (res.status, res.failed, res.steps) == ("failed", True, 6) and "6 actions were refused" in res.error
     assert "refusal 5" in res.error and res.report().startswith("failed: not possible here: 6 actions")
     assert "4 actions refused in this run" in json.dumps(server["bodies"][4])
+
+
+def test_a_fail_without_a_reason_gives_the_refusal_as_its_error(server):
+    """Over MCP a save task failed in 2 s with error null and no answer: the model's fail came right after a
+    refusal, and said nothing. The refusal is then the result's error."""
+    import legato
+    from legato import safety
+    from legato.rl.fake import tiny_png
+
+    def act(a):
+        if a.type == "key":
+            raise safety.Unavailable("key shift+super+s: Save As… isn't possible in background mode")
+    server["script"] = [{"tool_calls": [tc({"action": "key", "text": "shift+cmd+s"})]}, {"tool_calls": [tc({"action": "fail"})]}]
+    env = legato.attach(screenshot=lambda: tiny_png(1, w=64, h=40), execute=act, fixed_wait_s=0.0)
+    res = legato.Harness("m", server["url"], "k").run("save it", env, max_steps=5)
+    assert (res.status, res.answer) == ("failed", "") and "Save As… isn't possible in background mode" in res.error
+    assert res.report().startswith("failed: not possible here: key shift+super+s")

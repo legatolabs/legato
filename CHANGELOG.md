@@ -1,6 +1,38 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
+
+- **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
+  updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
+  a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs
+  the run loop (the app is found in about a second) and allows 30 s.
+  In the MCP server, which runs tools on worker threads, the list could stay stale even so: apps are now also looked
+  up by bundle id, which is always fresh (`desktop_open` on an app that isn't running: 1.6 s).
+- **Background mode keeps working when macOS's window capture stalls.** With its capture service busy (a screen
+  recorder running, several captures at once), `CGWindowListCreateImageFromArray` can hang 30 s and return nothing on
+  every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
+  stall the window is taken with `screencapture` for the next five minutes (its sheets and menus are left out then).
+  A run that fails mid-way prints one line, not a traceback.
+- **The MCP server passes a desktop's failure to the client with its reason** (the MCP library otherwise shows only
+  "Error executing tool"). The MCP docs say what `desktop_close` and `desktop_shell` do in the background.
+- **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on
+  stderr, so coding agents can read why.
+- **Set-up page:** clearer for coding agents. Save the choice even when a key in the environment already makes it
+  ready; a key in the environment is read from its variable, not saved; `--mcp none` with `--yes`, then add only
+  the client you are; Safari when the default browser is another one; what to do when an app is slow to open.
+- `legato setup` says where Legato will work, and, for a local model server that doesn't answer, which servers to
+  start (not "check the key"). Models docs: the local example works in one app's window instead of the whole screen,
+  and says Ollama and LM Studio aren't tested end to end yet. `/docs/terminal` redirects to `/docs/python`.
+- **Planner notes and shell:** a planner with `style="point"` keeps notes (`notes=False` turns them off). It can write notes that are given
+  back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
+  the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
+  (`shell_name` says which shell that is).
+- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
+  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
+  starting it, and keeps the path absolute.
+- **On Windows the shell tool is PowerShell.** `legato.tools.bash()` and `bash(legato.local())` run commands with
+  `powershell -NoProfile -NonInteractive -Command` (it was `cmd.exe`), say so in the tool's description, and a planner
+  is told which shell it has (`Tool.runs`; `Planner(shell_name=...)` overrides it).
 
 From the persona tests (six simulated launch users on a real Mac):
 
@@ -73,6 +105,12 @@ From the persona tests (six simulated launch users on a real Mac):
 - **Typed text goes in as written** in background apps other than browsers, through Accessibility: TextEdit had
   capitalised a typed list ("alpha" to "Alpha"), and the run spent 2.5 minutes retyping it; the same list now takes
   5 s. A field's newline is still Return.
+- **Save, Duplicate, Export and Print are refused in the background by their menu title**, on or off: Cmd+S had
+  opened a real Save sheet no click could reach, and Cmd+Shift+S ran TextEdit's Duplicate. A fail with no text gets
+  the last refusal as its `error`.
+- **Background desktops never take another window's sheet** (another tester's close prompt appeared while one acted,
+  and its form reached the model), **answer their own window's close prompt** ("You have entered text…"; five
+  sign-up checks each left a window open), and `legato mcp` closes its background windows when the client goes.
 - **Refusals of any kind end the run at six**, and a refused Save, Export or Print says it stays off in the background:
   a "save it" task tried four ways and ran to its 120 s limit; it now fails in 16 s with the reason. A failed run's
   `report()` and `desktop_run_task` reply lead with that reason.
@@ -95,40 +133,6 @@ From the persona tests (six simulated launch users on a real Mac):
 - **Exported samples keep tool calls:** `response_text` includes the action. New fields: `response_content`,
   `response_tool_calls`, `tokens_cover_response`, `finish_reason`, `sampling`.
 - The fake desktop's reward can be set with `--fake-opts`, and help text says `legato rl`.
-
-## 0.3.1
-
-- **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
-  updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
-  a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs
-  the run loop (the app is found in about a second) and allows 30 s.
-  In the MCP server, which runs tools on worker threads, the list could stay stale even so: apps are now also looked
-  up by bundle id, which is always fresh (`desktop_open` on an app that isn't running: 1.6 s).
-- **Background mode keeps working when macOS's window capture stalls.** With its capture service busy (a screen
-  recorder running, several captures at once), `CGWindowListCreateImageFromArray` can hang 30 s and return nothing on
-  every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
-  stall the window is taken with `screencapture` for the next five minutes (its sheets and menus are left out then).
-  A run that fails mid-way prints one line, not a traceback.
-- **The MCP server passes a desktop's failure to the client with its reason** (the MCP library otherwise shows only
-  "Error executing tool"). The MCP docs say what `desktop_close` and `desktop_shell` do in the background.
-- **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on
-  stderr, so coding agents can read why.
-- **Set-up page:** clearer for coding agents. Save the choice even when a key in the environment already makes it
-  ready; a key in the environment is read from its variable, not saved; `--mcp none` with `--yes`, then add only
-  the client you are; Safari when the default browser is another one; what to do when an app is slow to open.
-- `legato setup` says where Legato will work, and, for a local model server that doesn't answer, which servers to
-  start (not "check the key"). Models docs: the local example works in one app's window instead of the whole screen,
-  and says Ollama and LM Studio aren't tested end to end yet. `/docs/terminal` redirects to `/docs/python`.
-- **Planner notes and shell:** a planner with `style="point"` keeps notes (`notes=False` turns them off). It can write notes that are given
-  back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
-  the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
-  (`shell_name` says which shell that is).
-- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
-  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
-  starting it, and keeps the path absolute.
-- **On Windows the shell tool is PowerShell.** `legato.tools.bash()` and `bash(legato.local())` run commands with
-  `powershell -NoProfile -NonInteractive -Command` (it was `cmd.exe`), say so in the tool's description, and a planner
-  is told which shell it has (`Tool.runs`; `Planner(shell_name=...)` overrides it).
 
 ## 0.3.0
 

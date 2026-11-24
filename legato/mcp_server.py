@@ -410,6 +410,17 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                 pass
         return f"closed {desktop_id} after {time.time() - d['opened']:.0f} s"
 
+    def close_left() -> None:                   # the client went without desktop_close: its windows go with the server
+        from legato.background import BackgroundEnv
+        for d in list(desks.values()):
+            if isinstance(d["env"], BackgroundEnv):
+                try:
+                    d["env"].close()
+                except Exception:  # noqa: BLE001 - exiting anyway
+                    pass
+    import atexit
+    atexit.register(close_left)
+    srv.close_left = close_left                 # for tests
     return srv
 
 
