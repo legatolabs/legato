@@ -75,7 +75,7 @@ def test_run_ends_cleanly_when_the_person_stops(server):  # noqa: F811
                                         tc({"action": "type", "text": "hello"})]}]
     e = env(StopGui(trip=True))
     res = legato.Harness("m", server["url"]).run("t", e, max_steps=5)
-    assert res.stopped and not res.done and res.steps == 1 and res.actions == []
+    assert res.stopped and not res.done and res.steps == 1 and res.actions == [] and res.status == "stopped"
     assert res.error == "stopped by the person: the mouse was moved into a corner of the screen"
     assert res.report().startswith("stopped by the person")
     assert len(server["bodies"]) == 1              # no further model call

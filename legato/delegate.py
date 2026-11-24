@@ -145,12 +145,14 @@ def _describe(st: _State, reason: str) -> str:
     return "\n".join(lines)
 
 
-def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
-                  on_step: Callable | None = None) -> "RunResult":
-    """Harness.run with a planner (see the module docstring). max_steps counts executor turns."""
+def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 40,
+                  on_step: Callable | None = None, *, res: "RunResult | None" = None, limits=None) -> "RunResult":
+    """Harness.run with a planner (see the module docstring). max_steps counts executor turns. res: the result to
+    fill in (Harness.run's); limits: its deadline and cancel event, checked before each model call."""
     from legato.harness import RunResult
     p: Planner = h.planner
-    res, t0 = RunResult(task), time.monotonic()
+    res = RunResult(task) if res is None else res
+    t0 = time.monotonic()
     res.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cost_usd": 0.0}
     res.trace = []                          # what happened, call by call: for reading a run afterwards
     added = []
@@ -181,20 +183,25 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                           "steps": [[x["do"][:140], x["expect"][:100]] for x in steps]})
         return status, steps
 
+    res.status = "error"                    # until it ends another way
     try:
         try:
             status, steps = call_planner("start", "No plan yet: write the first one.")
         except PolicyError as e:
             res.error = f"planner: {str(e)[:280]}"
+            if limits is not None:
+                limits.hit(res)                 # a call cut short by the deadline: a timeout
             return res
         st = _State(steps)
         turns = turns_in_step = since_check = 0
         ep = None
         while status == "continue" and not res.stopped:
+            if limits is not None and limits.hit(res):
+                break
             if st.i >= len(st.steps):           # the plan ran out: the planner judges the end, or plans more
                 reason_key, reason = "end", "Every step is marked done. Is the task complete and saved?"
             elif turns >= max_steps:
-                res.error = f"executor turn limit ({max_steps})"
+                res.error, res.status = f"executor turn limit ({max_steps})", "max_steps"
                 break
             else:
                 reason_key = reason = None
@@ -208,6 +215,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                     plan = h.decide(ep)
                 except PolicyError as e:
                     res.error = str(e)[:300]
+                    if limits is not None:
+                        limits.hit(res)
                     break
                 u = plan.rec.get("usage") or {}
                 for k in ("prompt", "completion", "cached"):
@@ -290,16 +299,20 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                 status, steps = call_planner(reason_key, _describe(st, reason))
             except PolicyError as e:
                 res.error = f"planner: {str(e)[:280]}"
+                if limits is not None:
+                    limits.hit(res)
                 break
             since_check = 0
             st = _State(steps, marks=[], recent=st.recent[-8:])
             ep = None
         if status == "done":
-            res.done = True
+            res.done, res.status = True, "done"
             res.actions.append("done")
         elif status == "fail":
-            res.failed = True
+            res.failed, res.status = True, "failed"
             res.actions.append("fail")
+        elif res.stopped:
+            res.status = "stopped"
     finally:
         for name in added:
             h.tools.pop(name, None)

@@ -1,7 +1,8 @@
 """A fake desktop and a minimal harness: run the whole collect -> export loop with no VMs (tests, trainer wiring).
 
 FakeDesktop settings (DesktopConfig.fake): reset_s, act_s, fail_reset_every (raise on every Nth reset, to exercise
-infrastructure retries). A task's reward comes from task["reward"] (a number, or a list indexed by the attempt number).
+infrastructure retries), fail_act_every (raise on every Nth action: a desktop that fails mid-rollout). A task's reward
+comes from task["reward"] (a number, or a list indexed by the attempt number).
 FakeHarness sends one small multimodal request per step and acts on the reply: a reply containing "DONE" ends the
 episode.
 """
@@ -27,7 +28,7 @@ def tiny_png(seed: int = 0, w: int = 8, h: int = 8) -> bytes:
 class FakeDesktop:
     def __init__(self, cfg):
         self.cfg, self.f = cfg, dict(cfg.fake or {})
-        self.n_reset = self.n_act = 0
+        self.n_reset = self.n_act = self.n_acts = 0      # n_acts: over the desktop's life; n_act: this task's
         self.task, self.instruction = {}, ""
 
     def reset(self, task: dict) -> dict:
@@ -47,6 +48,10 @@ class FakeDesktop:
 
     def act(self, action):
         self.n_act += 1
+        self.n_acts += 1
+        every = self.f.get("fail_act_every")
+        if every and self.n_acts % every == 0:
+            raise RuntimeError("fake desktop: the action failed")
         time.sleep(self.f.get("act_s", 0.0))
         done = str(action) == "DONE"
         return self.observe(), done, {"act_s": self.f.get("act_s", 0.0), "obs_s": 0.0, "wait": {"wait_s": 0.0, "ready_s": 0.0}}

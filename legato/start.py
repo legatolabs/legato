@@ -99,7 +99,7 @@ def show(turn, actions, timing):
     print(f"turn {{turn + 1}}: {{', '.join(a.describe() for a in actions if a) or 'looking'}}")
 
 
-result = agent.run(task, desk, max_steps=30, on_step=show)
+result = agent.run(task, desk, max_steps=40, on_step=show)
 print(result.report())          # done or failed, the steps, and where the time went{close_desk}
 '''
 

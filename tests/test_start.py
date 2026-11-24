@@ -68,7 +68,7 @@ def test_the_written_agent_runs_the_loop(tmp_path, quiet, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["agent.py", "open", "the", "terminal"])
     exec(compile(out.read_text(), str(out), "exec"), {"__name__": "__main__"})
     assert seen["harness"] == {"model": "qwen/qwen3.8-27b", "base_url": "https://openrouter.ai/api/v1", "api_key": "k"}
-    assert seen["run"] == ("open the terminal", ("desk", {}), 30)
+    assert seen["run"] == ("open the terminal", ("desk", {}), 40)
 
 
 def test_init_local_model_and_docker(tmp_path, quiet):

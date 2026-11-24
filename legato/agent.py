@@ -12,6 +12,8 @@ Harness's defaults elsewhere, where the one-action loop was faster: KNOWLEDGE.md
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from typing import Any, Callable
 
 from legato import config as cfgmod
@@ -87,18 +89,38 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
 
 
 def run(task: str, desktop: str | Env | None = None, *, model: str | None = None, base_url: str | None = None,
-        api_key: str | None = None, app: str | None = None, max_steps: int = 40, on_step=None,
-        confirm: Any = "auto", **options: Any) -> RunResult:
+        api_key: str | None = None, app: str | None = None, max_steps: int = 40, on_step: Callable | None = None,
+        confirm: Any = "auto", timeout_s: float | None = None, cancel: threading.Event | None = None,
+        **options: Any) -> RunResult:
     """Run one task with your saved model on your saved desktop (`legato setup`), or the ones given. `desktop` is a
     name ("background", "screen", "docker", "e2b"), a --sandbox spec, or an Env you opened yourself. The result has
-    done, answer (what the model said at the end) and report() (where the time went)."""
+    status (how it ended: done, failed, max_steps, timeout, cancelled, stopped or error), done, answer (what the
+    model said at the end), error, usage and report() (where the time went).
+
+    It returns rather than raises when the run goes wrong: a model call or a desktop that fails, mid-run or while
+    opening, comes back with status "error" and `error` saying why, with the usage so far. A missing model or a bad
+    argument still raises. timeout_s: a deadline for the whole run (status "timeout"); cancel: a threading.Event
+    that ends the run before its next model call once set (status "cancelled").
+
+    confirm: what happens before a risky action (keys such as cmd+Delete or cmd+Q, a typed rm or sudo: the list is in
+    legato.safety) on this computer ("background", "screen"); other desktops ignore it, and an Env you pass keeps its
+    own. "auto" (the default) asks yes/no in the terminal when stdin is one, and in an unattended run (a server, a
+    job, stdin not a terminal) asks nothing and runs the action. A function confirm(description) -> bool decides
+    each one: False skips the action and the model is told to find another way. None never asks and runs them all;
+    legato.safety.deny refuses them all, the safe choice for unattended runs on a real computer."""
+    t0 = time.monotonic()
     if isinstance(desktop, Env):
         env, close = desktop, (lambda: None)
     else:
-        env, close, _ = open_desktop(desktop, task=task, app=app, confirm=confirm)
+        try:
+            env, close, _ = open_desktop(desktop, task=task, app=app, confirm=confirm)
+        except (RuntimeError, OSError) as e:          # Docker stopped, no screen permission, an app that won't open
+            return RunResult(task, error=f"cannot start the desktop: {e}"[:300], status="error",
+                             wall_s=time.monotonic() - t0)
     try:
         agent = agent_for(env, model=model, base_url=base_url, api_key=api_key, **options)
-        res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step)
+        res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, timeout_s=timeout_s,
+                        cancel=cancel, raise_desktop_errors=False)
         res.task = task
         return res
     finally:

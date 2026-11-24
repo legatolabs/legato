@@ -128,3 +128,27 @@ def test_a_plan_with_no_steps_fails_and_the_turn_limit_holds():
                    max_turns_per_step=99, every=0)
     res = h.run("t", desktop([]), max_steps=3)
     assert not res.done and not res.failed and "turn limit" in res.error and res.steps == 3
+
+
+def test_statuses_with_a_planner_and_a_desktop_error_returned():
+    import threading
+    h, _ = harness([plan("continue", ("a", "A")), plan("done")], [rec([call("step_done", {})])])
+    assert h.run("t", desktop([])).status == "done"
+    h, _ = harness([plan("fail")], [])
+    assert h.run("t", desktop([])).status == "failed"
+    h, _ = harness([plan("continue", ("a", "A"))], [rec([act(action="left_click", coordinate=[1, 1])])] * 2,
+                   max_turns_per_step=99, every=0)
+    assert h.run("t", desktop([]), max_steps=2).status == "max_steps"
+    stop = threading.Event()
+    h, _ = harness([plan("continue", ("a", "A"))], [rec([act(action="left_click", coordinate=[1, 1])])] * 5,
+                   max_turns_per_step=99, every=0)
+    res = h.run("t", desktop([]), cancel=stop, on_step=lambda *a: stop.set())
+    assert (res.status, res.steps) == ("cancelled", 1) and res.usage["prompt"] == 100
+
+    def broken(a):
+        raise OSError("the sandbox went away")
+    png = desktop([]).observe().screenshot
+    h, _ = harness([plan("continue", ("a", "A"))], [rec([act(action="left_click", coordinate=[1, 1])])])
+    res = h.run("t", legato.attach(screenshot=lambda: png, execute=broken), raise_desktop_errors=False)
+    assert (res.status, res.error) == ("error", "the desktop failed: the sandbox went away")
+    assert res.usage["prompt"] == 100 and res.planner["calls"] == 1 and "step_done" not in h.tools
