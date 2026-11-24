@@ -38,7 +38,10 @@ def main(argv=None) -> int:
         from legato.rl.__main__ import main as rl_main
         return rl_main(argv[1:])
     if argv[:1] == ["mcp"]:
-        from legato.mcp_server import main as mcp_main
+        try:
+            from legato.mcp_server import main as mcp_main
+        except ImportError as e:
+            return _fail(str(e))
         return mcp_main(argv[1:])
     if argv[:1] == ["app-engine"]:
         from legato.app_engine import main as engine_main
@@ -109,7 +112,10 @@ def main(argv=None) -> int:
     agent = Harness(model=a.model, base_url=a.base_url, api_key=key, coords=a.coords)
     say = (lambda *_: None) if a.json else print
     if env is None:
-        handle, env = (providers.e2b if a.sandbox == "e2b" else make)(1280, 800)
+        try:
+            handle, env = (providers.e2b if a.sandbox == "e2b" else make)(1280, 800)
+        except (RuntimeError, ImportError, OSError) as e:     # Docker stopped, a package missing, no sandbox
+            return _fail(f"cannot start --sandbox {a.sandbox}: {e}")
         close = lambda: providers.close(handle)  # noqa: E731
     try:
         res = agent.run(a.task, env, max_steps=a.max_steps,

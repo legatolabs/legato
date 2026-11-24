@@ -144,3 +144,31 @@ def test_run_background_works_in_one_app(monkeypatch, capsys):
     assert main(["run", "a task", "--model", "m", "--base-url", "http://localhost:8000/v1", "--background", "Safari"]) == 2
     assert seen["background"] == "Safari"
     assert "stop here" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------ a missing package or sandbox: one line, no traceback
+def test_mcp_without_the_mcp_package(monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "legato.mcp_server", None)          # as if `mcp` were not installed
+    assert main(["mcp"]) == 2
+    assert capsys.readouterr().err.startswith("legato: ")
+
+
+def test_rl_alone_lists_its_commands(capsys):
+    assert main(["rl"]) == 2
+    out = capsys.readouterr().out
+    assert "probe" in out and "collect" in out
+
+
+def test_a_sandbox_that_cannot_start(tmp_path, capsys):
+    f = tmp_path / "desk.py"
+    f.write_text("def desktop(w, h):\n    raise RuntimeError('Docker is installed but not running')\n")
+    assert main(["run", "a task", "--model", "m", "--base-url", "http://localhost:8000/v1", "--sandbox", f"{f}:desktop"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("legato: cannot start --sandbox") and "Docker is installed but not running" in err
+
+
+def test_background_without_the_mac_extras(monkeypatch):
+    from legato.background import MacApp
+    monkeypatch.setitem(sys.modules, "ApplicationServices", None)
+    with pytest.raises(ImportError, match=r'pip install "legatolabs\[local\]"'):
+        MacApp("Safari")
