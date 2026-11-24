@@ -200,7 +200,7 @@ def test_collect_with_reference_and_legato_harnesses(server, tmp_path):
                 start_stagger_s=0.0)
         r = read_rollouts(tmp_path / name)[0]
         assert r["status"] == "ok" and r["reward"] == 1.0 and r["n_steps"] == 2
-        assert [x["action"] for x in r["steps"][0]["actions"]] == ["pyautogui.click(4, 4)", "pyautogui.hotkey('ctrl', 's')"]
+        assert [x["action"] for x in r["steps"][0]["actions"]] == ["pyautogui.click(320, 200)", "pyautogui.hotkey('ctrl', 's')"]
         assert r["steps"][1]["actions"][-1]["action"] == "DONE"
 
 
@@ -415,7 +415,7 @@ def test_collect_with_a_planner_and_a_pointer(server, tmp_path, monkeypatch):
     r = read_rollouts(tmp_path)[0]
     assert r["status"] == "ok" and r["reward"] == 1.0 and r["n_steps"] == 3
     acts = [[x["action"] for x in st["actions"]] for st in r["steps"]]
-    assert acts == [["pyautogui.hotkey('ctrl', 'o')"], ["pyautogui.click(4, 4)", "pyautogui.press('enter')"], ["DONE"]]
+    assert acts == [["pyautogui.hotkey('ctrl', 'o')"], ["pyautogui.click(320, 200)", "pyautogui.press('enter')"], ["DONE"]]
     assert [st["model"]["calls"] for st in r["steps"]] == [1, 1, 1]
     notes = [st["harness"] for st in r["steps"]]
     assert notes[-1]["planner_calls"] == 2 and notes[-1]["pointer_calls"] == 1 and notes[-1]["end"] == "done"

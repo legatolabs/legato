@@ -63,6 +63,18 @@ class SetupError(RuntimeError):
     """collect() cannot start: the harness or desktop does not load here. Raised before any worker starts."""
 
 
+class CollectError(RuntimeError):
+    """collect() ran, but no rollout completed. `summary` is the batch's summary (also in summary.json)."""
+
+    def __init__(self, message: str, summary: dict):
+        super().__init__(message)
+        self.summary = summary
+
+
+SPAWN_GUARD = ('each worker process imports your script again (the "spawn" start method, the default on macOS and '
+               'Windows), so call collect() under `if __name__ == "__main__":`')
+
+
 def given_temperature(policy: PolicyConfig, harness: HarnessConfig) -> float | None:
     """The temperature given for every request: PolicyConfig.temperature, else one in extra_body, else one in the
     harness options. None: each harness keeps its own."""
@@ -361,6 +373,8 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
            "policy": {"model": opts["model"], "version": opts["version"]}, "status": "ok", "error": None,
            "reward": None, "steps": [], "t_start": time.time(),
            "sampling": {"seed": job.get("seed"), "temperature": None}}
+    if job.get("retried_after"):                 # the desktop errors of this attempt's earlier tries
+        rec["retried_after"] = list(job["retried_after"])
     t0 = time.perf_counter()
     timing = {"reset_s": 0.0, "wait_after_reset_s": 0.0, "model_s": 0.0, "act_s": 0.0, "wait_s": 0.0, "obs_s": 0.0,
               "wait_before_eval_s": 0.0, "eval_s": 0.0}
@@ -401,6 +415,8 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
                 step["response"]["tokens"] = None if pc.get("token_ids") else ([x["t"] for x in lps] or None)
                 step["model"] = {"s": sum(c[1]["s"] for c in calls), "calls": len(calls), "attempts": pc["attempts"],
                                  **pc["usage"]}
+                if pc.get("retry_reasons"):     # why each earlier request of this call was sent again
+                    step["model"]["retry_reasons"] = pc["retry_reasons"]
                 if len(calls) > 1:              # several models in one step (a planner and a pointer): each call
                     step["model"]["each"] = [{"s": c[1]["s"], **c[1]["usage"]} for c in calls]
                 if pc.get("tool_calls"):
@@ -461,13 +477,18 @@ def plan_jobs(tasks: list[dict], group: int, oversample: float, version: str, se
     return jobs
 
 
-def _worker(idx, jobs, results_path, lock, done_counts, group, sem, pcfg, dcfg, hcfg, opts, out):
+def _worker(idx, jobs, results_path, lock, done_counts, group, sem, pcfg, dcfg, hcfg, opts, out, errors=None):
     out = Path(out)
     desk = harness = None
     try:
-        policy = PolicyClient(PolicyConfig(**pcfg), semaphore=sem)
-        desk = make_desktop(DesktopConfig(**dcfg))
-        harness = make_harness(policy, HarnessConfig(**hcfg), dcfg.get("osworld_path", ""))
+        try:
+            policy = PolicyClient(PolicyConfig(**pcfg), semaphore=sem)
+            desk = make_desktop(DesktopConfig(**dcfg))
+            harness = make_harness(policy, HarnessConfig(**hcfg), dcfg.get("osworld_path", ""))
+        except Exception as e:  # noqa: BLE001  tell the scheduler why this worker could not start, then fail as before
+            if errors is not None:
+                errors.put(f"worker {idx} could not start: {type(e).__name__}: {str(e)[:300]}")
+            raise
         while True:
             try:
                 job = jobs.get(timeout=2)
@@ -482,7 +503,8 @@ def _worker(idx, jobs, results_path, lock, done_counts, group, sem, pcfg, dcfg, 
                     policy.reseed(job["seed"])
                 rec = run_rollout(desk, harness, job, opts, out, cancelled=lambda: done_counts[g] >= group)
                 if rec["status"] == "error" and rec["error"]["kind"] == "env" and job.get("retry", 0) < opts["env_retries"]:
-                    jobs.put({**job, "retry": job.get("retry", 0) + 1})   # infrastructure failure: run it again
+                    jobs.put({**job, "retry": job.get("retry", 0) + 1,   # infrastructure failure: run it again
+                              "retried_after": [*job.get("retried_after", []), rec["error"]["message"]]})
                     rec["status"] = "retried"
                 elif rec["status"] in ("ok", "truncated"):
                     with lock:
@@ -506,12 +528,20 @@ def _worker(idx, jobs, results_path, lock, done_counts, group, sem, pcfg, dcfg, 
 def collect(tasks: list[dict], policy: PolicyConfig, out: str | Path, desktops: int = 4, group: int = 4,
             oversample: float = 0.0, max_steps: int = 15, max_inflight: int | None = None,
             rollout_timeout_s: float | None = None, env_retries: int = 1, desktop: DesktopConfig | None = None,
-            harness: HarnessConfig | None = None, start_stagger_s: float = 2.0) -> dict:
+            harness: HarnessConfig | None = None, start_stagger_s: float | None = None) -> dict:
     """Run every task `group` times (plus oversampled attempts) across `desktops` workers; write rollouts.jsonl,
     images/, progress.json and summary.json to `out`; return the summary. Raises SetupError, before any worker
-    starts, when the harness or desktop cannot load here."""
-    from legato.rl.profile import summarize
+    starts, when the harness or desktop cannot load here, and CollectError when no rollout completed.
+
+    start_stagger_s: seconds between starting one worker and the next, so VMs do not all boot at once (default 2 for
+    the osworld backend, 0 otherwise). The workers start in child processes that import your script again on macOS
+    and Windows: call collect() under `if __name__ == "__main__":`."""
+    from legato.rl.profile import summarize, wall_clock
+    if getattr(mp.current_process(), "_inheriting", False):   # a worker importing the script that called us
+        raise RuntimeError(f"collect() ran while a worker process was starting: {SPAWN_GUARD}")
     desktop, harness = desktop or DesktopConfig(), harness or HarnessConfig()
+    if start_stagger_s is None:
+        start_stagger_s = 2.0 if desktop.backend == "osworld" else 0.0
     preflight(desktop, harness)
     t = given_temperature(policy, harness)
     if t is not None and policy.temperature is None:          # given in extra_body or the harness options
@@ -520,7 +550,7 @@ def collect(tasks: list[dict], policy: PolicyConfig, out: str | Path, desktops: 
     out.mkdir(parents=True, exist_ok=True)
     jobs = plan_jobs(tasks, group, oversample, policy.version, seed=policy.seed)
     ctx = mp.get_context("fork" if sys.platform.startswith("linux") else "spawn")
-    q, lock = ctx.Queue(), ctx.Lock()
+    q, lock, errors = ctx.Queue(), ctx.Lock(), ctx.SimpleQueue()
     done_counts = ctx.Array("i", len(tasks), lock=False)
     sem = ctx.BoundedSemaphore(max_inflight) if max_inflight else None
     for j in jobs:
@@ -528,30 +558,55 @@ def collect(tasks: list[dict], policy: PolicyConfig, out: str | Path, desktops: 
     opts = {"max_steps": max_steps, "rollout_timeout_s": rollout_timeout_s, "env_retries": env_retries,
             "model": policy.model, "version": policy.version}
     results = out / "rollouts.jsonl"
-    meta = {"started": time.time(), "tasks": len(tasks), "group": group, "oversample": oversample,
+    t_start = time.time()
+    meta = {"started": t_start, "tasks": len(tasks), "group": group, "oversample": oversample,
             "jobs": len(jobs), "desktops": desktops, "max_steps": max_steps, "max_inflight": max_inflight,
+            "start_stagger_s": start_stagger_s,
             "policy": {k: v for k, v in asdict(policy).items() if k != "api_key"},
             "desktop": asdict(desktop), "harness": asdict(harness)}
     (out / "run.json").write_text(json.dumps(meta, indent=1, default=str))
     procs = []
     for i in range(desktops):
         p = ctx.Process(target=_worker, args=(i, q, str(results), lock, done_counts, group, sem, asdict(policy),
-                                              asdict(desktop), asdict(harness), opts, str(out)))
+                                              asdict(desktop), asdict(harness), opts, str(out), errors))
         p.start()
         procs.append(p)
-        time.sleep(start_stagger_s)
-    t0 = time.time()
+        if i < desktops - 1:
+            time.sleep(start_stagger_s)
+    t_progress = 0.0
     while any(p.is_alive() for p in procs):
-        n = sum(1 for _ in open(results)) if results.exists() else 0
-        (out / "progress.json").write_text(json.dumps({"written": n, "jobs": len(jobs), "elapsed_s": round(time.time() - t0),
-                                                       "groups_closed": sum(1 for c in done_counts if c >= group),
-                                                       "groups": len(tasks), "alive": sum(p.is_alive() for p in procs)}))
-        time.sleep(5)
+        if time.time() - t_progress >= 5:
+            t_progress = time.time()
+            n = sum(1 for _ in open(results)) if results.exists() else 0
+            (out / "progress.json").write_text(json.dumps({
+                "written": n, "jobs": len(jobs), "elapsed_s": round(time.time() - t_start),
+                "groups_closed": sum(1 for c in done_counts if c >= group), "groups": len(tasks),
+                "alive": sum(p.is_alive() for p in procs)}))
+        time.sleep(0.2)
     for p in procs:
         p.join()
     q.cancel_join_thread()                  # jobs left by workers that failed: do not wait to flush them at exit
     from legato.rl.trajectory import read_rollouts
-    summary = summarize(read_rollouts(out), wall_s=time.time() - t0, group=group)
+    rs = read_rollouts(out)
+    summary = summarize(rs, wall_s=wall_clock(rs, t_start), group=group)
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
-    (out / "progress.json").write_text(json.dumps({"finished": True, "elapsed_s": round(time.time() - t0)}))
+    (out / "progress.json").write_text(json.dumps({"finished": True, "elapsed_s": round(time.time() - t_start)}))
+    if not summary["completed"]:
+        raise CollectError(_no_rollout(rs, summary, procs, errors, ctx), summary)
     return summary
+
+
+def _no_rollout(rs: list, summary: dict, procs: list, errors, ctx) -> str:
+    """Why no rollout completed, in one line."""
+    errs = []
+    while not errors.empty():
+        errs.append(errors.get())
+    if errs:
+        return f"no rollout completed: {errs[0]}"
+    if not rs:
+        if all(p.exitcode for p in procs) and ctx.get_start_method() == "spawn":
+            return f"no rollout completed: every worker exited before it started; {SPAWN_GUARD}"
+        return "no rollout was written: every worker stopped before its first rollout (its error is above)"
+    err = next((r["error"]["message"] for r in rs if r.get("error")), "")
+    status = ", ".join(f"{k} {v}" for k, v in summary["status"].items())
+    return f"no rollout completed ({status})" + (f"; first error: {err}" if err else "")
