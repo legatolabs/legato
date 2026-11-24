@@ -108,24 +108,32 @@ agent.run("Sign up with the name Ada Lovelace", env)
   and keys go to that window only. Keys reach it because it is made the app's main window first; a click where another
   of the app's windows is in front raises its window among the app's windows (the app stays in the back).
 - **If the app takes the front** (Chrome does when it opens a URL), it is given back to the app you were in.
-- **Not possible in the background,** and reported to the model as "this desktop can't do that": drags, a click on
+- **Not possible in the background,** and reported to the model as "this desktop can't do that": saving, exporting
+  and printing (an app in the back turns those menu items off, by key, menu or button alike), drags, a click on
   something that can't be pressed, focused or selected (a canvas, an empty area), a click with keys held, copy, cut and
   paste (the clipboard is yours), anything outside the app (the Dock, the menu bar, other apps), system shortcuts
   (Cmd+Space for Spotlight, Cmd+Tab, Mission Control: posted to the app they would do nothing, and the search typed
   next would land in the window), and font changes such as bold and italic: an app in the back doesn't apply them,
   though its Bold button may look on (underline and alignment do work).
-- **Don't use the same app yourself** while it works: its keys go to whatever has the focus in that app. Give it its own
-  app, or its own browser (Chrome while you use Safari).
+- **An app with no New Window or New Document** (Calculator, System Settings) is worked in its one window, which is
+  yours: what it shows (Calculator's display) is changed. `describe()` and `desktop_open` say so.
+- **Typed text goes in as written** in apps other than browsers (through Accessibility), so the app's automatic
+  capitalisation and smart quotes don't change it. A new document stays open after the run with what was written.
+- **Several agents in one app** each keep to their own windows, across processes too. A window you open yourself in
+  that app while an agent is acting may be taken for the one its action opened: open yours between its actions.
+- **Don't use the same app yourself** while it works: it types only while its own window has that app's keyboard, so
+  your typing in the same app holds its keys back. Give it an app you aren't using.
 - The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it. An app
   hidden with Cmd+H is shown again (behind your app); the agent's own Cmd+H and Cmd+M are not run, nor its clicks on the
   window's close, minimize and zoom buttons.
 - **One app per task.** A task that moves between apps needs the whole screen (`--screen`).
-- **Browsers:** use Safari. Firefox works, but slowly in the background. Chrome 158 and later ignore background clicks
-  on a web page's elements (typing into a focused field still works), so a task that names Chrome may not get far.
+- **Browsers:** Safari only. Other browsers are refused in the background for now: in Firefox the agent's keys and
+  screenshots reached the person's own Firefox window, not the one it opened, and Chrome 158 and later ignore
+  background clicks on a web page's elements. Use them with `--screen`.
 - Your stop signals (a corner, Escape) don't apply, since the mouse and keyboard are yours: stop it from the program
   that runs it. Risky keys and typed commands still wait for your yes.
 - **Tested** with `tests/test_background.py` (any OS) and, on a Mac, `LEGATO_TEST_BACKGROUND=1 pytest
-  tests/test_background_live.py`: TextEdit, Safari and Chrome in the back while Terminal stays in front, checking
+  tests/test_background_live.py`: TextEdit and Safari in the back while Terminal stays in front, checking
   after each test that the front app, the pointer and the clipboard are unchanged.
 
 ## A desktop container on this machine

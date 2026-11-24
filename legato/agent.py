@@ -126,12 +126,14 @@ def run(task: str, desktop: str | Env | None = None, *, model: str | None = None
     """Run one task with your saved model on your saved desktop (`legato setup`), or the ones given. `desktop` is a
     name ("background", "screen", "docker", "e2b"), a --sandbox spec, or an Env you opened yourself. The result has
     status (how it ended: done, failed, max_steps, timeout, cancelled, stopped or error), done, answer (what the
-    model said at the end), error, usage and report() (where the time went).
+    model said at the end), error, usage and report() (where the time went). The task is sent with a note asking
+    for the answer in done's text; when its words ask for information and the model calls done without one, it gets
+    one more turn to give it (one more model call, in steps and usage).
 
     It returns rather than raises when the run goes wrong: a model call or a desktop that fails, mid-run or while
     opening, comes back with status "error" and `error` saying why, with the usage so far. A missing model or a bad
     argument (a desktop name that is none) still raises. timeout_s: a deadline for the whole call, opening the desktop
-    included (status "timeout"); an app's launch, docker and E2B's create request are cut at the time left, your own
+    and each model call included (status "timeout"); an app's launch, docker and E2B's create request are cut at the time left, your own
     --sandbox function and the first screenshot are not. cancel: a threading.Event that ends the run before its next
     model call once set (status "cancelled").
 

@@ -74,7 +74,8 @@ SYSTEM_KEYS = {(1 << 20, "space"): "Spotlight", (1 << 18, "space"): "Spotlight o
 # others ("New Note", "New Game", "New Playlist") would change the person's data, so they are not pressed
 FRESH_WINDOW = re.compile(r"new(\s+\w+)?\s+window", re.I)
 FRESH_DOCUMENT = re.compile(r"new((\s+\w+)?\s+document)?", re.I)
-# which desktop works in which window, across the desktops of this process (two MCP desktops in one app)
+# which desktop works in which window, across the desktops of this process (two MCP desktops in one app); other
+# Legato processes' windows are in _windows_dir() (_mark, _theirs)
 _CLAIMS: dict[tuple[int, int], int] = {}
 _MAKING: dict[int, int] = {}              # pid -> desktops opening a window there right now
 _LOCK = threading.Lock()
@@ -94,6 +95,33 @@ CONTROL_ROLES = {"AXButton", "AXLink", "AXCheckBox", "AXRadioButton", "AXPopUpBu
 FORMAT_ROLES = {"AXCheckBox", "AXButton", "AXPopUpButton", "AXMenuButton", "AXColorWell", "AXComboBox",
                 "AXRadioButton", "AXMenuItem"}
 CHROMIUM = re.compile(r"chrom|brave|edge|vivaldi|opera|arc\b", re.I)    # their pages ignore background presses
+# Background mode keeps to a window of its own in Safari. In other browsers it can't yet be sure to: in Firefox (24 Nov
+# 2026) a run's screenshots and keys reached the person's own Firefox window and changed its selected tab, although
+# the new window it worked in was its own. So any other browser is refused, unless window="front" asks for the front
+# window on purpose. Known by name or bundle id, else by an Info.plist that opens http links.
+OTHER_BROWSERS = re.compile(r"chrom|firefox|mozilla|brave|\bedge(mac)?\b|vivaldi|\bopera\b|\barc\b|thebrowser|"
+                            r"librewolf|waterfox|floorp|zen[- ]browser|tor ?browser|orion|duckduckgo|mullvad|sigmaos",
+                            re.I)
+
+
+def other_browser(app: str) -> bool:
+    """Is `app` (a name such as "Firefox", or a bundle id) a web browser other than Safari?"""
+    if app.strip().lower() in ("safari", "com.apple.safari"):
+        return False
+    if OTHER_BROWSERS.search(app):
+        return True
+    try:                                          # an unknown name: does the app say it opens web links?
+        from AppKit import NSWorkspace
+        from Foundation import NSBundle
+        ws = NSWorkspace.sharedWorkspace()
+        url = ws.URLForApplicationWithBundleIdentifier_(app) if "." in app and " " not in app else None
+        path = url.path() if url is not None else ws.fullPathForApplication_(app)
+        info = (NSBundle.bundleWithPath_(path).infoDictionary() or {}) if path else {}
+        schemes = {str(x).lower() for t in (info.get("CFBundleURLTypes") or []) for x in (t.get("CFBundleURLSchemes") or [])}
+        bid = str(info.get("CFBundleIdentifier") or "")
+    except Exception:  # noqa: BLE001 - no AppKit (tests, Linux) or an odd bundle: go by the name alone
+        return False
+    return bool(schemes & {"http", "https"}) and bid != "com.apple.Safari"
 SKIP_ROLES = {"AXRuler", "AXRulerMarker"}           # read() leaves these out with all they hold (TextEdit's ruler)
 # Font changes go through the font manager to the first responder of the app's key window, and an app in the back has
 # none: in TextEdit the format bar's Bold and Italic look switched on while the text stays Helvetica, and Format >
@@ -142,6 +170,74 @@ def _quote(s: str, cap: int = 2000) -> str:
 def _stall_file():
     from pathlib import Path
     return Path.home() / ".cache" / "legato" / "capture-stalled"
+
+
+def _windows_dir():
+    from pathlib import Path
+    return Path.home() / ".cache" / "legato" / "windows"
+
+
+def _alive(pid: int) -> bool:
+    import os
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:                               # someone else's process: alive
+        return True
+    return True
+
+
+_SWEPT: list = []
+
+
+def _mark(name: str) -> None:
+    """Note for other Legato processes that this one owns `name` ("<app pid>-<window id>") or is opening a window in
+    an app ("making-<app pid>-<this pid>"). Two Legato processes in one Safari took each other's new windows."""
+    import os
+    try:
+        d = _windows_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        if not _SWEPT:                            # once a process: drop the notes of processes that have ended
+            _SWEPT.append(True)
+            for f in d.iterdir():
+                try:
+                    if not _alive(int(f.read_text() or 0)):
+                        f.unlink()
+                except (OSError, ValueError):
+                    pass
+        (d / name).write_text(str(os.getpid()))
+    except OSError:
+        pass
+
+
+def _unmark(name: str) -> None:
+    try:
+        (_windows_dir() / name).unlink()
+    except OSError:
+        pass
+
+
+def _theirs(app_pid: int, wid: int, making: bool = True) -> bool:
+    """Has another live Legato process taken window `wid`, or (making) is one opening a window in this app right now
+    (its new window may be this one)?"""
+    import os
+    me, d = os.getpid(), _windows_dir()
+    try:
+        names = [f"{app_pid}-{wid}"] + ([p.name for p in d.glob(f"making-{app_pid}-*")] if making else [])
+    except OSError:
+        return False
+    for name in names:
+        try:
+            f = d / name
+            owner = int(f.read_text() or 0)
+            if name.startswith("making-") and time.time() - f.stat().st_mtime > 15:
+                continue                          # a marker left by a process that died while opening
+        except (OSError, ValueError):
+            continue
+        if owner and owner != me and _alive(owner):
+            return True
+    return False
 
 
 def _note_stall() -> None:
@@ -476,6 +572,11 @@ class BackgroundEnv(LocalEnv):
                  window: str = "own"):
         if mac is None and sys.platform != "darwin":
             raise DesktopStartError("background mode is macOS only: use legato.local() or a sandbox elsewhere")
+        if window == "own" and other_browser(app):
+            raise DesktopStartError(
+                f"background mode works in Safari, not {app} yet: in {app} its keys and screenshots can reach your own "
+                f"{app} windows instead of the one it opens. Use Safari (--app Safari, or app=\"Safari\"), or the "
+                "whole screen (--screen)")
         self.mac = True                       # LocalEnv: Ctrl shortcuts are sent as Cmd
         self.mac_cmd = mac_cmd
         self.gui = None
@@ -529,9 +630,12 @@ class BackgroundEnv(LocalEnv):
     def _make_window(self, item: Any) -> Any:
         """Press `item` (New Window, New) and take the window it opens as this desktop's: its Accessibility element,
         or None. The app's windows before it are left alone from then on."""
+        import os
         pid = getattr(self.m, "pid", 0)
         with _LOCK:
             _MAKING[pid] = _MAKING.get(pid, 0) + 1
+        making = f"making-{pid}-{os.getpid()}"
+        _mark(making)
         try:
             before = {w["id"] for w in self.m.windows()}
             had = list(self.m.attr(self.m.app, "AXWindows") or [])
@@ -543,7 +647,8 @@ class BackgroundEnv(LocalEnv):
                 if new_ax:
                     frame = self.m.frame(new_ax[0])
                     for w in self.m.windows():
-                        if w["id"] not in before and w["layer"] == 0 and (frame is None or _same(frame, w)):
+                        if w["id"] not in before and w["layer"] == 0 and (frame is None or _same(frame, w)) \
+                                and not _theirs(pid, w["id"], making=False):
                             self.known |= before - set(self.own)
                             self._claim(w["id"])
                             self._ax[w["id"]] = new_ax[0]
@@ -553,6 +658,9 @@ class BackgroundEnv(LocalEnv):
         finally:
             with _LOCK:
                 _MAKING[pid] -= 1
+                last = _MAKING[pid] == 0
+            if last:
+                _unmark(making)
 
     def _claim(self, wid: int, exclusive: bool = True) -> None:
         """Take window `wid` as its own. Exclusive (a window it opened, or one that appeared while it acted): no other
@@ -560,6 +668,7 @@ class BackgroundEnv(LocalEnv):
         if exclusive:
             with _LOCK:
                 _CLAIMS[(getattr(self.m, "pid", 0), wid)] = id(self)
+            _mark(f"{getattr(self.m, 'pid', 0)}-{wid}")
         if wid not in self.own:
             self.own.append(wid)
         self.known.discard(wid)
@@ -568,7 +677,9 @@ class BackgroundEnv(LocalEnv):
         """Is window `wid` another desktop's, or about to be (one is opening a window in this app)?"""
         pid = getattr(self.m, "pid", 0)
         with _LOCK:
-            return _CLAIMS.get((pid, wid), id(self)) != id(self) or _MAKING.get(pid, 0) > 0
+            if _CLAIMS.get((pid, wid), id(self)) != id(self) or _MAKING.get(pid, 0) > 0:
+                return True
+        return _theirs(pid, wid)                  # another Legato process's
 
     def describe(self) -> str:
         """Which window this desktop works in, for the person and the model: 'a new Safari window', 'a new TextEdit
@@ -950,7 +1061,8 @@ class BackgroundEnv(LocalEnv):
                 self.m.perform(button, "AXPress")
         with _LOCK:
             for wid in self.own:
-                _CLAIMS.pop((getattr(self.m, "pid", 0), wid), None)
+                if _CLAIMS.pop((getattr(self.m, "pid", 0), wid), None) is not None:
+                    _unmark(f"{getattr(self.m, 'pid', 0)}-{wid}")
 
     def _screen(self, x: float, y: float) -> tuple[float, float]:
         w = self.win or self.window()
@@ -975,7 +1087,36 @@ class BackgroundEnv(LocalEnv):
             time.sleep(1.0)
 
     def _type(self, text: str) -> None:
-        for ch in text.replace("\r\n", "\n"):
+        text = text.replace("\r\n", "\n")
+        left = self._insert(text)
+        self._keys(left)
+
+    def _insert(self, text: str) -> str:
+        """Put `text` in the focused text area or field through Accessibility, exactly as given: as key presses, an
+        app's automatic capitalisation, spelling and quotes change it (TextEdit wrote "alpha" as "Alpha", and a run
+        spent 2.5 minutes retyping a list against it). A field's newlines stay Return presses, which submit it. Not
+        in a browser (a web page's scripts listen for keys), a secure field, or an app whose text doesn't change when
+        asked (it then gets keys). Returns what is left to type as keys."""
+        if not text or self.app.strip().lower() in ("safari", "com.apple.safari") or CHROMIUM.search(self.app):
+            return text
+        el = self.m.attr(self.m.app, "AXFocusedUIElement")
+        role = self.m.attr(el, "AXRole") if el is not None else None
+        if role not in ("AXTextArea", "AXTextField", "AXComboBox", "AXSearchField") or self._owns(el) is False:
+            return text
+        parts = [text] if role == "AXTextArea" else text.split("\n")
+        for i, part in enumerate(parts):
+            if i:
+                self.m.key(KEYCODES["enter"])
+            if not part:
+                continue
+            before = self.m.attr(el, "AXValue")
+            if not isinstance(before, str) or not self.m.set(el, "AXSelectedText", part) \
+                    or self.m.attr(el, "AXValue") == before:
+                return "\n".join(parts[i:])          # it didn't take: keys from here
+        return ""
+
+    def _keys(self, text: str) -> None:
+        for ch in text:
             if ch == "\n":
                 self.m.key(KEYCODES["enter"])
             elif ch == "\t":
@@ -1045,6 +1186,10 @@ class BackgroundEnv(LocalEnv):
                 return True
             if _str(item).lower() in FONT_CONTROLS:
                 raise safety.Unavailable(f"key {key}: {self._no_format(item)}")
+            if re.search(r"save|export|print|duplicate|revert", _str(item), re.I):
+                raise safety.Unavailable(f"key {key}: {item} is turned off while the app is in the back, and stays off: "
+                                         "saving, exporting and printing aren't possible in background mode, by key, "
+                                         "menu or button. If the task needs it, call fail and say so")
             raise safety.Unavailable(f"key {key}: its menu item ({item}) is turned off while the app is in the back; "
                                      "do it another way")
         return self.m.perform(node, "AXPress")

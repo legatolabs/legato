@@ -56,8 +56,8 @@ codex mcp add legato -- legato mcp                                   # Codex: th
 - **On your own Mac, with other apps open:** `legato mcp --local --wait-scope app` waits on the front app's windows
   only, so a chat or video animating elsewhere doesn't hold every action to the wait's cap.
 - **In the background on your Mac:** `legato mcp --background` forces it whatever was saved. It takes no app name:
-  the app is `desktop_open(app=...)`'s, else the one `legato setup --app` saved, else Safari (Chrome 158 and later
-  ignore background clicks on web pages).
+  the app is `desktop_open(app=...)`'s, else the one `legato setup --app` saved, else Safari (the only browser
+  background mode works in).
 - **Each background desktop gets a window of its own.** `desktop_open(app="Safari", url=...)` opens a new Safari
   window through its menu and address field (no Apple Events permission), so your tabs stay as they were and out of
   the agent's sight, and returns once the page has loaded and has the keyboard focus. TextEdit and other document apps

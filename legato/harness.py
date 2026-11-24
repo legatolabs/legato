@@ -86,16 +86,29 @@ def _refused(e: Denied) -> str:
 
 
 REFUSALS_TO_END = 3     # the same impossible action refused this often ends the run as failed, instead of a loop
+REFUSALS_IN_ALL = 6     # and impossible actions of any kind, this often (Save's key, Save As's, then its buttons)
 
 
 def _again(refusals: dict, e: Denied) -> str:
-    """Count an impossible action; from its second refusal, tell the model plainly to stop (a background app's Save
-    stays turned off however often it is pressed)."""
+    """Count an impossible action; from its second refusal, or the fourth of any kind, tell the model plainly to
+    stop (a background app's Save stays turned off however often, and however, it is asked for)."""
     if not isinstance(e, Unavailable):
         return ""
-    n = refusals[str(e)] = refusals.get(str(e), 0) + 1
-    return (f" It has now been refused {n} times and can't be done here: call fail now and say what couldn't be done."
-            if n >= 2 else "")
+    n = refusals[str(e)] = refusals.pop(str(e), 0) + 1        # the latest refused stays last
+    if n >= 2:
+        return f" It has now been refused {n} times and can't be done here: call fail now and say what couldn't be done."
+    total = sum(refusals.values())
+    return (f" That is {total} actions refused in this run: if the task needs what they do, it can't be done here, so "
+            "call fail now and say what couldn't be done." if total >= 4 else "")
+
+
+def _refusals_end(refusals: dict) -> str:
+    """Why the run ends now (the same impossible action, or too many of any kind), or ""."""
+    if max(refusals.values(), default=0) >= REFUSALS_TO_END:
+        return f"not possible here, refused {REFUSALS_TO_END} times: {max(refusals, key=refusals.get)}"
+    if sum(refusals.values()) >= REFUSALS_IN_ALL:
+        return f"not possible here: {REFUSALS_IN_ALL} actions were refused, the last: {list(refusals)[-1]}"
+    return ""
 
 END_NOTE = ("Your last reply had no action, so nothing happened. If the task is complete, call done; otherwise take "
             "the next step.")
@@ -306,6 +319,11 @@ def _book(usage: Usage, rec: dict | None = None, error: Exception | None = None)
 
 @dataclass
 class RunResult:
+    """How a run went. status: how it ended (done, failed, max_steps, timeout, cancelled, stopped, error); done and
+    failed: the model called done or fail (failed also when the desktop refused the same action 3 times, or 6 in
+    all); answer: the text the model ended with (a question's answer); error: why, when it ended any other way, or the
+    refusals that ended it; steps: model turns; actions: what ran, as text; wall_s: seconds; timings: per turn;
+    usage: tokens and cost (legato.Usage); report(): one paragraph of all that."""
     task: str
     done: bool = False
     failed: bool = False
@@ -327,7 +345,9 @@ class RunResult:
         share = lambda v: f"{100 * v / self.wall_s:.0f}%" if self.wall_s else "-"  # noqa: E731
         cost = (self.usage or {}).get("cost_usd")
         counts = f"{self.steps} model turns, {len(self.actions)} actions" + (f", ${cost:.4f}" if cost else "")
-        if self.done or self.failed or not self.error:
+        if self.failed and self.error:                   # ended by the harness: why
+            head = f"failed: {self.error} (after {self.wall_s:.1f} s, {counts})"
+        elif self.done or self.failed or not self.error:
             status = "done" if self.done else "failed" if self.failed else (
                 "out of steps" if self.status == "max_steps" else self.status)
             head = f"{status} in {self.wall_s:.1f} s, {counts}"
@@ -1056,10 +1076,8 @@ class Harness:
             if res.stopped:
                 res.status = "stopped"
                 break
-            if note and max(refusals.values(), default=0) >= REFUSALS_TO_END:   # the same impossible action again
-                res.failed, res.status = True, "failed"
-                res.error = (f"not possible here, refused {REFUSALS_TO_END} times: "
-                             f"{max(refusals, key=refusals.get)}")
+            if note and (why := _refusals_end(refusals)):       # the same impossible action again, or many
+                res.failed, res.status, res.error = True, "failed", why
                 break
             if not note:                          # a "done" after an action that was not allowed does not count
                 res.done, res.failed = plan.done, plan.failed

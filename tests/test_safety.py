@@ -243,3 +243,25 @@ def test_the_same_impossible_action_ends_the_run_instead_of_a_loop(server):
     res = legato.Harness("m", server["url"], "k").run("save it", env, max_steps=10)
     assert (res.status, res.failed, res.steps) == ("failed", True, 3) and "refused 3 times" in res.error
     assert "can't be done here: call fail now" in json.dumps(server["bodies"][2])
+
+
+def test_many_different_impossible_actions_end_the_run_too(server):
+    """A TextEdit "save it" run tried Shift+Cmd+S, Cmd+S, then three clicks, each refused once or twice, and ran to
+    its 120 s limit: the sixth refusal of any kind ends it as failed, with the reason in report()."""
+    import itertools
+    import json
+
+    import legato
+    from legato import safety
+    from legato.rl.fake import tiny_png
+
+    n = itertools.count()
+
+    def act(a):
+        raise safety.Unavailable(f"refusal {next(n)}")
+    server["script"] = [{"tool_calls": [tc({"action": "key", "text": "cmd+s"})]}] * 8
+    env = legato.attach(screenshot=lambda: tiny_png(1, w=64, h=40), execute=act, fixed_wait_s=0.0)
+    res = legato.Harness("m", server["url"], "k").run("save it", env, max_steps=10)
+    assert (res.status, res.failed, res.steps) == ("failed", True, 6) and "6 actions were refused" in res.error
+    assert "refusal 5" in res.error and res.report().startswith("failed: not possible here: 6 actions")
+    assert "4 actions refused in this run" in json.dumps(server["bodies"][4])

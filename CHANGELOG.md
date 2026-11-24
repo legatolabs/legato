@@ -63,6 +63,18 @@ From the persona tests (six simulated launch users on a real Mac):
 - **The same impossible action no longer loops to the step limit.** From its second refusal the model is told
   to call fail and say why; the third ends the run as failed with the reason. A background app's Save, Close and
   Find stay turned off however often they're pressed (a TextEdit "save it" task looped to the call limit).
+- **Background mode refuses browsers other than Safari.** In Firefox a run's screenshots and keys reached the
+  person's own Firefox window and changed its selected tab, though the window it opened was its own; Chrome 158
+  ignores background clicks on web pages. `legato init` refuses them too; `window="front"` still works.
+- **Two Legato processes in one app keep to their own windows.** Their claims were per process, so a Safari window
+  another process had just opened was taken as one this run's action opened, and clicked. They are now shared
+  through `~/.cache/legato/windows`.
+- **Typed text goes in as written** in background apps other than browsers, through Accessibility: TextEdit had
+  capitalised a typed list ("alpha" to "Alpha"), and the run spent 2.5 minutes retyping it; the same list now takes
+  5 s. A field's newline is still Return.
+- **Refusals of any kind end the run at six**, and a refused Save, Export or Print says it stays off in the background:
+  a "save it" task tried four ways and ran to its 120 s limit; it now fails in 16 s with the reason. A failed run's
+  `report()` and `desktop_run_task` reply lead with that reason.
 - **A question gets its answer.** When a task asks for information ("what", "tell me", "how many", a question mark)
   and the model calls done without the answer, it gets one more turn with the screen and is asked for it
   (`Harness(ask_answer=True)`, which `legato.run`, `legato run` and `desktop_run_task` set). GPT-6.1 Terra ended

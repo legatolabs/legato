@@ -1,4 +1,4 @@
-"""Background mode on a real Mac: TextEdit, Safari and Chrome are worked while another app stays in front, and the
+"""Background mode on a real Mac: TextEdit and Safari are worked while another app stays in front, and the
 person's front app, pointer and clipboard are checked after every test.
 
 Opt-in, because it opens apps on the screen it runs on:
@@ -6,7 +6,7 @@ Opt-in, because it opens apps on the screen it runs on:
     LEGATO_TEST_BACKGROUND=1 pytest -q tests/test_background_live.py
 
 Run it from a terminal that has Accessibility and Screen Recording permission, leave that terminal in front, and don't
-touch the mouse or keyboard until it ends. Chrome's tests skip when Chrome is not installed.
+touch the mouse or keyboard until it ends. Other browsers are refused in the background (legato.background.other_browser).
 """
 import json
 import os
@@ -195,7 +195,7 @@ def wait_for(log, pred, s=8.0):
     return False
 
 
-BROWSERS = [b for b in ("Safari", "Google Chrome") if Path(f"/Applications/{b}.app").exists()]
+BROWSERS = ["Safari"]          # the only background browser: others are refused (legato.background.other_browser)
 
 
 @pytest.fixture(params=BROWSERS)

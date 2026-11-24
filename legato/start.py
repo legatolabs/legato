@@ -23,7 +23,7 @@ DESKTOPS = {
     "local": "this whole screen: it moves your real mouse, so leave the computer alone while it runs",
     "docker": "a throwaway Linux desktop in Docker: the safest, it can't touch your files",
 }
-TESTED_APPS = ("Safari", "Google Chrome", "TextEdit")   # background mode is tested on these (tests/test_background_live.py)
+TESTED_APPS = ("Safari", "TextEdit")   # background mode is tested on these (tests/test_background_live.py)
 DOCS = "https://legato.computer/docs"
 SETUP_URL = "https://legato.computer/setup"
 AGENT_PROMPT = f"Set up Legato for me: {SETUP_URL}"
@@ -208,12 +208,19 @@ def _init(argv) -> int:
         return 2
     app = None
     if desktop == "background":
-        app = a.app or saved.app or default_browser() or "Safari"
+        from legato.config import BROWSERS_TESTED
+        browser = default_browser()
+        app = a.app or saved.app or (browser if browser in BROWSERS_TESTED else "Safari")
         if asking and not a.app:
             app = _text("Which app should it work in? (any app, by name)", app)
+        from legato.background import other_browser
+        if other_browser(app):
+            print(f"legato: background mode works in Safari, not {app} yet (its keys and screenshots can reach your "
+                  f"own {app} windows): use --app Safari, or --desktop local for the whole screen", file=sys.stderr)
+            return 2
         if app not in TESTED_APPS:
             print(f"note: background mode is tested on {', '.join(TESTED_APPS)}. {app} may not show all of its "
-                  f"window to macOS Accessibility; if clicks do nothing, try --app Safari or 'Google Chrome'.")
+                  f"window to macOS Accessibility; if clicks do nothing, try --app Safari.")
 
     out.write_text(agent_source(model, base_url, key_env, desktop, app))
     print(f"\nWrote {out}: {model} at {base_url}, " + (f"working in {app}'s window" if app else f"desktop: {desktop}"))

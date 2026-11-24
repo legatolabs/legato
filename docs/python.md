@@ -13,7 +13,7 @@ the task is done, 2 when it could not run (a setup, model or desktop error) and 
 
 | flag | what it does |
 |---|---|
-| `--app NAME` | macOS: work in that app's window in the background (`--app Notes`, `--app "Google Chrome"`) |
+| `--app NAME` | macOS: work in that app's window in the background (`--app Notes`, `--app Safari`) |
 | `--screen` | use this whole screen; it moves your real mouse (macOS, Windows, Linux) |
 | `--sandbox docker` | a fresh Linux desktop container (needs Docker); also `e2b`, or your own `file.py:function` ([desktops](sandboxes.md)) |
 | `--model M --base-url URL --api-key-env VAR` | another model for this run |
@@ -87,8 +87,8 @@ to get it back as a result, as `legato.run` does.
 - **Tools beside the screen:** `legato.Harness(..., tools=[legato.tools.bash(env)])` gives the model a shell in that
   desktop; `legato.Tool(name, description, json_schema, handler)` wraps your own function, whose text result goes
   back to the model.
-- **The result:** `status` (how it ended, below), `done`, `failed`, `answer` (what the model said at the end),
-  `actions`, `steps`, `wall_s`, `timings` (per turn: model, actions, waiting for the screen, screenshots), `usage`,
+- **The result:** `status` (how it ended, below), `done`, `failed`, `answer` (what the model said at the end, as
+  text), `actions`, `steps` (model turns), `wall_s`, `timings` (per turn: model, actions, waiting for the screen, screenshots), `usage`,
   `error`, `stopped`, and `report()`.
   - `actions` are strings, one per action that ran, such as `"click (29, 316)"`, `"type 'hello'"` or
     `"not allowed: key cmd+q"`, then `"done"` or `"fail"`. For `legato.Action` objects, collect them in `on_step`,
@@ -96,6 +96,9 @@ to get it back as a result, as `legato.run` does.
   - `usage` (a dict, typed as `legato.Usage`: read it as `usage["complete"]`) counts the model calls that answered: `prompt`, `completion` and `cached` tokens, and
     `cost_usd` when the provider reports it. `complete` is `False` when a call was sent and cut off before its reply
     (a timeout, `timeout_s`) or sent twice: the provider may still bill it, and it is not in the counts.
+- **Questions:** `legato.run` asks for the answer in done's text. When the task's words ask for information ("what",
+  "tell me", "how many", a question mark) and the model calls done without it, it gets one more turn with the screen
+  to give it: one more model call, counted in `steps` and `usage` (`Harness(ask_answer=True)` does the same).
 - **Stopping it** on your own screen: move the mouse into a corner, or hold Escape on a Mac. Risky actions wait for
   your yes in the terminal ([what counts](sandboxes.md#this-computer)).
 - **Models:** coordinates, thinking models and settings for each are in [models](models.md).
@@ -107,9 +110,9 @@ to get it back as a result, as `legato.run` does.
 | status | what happened | what to do |
 |---|---|---|
 | `done` | the model called done | read `answer` |
-| `failed` | the model called fail: it judged the task impossible | read `answer` for its reason; reword the task |
+| `failed` | the model called fail (it judged the task impossible), or the desktop refused the same action 3 times, or 6 actions in all | read `answer` for its reason, or `error` when the refusals ended it; reword the task, or give it a desktop that can (`--screen`) |
 | `max_steps` | `max_steps` ran out first | raise `max_steps`, or split the task |
-| `timeout` | `timeout_s` ran out | raise `timeout_s`; `actions` shows how far it got |
+| `timeout` | `timeout_s` ran out (it bounds each model call too) | raise `timeout_s`; `actions` shows how far it got |
 | `cancelled` | your `cancel` event was set | nothing |
 | `stopped` | the person at the computer stopped it | nothing; their choice |
 | `error` | a model call failed (`HTTP 401: ...`, a timeout) or the desktop did (`the desktop failed: ...`) | fix the key, model or desktop that `error` names, then retry; a refused key's error names where the key came from (`$OPENROUTER_API_KEY`, the one `legato setup` saved), never the key |

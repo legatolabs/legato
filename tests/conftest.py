@@ -20,3 +20,4 @@ def no_shared_stall_note(tmp_path, monkeypatch):
     except ImportError:
         return
     monkeypatch.setattr(bg, "_stall_file", lambda: tmp_path / "capture-stalled")
+    monkeypatch.setattr(bg, "_windows_dir", lambda: tmp_path / "windows")       # and its windows, for other processes

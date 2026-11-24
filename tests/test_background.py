@@ -2,6 +2,7 @@
 nothing reaches the person's pointer, front app or clipboard. Runs anywhere; tests/test_background_live.py runs the
 same on a real Mac."""
 import io
+import re
 import time
 
 import pytest
@@ -10,7 +11,7 @@ from PIL import Image
 from legato import safety
 from legato.actions import Action
 from legato.background import FLAGS, KEYCODES, BackgroundEnv
-from legato.env import DesktopError
+from legato.env import DesktopError, DesktopStartError
 from legato.harness import UNAVAILABLE_NOTE, _refused
 from test_harness import server, tc  # noqa: F401
 
@@ -185,6 +186,40 @@ def test_typing_is_posted_to_the_app_as_text():
     e.act(Action("type", text="Hé!\n"))
     assert [c for _, _, c in m.keys] == ["H", "é", "!", None]
     assert m.keys[-1][0] == KEYCODES["enter"]
+
+
+def test_text_goes_into_a_native_text_view_exactly_as_given():
+    """TextEdit wrote typed "alpha" as "Alpha" (its automatic capitalisation), and a run spent 2.5 minutes retyping
+    a list against it. Into a text area of an app that isn't a browser, the text is inserted through Accessibility
+    as given; a field's newline is still Return (it submits). An app whose text doesn't change gets keys."""
+    e, m = env()
+    area = El("AXTextArea", value="")
+    m.app.extra = {"AXFocusedUIElement": area}
+    real_set = m.set
+
+    def insert(el, name, value):
+        if name == "AXSelectedText":
+            el.value += value
+            m.sets.append((el, name, value))
+            return True
+        return real_set(el, name, value)
+    m.set = insert
+    e.act(Action("type", text='alpha\nbeta "q" -- teh\n'))
+    assert area.value == 'alpha\nbeta "q" -- teh\n' and m.keys == []
+    field = El("AXTextField", value="")
+    m.app.extra = {"AXFocusedUIElement": field}
+    e.act(Action("type", text="cats\n"))
+    assert field.value == "cats" and m.keys == [(KEYCODES["enter"], 0, None)]
+    m.keys.clear()
+    m.set = lambda el, name, value: True              # says yes, changes nothing (a Chromium app): keys
+    e.act(Action("type", text="hi"))
+    assert [c for _, _, c in m.keys] == ["h", "i"]
+    m.keys.clear()
+    m.set = insert
+    safari, _ = env(m)
+    safari.app = "Safari"                             # a web page listens for keys
+    safari.act(Action("type", text="ok"))
+    assert [c for _, _, c in m.keys] == ["o", "k"]
 
 
 def test_shortcuts_carry_their_flags_and_ctrl_is_cmd():
@@ -856,7 +891,7 @@ def test_mcp_desktop_read_reads_a_background_window_and_is_refused_elsewhere():
                        background=lambda app: BackgroundEnv(app, mac=m, confirm=None))
 
     async def go():
-        r = await srv.call_tool("desktop_open", {"app": "Google Chrome"})
+        r = await srv.call_tool("desktop_open", {"app": "Safari"})
         did = r.content[0].text.split("desktop_id: ")[1].split()[0]
         r = await srv.call_tool("desktop_read", {"desktop_id": did})
         assert r.content[0].text.splitlines()[:3] == ['page "Counter" file:///tmp/app/index.html',
@@ -909,7 +944,7 @@ def test_a_stall_is_remembered_by_the_next_process(monkeypatch, tmp_path):
 def test_a_chrome_page_control_that_ignores_background_presses_says_so_and_suggests_safari():
     """Chrome 158's page elements offer no press from the back: say so instead of "the AXButton can't be pressed"."""
     m = FakeMac()
-    e = BackgroundEnv("Google Chrome", mac=m, confirm=None)
+    e = BackgroundEnv("Google Chrome", mac=m, confirm=None, window="front")
     page = El("AXWebArea", frame=(100.0, 50.0, 400.0, 300.0))
     button = El("AXButton", page, actions=["AXShowMenu", "AXScrollToVisible"], title="+1", frame=(150, 100, 40, 20))
     m.hits = [(150, 100, 190, 120, button)]
@@ -1282,3 +1317,18 @@ def test_a_capture_always_takes_its_window_even_when_the_list_misses_it_for_a_mo
     e._take(e.win)
     assert m.captures[-1][0] == [7]
     m.windows = listed
+
+
+def test_browsers_other_than_safari_are_refused_in_a_window_of_their_own():
+    """Firefox (24 Nov 2026): a run's screenshots and keys reached the person's own Firefox window and changed its
+    selected tab, though the window it had opened was its own. Until that is pinned down, only Safari is a background
+    browser; window="front" (the front window, on purpose) is still allowed."""
+    from legato.background import other_browser
+    for app in ("Firefox", "Google Chrome", "Brave Browser", "Microsoft Edge", "Arc", "org.mozilla.firefox",
+                "com.google.Chrome"):
+        assert other_browser(app), app
+        with pytest.raises(DesktopStartError, match=f"works in Safari, not {re.escape(app)}.*--app Safari"):
+            BackgroundEnv(app, mac=FakeMac(), confirm=None)
+    for app in ("Safari", "com.apple.Safari", "TextEdit", "Calculator", "Knowledge Base", "Research"):
+        assert not other_browser(app), app
+    BackgroundEnv("Firefox", mac=FakeMac(), confirm=None, window="front")

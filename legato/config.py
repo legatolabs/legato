@@ -257,15 +257,16 @@ def default_browser() -> str | None:
     return Path(out).stem or None
 
 
-# The browsers background mode picks by default. Chrome is left out: from Chrome 158 (Nov 2026), pressing a web
-# page's elements through Accessibility reports success and does nothing, so its clicks fail. A task can still name it.
+# The browsers background mode works in. Others are refused (legato.background.other_browser): in Firefox a run's
+# keys and screenshots reached the person's own window (24 Nov 2026), and from Chrome 158 pressing a web page's
+# elements through Accessibility reports success and does nothing.
 BROWSERS_TESTED = ("Safari",)
 
 
 def pick_app(task: str, cfg: Config | None = None) -> str:
     """The app background mode works in for this task: the saved one, else the one the task names, else the default
-    browser if background mode works well in it (only Safari today), else Safari. (Firefox works in the background but
-    slowly: 83 s against Safari's 11 s on the first task, 24 Nov; Chrome 158 ignores clicks on web pages.)"""
+    browser if background mode works in it (only Safari today), else Safari. A task that names another browser gets
+    it, and background mode then refuses it with the reason."""
     cfg = cfg or load()
     browser = default_browser()
     return cfg.app or app_for_task(task) or (browser if browser in BROWSERS_TESTED else "Safari")
