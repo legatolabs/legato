@@ -198,6 +198,109 @@ def test_a_thinking_model_that_answers_nothing_is_not_called_blind(no_machine, m
     assert "vision model" not in capsys.readouterr().out
 
 
+# ------------------------------------------------------------ your own sandbox
+BOX = '''
+from pathlib import Path
+import legato
+
+LOG = Path(__file__).with_suffix(".log")
+
+def desktop(width, height):
+    with LOG.open("a") as f:
+        f.write(f"open {width}x{height}\\n")
+    env = legato.attach(screenshot=lambda: b"", execute=lambda action: None)
+    return (lambda: LOG.open("a").write("close\\n")), env
+'''
+
+
+def test_desktop_spec_takes_your_own_sandbox(tmp_path, monkeypatch):
+    (tmp_path / "box.py").write_text(BOX)
+    monkeypatch.chdir(tmp_path)
+    assert config.desktop_spec("local") == "screen" and config.desktop_spec("docker:me/desk") == "docker:me/desk"
+    assert config.desktop_spec("box.py:desktop") == f"{(tmp_path / 'box.py').resolve()}:desktop"   # works from anywhere
+    assert config.desktop_spec("mycompany.desktops:cloud") == "mycompany.desktops:cloud"
+    for bad in ("nowhere.py:desktop", "somewhere", "box.py:", "docker:"):
+        with pytest.raises(ValueError):
+            config.desktop_spec(bad)
+    assert config.is_own("mycompany.desktops:cloud") and not any(map(config.is_own, ["docker:x", "background", "local"]))
+
+
+def test_setup_saves_your_own_sandbox_and_every_run_uses_it(no_machine, monkeypatch, own_config, tmp_path):
+    box = tmp_path / "box.py"
+    box.write_text(BOX)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-1\n"))
+    assert main(["setup", "--yes", "--no-check", "--provider", "openrouter", "--api-key", "-",
+                 "--desktop", "box.py:desktop"]) == 0
+    spec = f"{box.resolve()}:desktop"
+    assert config.load().desktop == spec
+    monkeypatch.chdir(own_config.parent.parent)                       # somewhere else
+    from legato.agent import open_desktop
+    env, close, what = open_desktop()
+    close()
+    assert (tmp_path / "box.log").read_text() == "open 1280x800\nclose\n" and what == spec
+
+
+def test_setup_refuses_a_sandbox_function_it_cannot_find(no_machine, monkeypatch, own_config, tmp_path, capsys):
+    (tmp_path / "box.py").write_text("def other(width, height): pass\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-1\n"))
+    assert main(["setup", "--yes", "--no-check", "--provider", "openrouter", "--api-key", "-",
+                 "--desktop", "box.py:desktop"]) == 2
+    assert "cannot use that desktop" in capsys.readouterr().err and not own_config.exists()
+
+
+def test_legato_run_with_no_flags_runs_in_your_saved_sandbox(monkeypatch, own_config, tmp_path, capsys):
+    """The whole path: setup saved a sandbox function; `legato run "task"` opens it, the model acts, it closes it."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    replies = [{"action": "left_click", "coordinate": [10, 10]}, {"action": "done", "text": "hello"}]
+    seen = []
+
+    class Model(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            seen.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            call = {"id": f"c{len(seen)}", "type": "function",
+                    "function": {"name": "computer", "arguments": json.dumps(replies.pop(0))}}
+            out = json.dumps({"choices": [{"message": {"content": "", "tool_calls": [call]}}],
+                              "usage": {"prompt_tokens": 10, "completion_tokens": 3}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Model)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    box = tmp_path / "box.py"
+    box.write_text('''
+from pathlib import Path
+import legato
+from legato.rl.fake import tiny_png
+
+LOG = Path(__file__).with_suffix(".log")
+
+def desktop(width, height):
+    LOG.open("a").write("open\\n")
+    env = legato.attach(screenshot=lambda: tiny_png(1, w=64, h=40),
+                        execute=lambda a: LOG.open("a").write(f"{a.type}\\n"))
+    return (lambda: LOG.open("a").write("close\\n")), env
+''')
+    try:
+        saved(provider="custom", model="m", base_url=f"http://127.0.0.1:{srv.server_address[1]}/v1",
+              desktop=config.desktop_spec(str(box) + ":desktop"))
+        monkeypatch.chdir(own_config.parent.parent)
+        assert main(["run", "Say hello", "--json"]) == 0
+    finally:
+        srv.shutdown()
+    out = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert out["done"] is True and out["answer"] == "hello"
+    assert (tmp_path / "box.log").read_text() == "open\nclick\nclose\n" and len(seen) == 2
+
+
 def test_legato_run_json_prints_json_when_it_cannot_start(capsys):
     """Agents parse `legato run --json`: a failure before the task starts is one JSON object too, plus the stderr line."""
     assert main(["run", "Say hello", "--json"]) == 2

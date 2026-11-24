@@ -34,7 +34,8 @@ def desktop(width, height):
 ```
 
 `legato run "..." --sandbox my_desktop.py:desktop` or `legato mcp --sandbox my_desktop.py:desktop`. A plain function
-works as the handle too: Legato calls it if it has none of those methods.
+works as the handle too: Legato calls it if it has none of those methods. `legato setup --desktop my_desktop.py:desktop`
+makes it the default for `legato run`, `legato mcp` and `legato.run()`; each task gets a fresh one.
 
 ## This computer
 

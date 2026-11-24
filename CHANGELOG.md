@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
+  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
+  starting it, and keeps the path absolute.
+
 From the persona tests (six simulated launch users on a real Mac):
 
 - **Every run result has a `status`:** done, failed, max_steps, timeout, cancelled, stopped or error.
@@ -64,7 +68,7 @@ From the persona tests (six simulated launch users on a real Mac):
 - `legato setup` says where Legato will work, and, for a local model server that doesn't answer, which servers to
   start (not "check the key"). Models docs: the local example works in one app's window instead of the whole screen,
   and says Ollama and LM Studio aren't tested end to end yet. `/docs/terminal` redirects to `/docs/python`.
-- **Planner notes and shell:** `Planner(..., style="point", notes=True)` lets the planner keep notes that are given
+- **Planner notes and shell:** a planner with `style="point"` keeps notes (`notes=False` turns them off). It can write notes that are given
   back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
   the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
   (`shell_name` says which shell that is).

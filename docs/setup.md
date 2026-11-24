@@ -40,8 +40,14 @@ You are setting Legato up on your user's computer. Run the commands yourself; as
    this machine: vLLM, Ollama or LM Studio; no key), `custom` (with `--base-url`). Add `--model NAME` to choose the
    model. The model must accept images.
 4. **Where it works.** The default is right for most people: on a Mac, one app's window in the background (the user
-   keeps using the Mac), elsewhere the whole screen. Pass `--desktop docker` for a desktop container that cannot touch
-   their screen or files (needs Docker), or `--desktop screen` for the Mac's whole screen.
+   keeps using the Mac), elsewhere the whole screen. Ask only if the user mentioned something else:
+   - `--desktop screen`: the Mac's whole screen.
+   - `--desktop docker`: a desktop container on this machine that cannot touch their screen or files (needs Docker).
+   - `--desktop e2b`: an E2B cloud desktop (`pip install "legatolabs[e2b]"` and `E2B_API_KEY`).
+   - **Their own sandbox or VM** (any Linux machine with a screen that you can run a command in): a function that
+     starts it and returns `legato.attach(shell=run)` ([Desktops](sandboxes.md)). Check it with
+     `legato run --sandbox path/to/desktop.py:desktop "Open a terminal and type hello"`, then save it as the default:
+     `legato setup --yes --desktop path/to/desktop.py:desktop`.
 5. **Give yourself a computer too.** `legato setup --yes --mcp claude` (or `codex`, `cursor`, `claude-desktop`)
    adds Legato's MCP server to that client and keeps the rest of the setup. Add only the client you are, unless the
    user asks for more (`--yes` without `--mcp` adds every client it finds). Tell the user to restart the client (in

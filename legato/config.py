@@ -16,6 +16,8 @@ Desktops:
     screen       this computer's whole screen (macOS, Windows, Linux): it moves your real mouse.
     docker       a fresh Linux desktop container on this machine: it can't touch your screen or files.
     e2b          a fresh cloud desktop on E2B (E2B_API_KEY).
+    your own     path/to/file.py:function or module:function: a function (width, height) that starts your sandbox and
+                 returns legato.attach(...), or (handle, env). Each task gets a fresh one (docs/sandboxes.md).
 """
 from __future__ import annotations
 
@@ -67,6 +69,30 @@ DESKTOPS: dict[str, str] = {
     "e2b": "a fresh cloud desktop on E2B (needs E2B_API_KEY)",
 }
 ALIASES = {"local": "screen", "bg": "background"}
+OWN = "your own sandbox or VM: a Python function that starts it and returns a desktop"
+
+
+def desktop_spec(value: str) -> str:
+    """A desktop as setup saves it: a name from DESKTOPS (or an alias), docker:IMAGE, module:function, or
+    path/to/file.py:function with the path made absolute, so it works from any directory. ValueError otherwise."""
+    value = ALIASES.get(value.strip(), value.strip())
+    if value in DESKTOPS or (value.startswith("docker:") and len(value) > len("docker:")):
+        return value
+    where, sep, name = value.rpartition(":")
+    if not sep or not where or not name.isidentifier():
+        raise ValueError(f"{value!r}: use {', '.join(DESKTOPS)}, docker:IMAGE, or your own sandbox as "
+                         "path/to/file.py:function or module:function")
+    if where.endswith(".py"):
+        path = Path(where).expanduser().resolve()
+        if not path.is_file():
+            raise ValueError(f"{value!r}: there is no file {path}")
+        return f"{path}:{name}"
+    return value
+
+
+def is_own(desktop: str) -> bool:
+    """True for a sandbox of your own (a function), not one of the named desktops or docker:IMAGE."""
+    return bool(desktop) and desktop not in DESKTOPS and desktop not in ALIASES and not desktop.startswith("docker:")
 
 
 @dataclass
