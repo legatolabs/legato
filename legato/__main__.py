@@ -5,7 +5,7 @@
       [--app NAME | --screen | --sandbox docker|e2b|path/to/file.py:function]   where (default: the saved one; on
                                   a Mac, one app's window in the background, so you keep using the Mac)
       [--model M --base-url URL --api-key-env VAR]   another model for this run
-      [--max-steps 40] [--json] [--yes]
+      [--max-steps 40] [--timeout S] [--json] [--yes]
   legato mcp                      an MCP server: a computer for Claude Code, Codex, Cursor (see docs/mcp.md)
   legato doctor [--json]          what is installed and set up, and how to fix what is missing
   legato init                     write agent.py, a working agent to copy into your own code
@@ -89,6 +89,7 @@ def run_main(argv) -> int:
     ap.add_argument("--base-url", help="OpenAI-compatible root, e.g. https://openrouter.ai/api/v1")
     ap.add_argument("--api-key-env", help="the environment variable holding the key for --base-url")
     ap.add_argument("--max-steps", type=int, default=40)
+    ap.add_argument("--timeout", type=float, metavar="S", help="end the run after S seconds (status timeout)")
     ap.add_argument("--coords", default=None, choices=["norm1000", "pixels"],
                     help="default: pixels for Claude models, norm1000 (0-1000 grid) otherwise")
     ap.add_argument("--yes", action="store_true",
@@ -133,28 +134,28 @@ def run_main(argv) -> int:
     try:
         agent = agent_for(env, cfg=cfg, **({"coords": a.coords} if a.coords else {}))
         from legato.agent import ANSWER_NOTE
-        res = agent.run(a.task + ANSWER_NOTE, env, max_steps=a.max_steps, on_step=show)
+        # a desktop that fails mid-run comes back as status "error", with the usage so far
+        res = agent.run(a.task + ANSWER_NOTE, env, max_steps=a.max_steps, on_step=show, timeout_s=a.timeout,
+                        raise_desktop_errors=False)
     except ValueError as e:
         return fail(str(e))
-    except (RuntimeError, OSError) as e:                 # the desktop failed mid-run: one line (and JSON), no traceback
-        return fail(f"the run stopped: {e}")
     finally:
         close()
     if a.json:
-        print(json.dumps({"done": res.done, "failed": res.failed, "answer": res.answer, "error": res.error,
-                          "stopped": res.stopped, "steps": res.steps, "actions": res.actions,
+        print(json.dumps({"status": res.status, "done": res.done, "failed": res.failed, "answer": res.answer,
+                          "error": res.error, "stopped": res.stopped, "steps": res.steps, "actions": res.actions,
                           "wall_s": round(res.wall_s, 2), "usage": res.usage, "desktop": what, "model": cfg.model}))
     else:
         if res.answer:
             print(f"\n{res.answer}\n")
         print(res.report())
-    return 0 if res.done else 1
+    return 0 if res.done else 2 if res.status == "error" else 1
 
 
 def _fail(msg: str, as_json: bool = False) -> int:
     print(f"legato: {msg}", file=sys.stderr)
     if as_json:
-        print(json.dumps({"done": False, "failed": True, "answer": "", "error": msg}))
+        print(json.dumps({"status": "error", "done": False, "failed": True, "answer": "", "error": msg}))
     return 2
 
 

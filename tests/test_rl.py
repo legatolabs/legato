@@ -79,6 +79,7 @@ def server():
             self.wfile.write(b)
 
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.handle_error = lambda *a: None   # a reply to a client that gave up (a timeout test): no traceback in later tests
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     stub.url = f"http://127.0.0.1:{srv.server_address[1]}/v1"
     yield stub
@@ -376,3 +377,39 @@ def test_fake_desktop_ends_on_fail_and_takes_a_default_reward():
     assert d.act("FAIL")[1] is True and d.evaluate() == 1.0
     d.reset({"task_id": "t", "_attempt": 1, "reward": 0.5})
     assert d.evaluate() == 0.5
+
+
+def test_provider_error_keeps_the_status_and_the_message_only():
+    from legato.rl.policy import provider_error
+    body = json.dumps({"error": {"message": "qwen/no-such-model-xyz is not a valid model ID", "code": 400},
+                       "user_id": "user_3HscRKwEPQm2iykBVKsF6DLA36Q"}).encode()
+    assert provider_error(400, body) == "HTTP 400: qwen/no-such-model-xyz is not a valid model ID"
+    raw = json.dumps({"error": {"message": "max_tokens is too large", "type": "invalid_request_error"}})
+    upstream = {"error": {"message": "Provider returned error", "code": 400,
+                          "metadata": {"raw": raw, "provider_name": "Together"}}, "user_id": "user_x"}
+    assert provider_error(400, json.dumps(upstream)) == "HTTP 400: Provider returned error: max_tokens is too large"
+    assert provider_error(422, json.dumps({"detail": [{"msg": "field required"}]})) == "HTTP 422: field required"
+    assert provider_error(404, json.dumps({"object": "error", "message": "The model `m` does not exist."})) == \
+        "HTTP 404: The model `m` does not exist."
+    assert provider_error(502, b"<html><body><h1>502 Bad Gateway</h1></body></html>") == "HTTP 502: 502 Bad Gateway"
+    assert provider_error(500, json.dumps({"id": "abc", "user_id": "u"})) == "HTTP 500"
+    long = provider_error(400, json.dumps({"error": "x" * 1000}))
+    assert len(long) == 300 and long.endswith("...")
+
+
+def test_policy_errors_carry_no_body_and_rl_clients_have_no_deadline(server):
+    c = PolicyClient(PolicyConfig(server.url, "m", token_ids=False, retries=0))
+    assert c.deadline is None
+    server.fail_first = 1
+    with pytest.raises(PolicyError, match=r"^policy call failed after 1 attempts: HTTP 500: boom$"):
+        c.chat([{"role": "user", "content": "x"}])
+
+
+def test_a_deadline_caps_each_attempt_and_stops_retries(server):
+    server.delay_s = 2.0
+    c = PolicyClient(PolicyConfig(server.url, "m", timeout_s=60.0, retries=3))
+    c.deadline = time.monotonic() + 0.4
+    t = time.perf_counter()
+    with pytest.raises(PolicyError, match="time limit"):
+        c.chat([{"role": "user", "content": "x"}])
+    assert time.perf_counter() - t < 1.2

@@ -34,6 +34,13 @@ def server():
             st["bodies"].append(body)
             time.sleep(st["delay"])
             step = st["script"].pop(0) if st["script"] else {"content": "", "tool_calls": [tc({"action": "done"})]}
+            if "http" in step:                    # an error reply: {"http": 400, "body": {...}}
+                out = json.dumps(step["body"]).encode()
+                self.send_response(step["http"])
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+                return
             out = json.dumps({"choices": [{"message": {"content": step.get("content", ""),
                                                        **({"tool_calls": step["tool_calls"]} if step.get("tool_calls") else {})}}],
                               "usage": {"prompt_tokens": 10, "completion_tokens": 3}}).encode()
@@ -42,6 +49,7 @@ def server():
             self.end_headers()
             self.wfile.write(out)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.handle_error = lambda *a: None   # a reply to a client that gave up (a timeout test): no traceback in later tests
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     st["url"] = f"http://127.0.0.1:{srv.server_address[1]}/v1"
     yield st
@@ -426,3 +434,158 @@ def test_an_action_left_open_before_the_models_closing_tags_is_read():
     assert _text_calls('Now I will click Export. {"action": "left_click", "coordinate":') == []      # cut off: nothing to run
     assert _text_calls('{"action": "key", "keys": "ctrl+s"} then {"action": "type", "text": "a" </parameter>') == [
         ("computer", {"action": "key", "keys": "ctrl+s"}), ("computer", {"action": "type", "text": "a"})]
+
+
+# ------------------------------------------------------------ how a run ends: status, deadline, cancel, desktop errors
+CLICK = {"tool_calls": [tc({"action": "left_click", "coordinate": [500, 500]})]}
+
+
+def test_every_ending_has_a_status(server):
+    server["script"] = [CLICK, {"tool_calls": [tc({"action": "done", "text": "42"})]}]
+    res = legato.Harness("m", server["url"]).run("t", fake_env([]))
+    assert (res.status, res.done, res.answer) == ("done", True, "42")
+    server["script"] = [{"tool_calls": [tc({"action": "fail"})]}]
+    res = legato.Harness("m", server["url"]).run("t", fake_env([]))
+    assert (res.status, res.failed, res.error) == ("failed", True, None)
+    server["script"] = [CLICK] * 3
+    res = legato.Harness("m", server["url"]).run("t", fake_env([]), max_steps=2)
+    assert (res.status, res.done, res.failed, res.error, res.steps) == ("max_steps", False, False, None, 2)
+    assert res.report().startswith("out of steps")
+    server["script"] = [{"http": 401, "body": {"error": {"message": "No auth credentials found", "code": 401}}}]
+    res = legato.Harness("m", server["url"], retries=0).run("t", fake_env([]))
+    assert (res.status, res.failed, res.error) == ("error", False, "HTTP 401: No auth credentials found")
+
+
+def test_harness_run_and_legato_run_default_to_40_steps():
+    import inspect
+    from legato.delegate import run_delegated
+    from legato.point import run_pointed
+    for fn in (legato.Harness.run, legato.run, run_pointed, run_delegated):
+        assert inspect.signature(fn).parameters["max_steps"].default == 40, fn
+
+
+def test_usage_is_a_typed_dict_and_a_plain_dict():
+    from typing import get_type_hints
+    from legato.harness import Usage
+    res = legato.RunResult("t")
+    assert type(res.usage) is dict and res.usage == {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
+    assert get_type_hints(legato.RunResult)["usage"] is Usage and set(Usage.__annotations__) == set(res.usage)
+    assert legato.Usage is Usage and set(legato.RunStatus.__args__) == {"done", "failed", "max_steps", "timeout",
+                                                                       "cancelled", "stopped", "error"}
+
+
+def test_timeout_ends_the_run_between_steps_with_what_was_done(server):
+    server["script"], server["delay"] = [CLICK] * 20, 0.3
+    log = []
+    t = time.perf_counter()
+    res = legato.Harness("m", server["url"]).run("t", fake_env(log), timeout_s=1.0)
+    assert res.status == "timeout" and not res.done and not res.failed and "time limit (1 s)" in res.error
+    assert 1 <= res.steps < 20 and len(log) >= 1 and res.actions[0].startswith("click")
+    assert res.usage["prompt"] >= 10 * res.steps and time.perf_counter() - t < 2.5
+
+
+def test_timeout_caps_a_model_call_at_the_time_left(server):
+    server["script"], server["delay"] = [CLICK], 3.0      # one slow call; the step timeout alone would wait for it
+    t = time.perf_counter()
+    h = legato.Harness("m", server["url"], step_timeout_s=60.0, retries=2)
+    res = h.run("t", fake_env([]), timeout_s=0.5)
+    assert res.status == "timeout" and res.steps == 0 and time.perf_counter() - t < 1.8
+    assert h.client.deadline is None                        # the next run gets no leftover deadline
+
+
+def test_cancel_ends_the_run_before_the_next_model_call(server):
+    server["script"] = [CLICK] * 5
+    stop = threading.Event()
+    log = []
+    res = legato.Harness("m", server["url"]).run("t", fake_env(log), cancel=stop,
+                                                  on_step=lambda turn, acts, timing: turn == 1 and stop.set())
+    assert (res.status, res.error, res.steps, len(log)) == ("cancelled", "cancelled", 2, 2)
+    assert len(server["bodies"]) == 2 and res.usage["prompt"] == 20 and len(res.actions) == 2
+    stop.clear()
+    stop.set()                                              # set before it starts: nothing runs at all
+    res = legato.Harness("m", server["url"]).run("t", fake_env([]), cancel=stop)
+    assert res.status == "cancelled" and res.steps == 0 and len(server["bodies"]) == 2
+
+
+def test_cancel_from_another_thread(server):
+    server["script"], server["delay"] = [CLICK] * 50, 0.05
+    stop = threading.Event()
+    threading.Timer(0.4, stop.set).start()
+    res = legato.Harness("m", server["url"]).run("t", fake_env([]), cancel=stop)
+    assert res.status == "cancelled" and 1 <= res.steps < 50
+
+
+def flaky_env(log: list, fail_at: int):
+    """A desktop whose fail_at-th action raises, as a window that can no longer be captured does."""
+    png = fake_env([]).observe().screenshot
+
+    def execute(a):
+        log.append(a)
+        if len(log) == fail_at:
+            raise RuntimeError("the window could not be captured")
+    return legato.attach(screenshot=lambda: png, execute=execute)
+
+
+def test_a_desktop_error_mid_run_is_returned_with_the_usage_so_far(server):
+    server["script"] = [CLICK, {"tool_calls": [tc({"action": "type", "text": "a"}), tc({"action": "key", "keys": "x"})]}]
+    log = []
+    res = legato.Harness("m", server["url"]).run("t", flaky_env(log, 2), raise_desktop_errors=False)
+    assert res.status == "error" and not res.done and not res.failed
+    assert res.error == "the desktop failed: the window could not be captured"
+    assert res.steps == 2 and res.usage["prompt"] == 20 and res.actions == ["click (500, 250)"]
+    assert res.report().startswith("the desktop failed")
+
+
+def test_a_desktop_error_still_raises_out_of_harness_run_by_default(server):
+    """legato-research and other callers of Harness.run catch the exception to mark a run as crashed."""
+    server["script"] = [CLICK, CLICK]
+    with pytest.raises(RuntimeError, match="could not be captured"):
+        legato.Harness("m", server["url"]).run("t", flaky_env([], 2))
+
+
+def test_an_exception_from_on_step_is_raised_not_returned(server):
+    class Mine(Exception):
+        pass
+
+    def on_step(*a):
+        raise Mine("the caller's own")
+    server["script"] = [CLICK]
+    with pytest.raises(Mine):
+        legato.Harness("m", server["url"]).run("t", fake_env([]), on_step=on_step, raise_desktop_errors=False)
+
+
+def test_legato_run_returns_desktop_errors_and_takes_a_deadline(server, monkeypatch):
+    import legato.agent
+    server["script"] = [CLICK, CLICK]
+    res = legato.run("t", flaky_env([], 2), model="m", base_url=server["url"], api_key="")
+    assert res.status == "error" and res.task == "t" and res.usage["prompt"] == 20
+    server["script"], server["delay"] = [CLICK] * 20, 0.2
+    res = legato.run("t", fake_env([]), model="m", base_url=server["url"], api_key="", timeout_s=0.5)
+    assert res.status == "timeout" and res.steps >= 1
+
+    def no_docker(*a, **k):
+        raise RuntimeError("Docker is not running")
+    monkeypatch.setattr(legato.agent, "open_desktop", no_docker)
+    res = legato.run("t", "docker", model="m", base_url=server["url"], api_key="")
+    assert (res.status, res.error) == ("error", "cannot start the desktop: Docker is not running")
+
+
+def test_provider_error_bodies_are_cleaned(server):
+    """OpenRouter's 400 carries the account's user_id: the error keeps the status and the message only."""
+    server["script"] = [{"http": 400, "body": {"error": {"message": "qwen/no-such-model-xyz is not a valid model ID",
+                                                         "code": 400}, "user_id": "user_3HscRKwEPQm2iykBVKsF6DLA36Q"}}]
+    res = legato.Harness("qwen/no-such-model-xyz", server["url"]).run("t", fake_env([]))
+    assert res.error == "HTTP 400: qwen/no-such-model-xyz is not a valid model ID" and res.status == "error"
+
+
+def test_a_desktop_that_fails_mid_rollout_is_still_retried_by_rl(server, tmp_path):
+    """legato rl drives Harness.begin/decide/feed, not Harness.run: a desktop failure is still an env error, retried."""
+    from legato.rl import DesktopConfig, HarnessConfig, PolicyConfig, collect
+    from legato.rl.trajectory import read_rollouts
+    server["script"] = [CLICK, CLICK, {"tool_calls": [tc({"action": "done"})]}] * 3
+    s = collect([{"task_id": "t0", "reward": 1.0}], PolicyConfig(server["url"], "m", logprobs=False, token_ids=False),
+                tmp_path, desktops=1, group=1, env_retries=1, desktop=DesktopConfig(backend="fake", fake={"fail_act_every": 2}),
+                harness=HarnessConfig(name="legato"), start_stagger_s=0.0)
+    rs = read_rollouts(tmp_path)
+    assert [r["status"] for r in rs] == ["retried", "ok"] and s["env_errors"] == 1
+    assert rs[0]["error"]["kind"] == "env" and "the action failed" in rs[0]["error"]["message"]

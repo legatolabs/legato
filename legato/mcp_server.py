@@ -310,11 +310,20 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         except ValueError as e:
             raise ToolError(f"no model for desktop_run_task: {e}") from None
         from legato.agent import ANSWER_NOTE
-        res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps)
-        img = shot(d)
-        keep(desktop_id, "run_task", d["png"], task=task, model=agent.model, done=res.done, actions=res.actions[-50:])
+        res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps, raise_desktop_errors=False)
         answer = f"answer: {res.answer}\n" if res.answer else ""
-        return [answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]), img]
+        text = (f"status: {res.status}\n" + answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]))
+        try:
+            img = shot(d)
+        except Exception:  # noqa: BLE001 - the desktop that failed the run may not give a screenshot either
+            if res.status != "error":
+                raise
+            keep(desktop_id, "run_task", None, task=task, model=agent.model, status=res.status, done=res.done,
+                 actions=res.actions[-50:])
+            return [text]                    # report() leads with the error
+        keep(desktop_id, "run_task", d["png"], task=task, model=agent.model, status=res.status, done=res.done,
+             actions=res.actions[-50:])
+        return [text, img]
 
     @srv.tool()
     @_said

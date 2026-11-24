@@ -207,7 +207,7 @@ def test_legato_run_json_prints_json_when_it_cannot_start(capsys):
 
 
 def test_a_desktop_that_fails_mid_run_is_one_line_and_json(monkeypatch, own_config, capsys):
-    """A capture that fails after the run started: no traceback, and with --json one JSON object with the error."""
+    """A capture that fails after the run started: no traceback, and with --json the run's result with its status."""
     import legato.agent
     saved()
     def broken():
@@ -217,5 +217,26 @@ def test_a_desktop_that_fails_mid_run_is_one_line_and_json(monkeypatch, own_conf
     assert main(["run", "Say hello", "--json"]) == 2
     out, err = capsys.readouterr()
     got = json.loads(out.strip().splitlines()[-1])
-    assert got["done"] is False and got["error"].startswith("the run stopped: the window could not be captured")
+    assert got["status"] == "error" and got["done"] is False and got["failed"] is False
+    assert got["error"] == "the desktop failed: the window could not be captured" and "usage" in got
     assert "Traceback" not in err
+    assert main(["run", "Say hello"]) == 2
+    out, err = capsys.readouterr()
+    assert "\nthe desktop failed: the window could not be captured in " in out and "Traceback" not in err
+
+
+def test_legato_run_timeout_and_status_in_json(monkeypatch, own_config, capsys):
+    import legato.agent
+    from legato.rl.fake import tiny_png
+    saved()
+    env = legato.attach(screenshot=lambda: tiny_png(1), execute=lambda a: None)
+    monkeypatch.setattr(legato.agent, "open_desktop", lambda *a, **k: (env, lambda: None, "a test desktop"))
+    assert main(["run", "Say hello", "--json", "--timeout", "0"]) == 1       # out of time before the first call
+    got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (got["status"], got["steps"], got["done"]) == ("timeout", 0, False) and "time limit" in got["error"]
+
+
+def test_legato_run_json_says_error_when_it_cannot_start(capsys):
+    assert main(["run", "Say hello", "--json"]) == 2
+    got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert got["status"] == "error" and got["done"] is False

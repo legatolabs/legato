@@ -204,3 +204,42 @@ def test_a_desktop_failure_reaches_the_client_with_its_reason():
         with pytest.raises(Exception, match="desktop_screenshot failed: the window could not be captured"):
             await srv.call_tool("desktop_screenshot", {"desktop_id": did})
     asyncio.run(go())
+
+
+def test_run_task_reports_its_status_and_a_desktop_error(monkeypatch):
+    """desktop_run_task leads with the run's status; a desktop that fails mid-run comes back as status error, not as
+    an exception, even when the final screenshot cannot be taken either."""
+    import json
+    import legato.agent
+    shots, sent = {"n": 0, "fail_after": 99}, []
+
+    def screenshot():
+        shots["n"] += 1
+        if shots["n"] > shots["fail_after"]:
+            raise RuntimeError("the window could not be captured")
+        return png()
+
+    def agent_for(env, **kw):
+        h = legato.Harness("m", "http://x/v1", "", coords="pixels", model_size=None)
+
+        def chat(msgs, **k):
+            sent.append(msgs)
+            call = {"action": "left_click", "coordinate": [5, 5]} if len(sent) % 2 else {"action": "done"}
+            return {"content": "", "tool_calls": [{"type": "function", "function": {
+                "name": "computer", "arguments": json.dumps(call)}}], "usage": {"prompt": 7}, "s": 0.01}
+        h.client.chat = chat
+        return h
+    monkeypatch.setattr(legato.agent, "agent_for", agent_for)
+    srv = build_server(lambda res: (None, legato.attach(screenshot=screenshot, execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        did = r.content[0].text.split()[1]
+        r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
+        assert kinds(r) == ["text", "image"] and r.content[0].text.startswith("status: done\n")
+        shots["fail_after"] = shots["n"] + 1               # the first screenshot works, the one after the click fails
+        r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
+        assert kinds(r) == ["text"] and r.content[0].text.startswith(
+            "status: error\nthe desktop failed: the window could not be captured")
+    asyncio.run(go())

@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+From the persona tests (six simulated launch users on a real Mac):
+
+- **Every run result has a `status`:** done, failed, max_steps, timeout, cancelled, stopped or error.
+  `legato.run(timeout_s=, cancel=)`, `Harness.run(timeout_s=, cancel=)` and `legato run --timeout S` end a run on a
+  deadline or a `threading.Event`, keeping its usage so far.
+- **A failed desktop is a result, not an exception,** in `legato.run`, `legato run` and `desktop_run_task`
+  (`status="error"`). `Harness.run` still raises unless `raise_desktop_errors=False`, so rollout retries are
+  unchanged.
+- **Provider errors keep only the status code and the message:** OpenRouter's account `user_id` no longer appears in
+  `error`.
+- `Harness.run` defaults to 40 steps, like `legato.run` and the CLI; `RunResult.usage` is typed as `legato.Usage`;
+  `legato run` exits 2 on a model error, and `--json` output leads with `status`.
+- **MCP `desktop_read`:** a background desktop's window text from its Accessibility tree, as a short outline, so a
+  coding agent can check what a page says without a screenshot.
+- **`legato doctor` takes a real window capture** and reports works, stalled or failed, with the fix. With a model on
+  this machine, it checks the server answers, and it no longer reports a dead server as ready.
+- **Background mode:**
+  - It no longer presses the window's close, minimize or zoom buttons; the model is told the desktop can't.
+  - An open menu or popover now shows in the screenshot (it was drawn behind the window).
+  - With window capture stalled, a sheet (a Save or New Game dialog) is captured as itself.
+  - The default browser is Safari: Chrome 158 and later ignore background clicks on a web page's elements. A task
+    can still name Chrome.
+- **`legato rl collect --backend fake` works out of the box** (the fake harness is its default). A harness or backend
+  that can't load stops before any worker starts, naming the fix, and `collect` exits 1 when no rollout completed.
+- **Sampling for GRPO:**
+  - `--temperature` sets it, and a temperature in `--extra-body` or `--harness-opts` now applies too.
+  - `--seed` records a seed per rollout.
+  - A group sampled at temperature 0 gets a warning.
+- **Exported samples keep tool calls:** `response_text` includes the action. New fields: `response_content`,
+  `response_tool_calls`, `tokens_cover_response`, `finish_reason`, `sampling`.
+- The fake desktop's reward can be set with `--fake-opts`, and help text says `legato rl`.
+
 ## 0.3.1
 
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
