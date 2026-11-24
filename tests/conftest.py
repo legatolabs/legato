@@ -10,3 +10,13 @@ def own_config(tmp_path, monkeypatch):
                  "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     return tmp_path / "legato-config.json"
+
+
+@pytest.fixture(autouse=True)
+def no_shared_stall_note(tmp_path, monkeypatch):
+    """Background mode notes a window-capture stall in ~/.cache for the next process: tests keep theirs private."""
+    try:
+        import legato.background as bg
+    except ImportError:
+        return
+    monkeypatch.setattr(bg, "_stall_file", lambda: tmp_path / "capture-stalled")

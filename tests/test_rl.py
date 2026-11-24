@@ -401,7 +401,7 @@ def test_policy_errors_carry_no_body_and_rl_clients_have_no_deadline(server):
     c = PolicyClient(PolicyConfig(server.url, "m", token_ids=False, retries=0))
     assert c.deadline is None
     server.fail_first = 1
-    with pytest.raises(PolicyError, match=r"^policy call failed after 1 attempts: HTTP 500: boom$"):
+    with pytest.raises(PolicyError, match=r"^the model at .* did not answer \(1 attempt\): HTTP 500: boom\.$"):
         c.chat([{"role": "user", "content": "x"}])
 
 

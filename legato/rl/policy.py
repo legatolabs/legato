@@ -231,7 +231,10 @@ class PolicyClient:
             if failures > self.cfg.retries:
                 break
             time.sleep(min(2.0, 0.5 * failures, max(0.0, self._limit())))
-        raise PolicyError(f"policy call failed after {attempt} attempts: {last}")
+        hint = (" Is the model server running?" if "ConnectError" in last and any(
+            h in self.cfg.base_url for h in ("localhost", "127.0.0.1", "0.0.0.0")) else "")
+        raise PolicyError(f"the model at {self.cfg.base_url} did not answer ({attempt} attempt"
+                          f"{'' if attempt == 1 else 's'}): {last}.{hint}")
 
     def _limit(self) -> float:
         """This attempt's timeout: timeout_s, or the time left before the deadline if that is less."""

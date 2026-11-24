@@ -26,6 +26,11 @@ From the persona tests (six simulated launch users on a real Mac):
     can still name Chrome.
 - A missing app fails at once ("NoSuchApp could not be opened: Unable to find application..."), not after 30 s;
   `legato doctor --help` prints help.
+- After a window-capture stall, the next Legato processes skip the 3 s wait too, for five minutes (a note in
+  `~/.cache/legato`). `legato doctor` tries a few ordinary windows before it calls window capture failed.
+- A model that doesn't answer says where and what to do ("the model at http://localhost:11434/v1 did not answer (2
+  attempts): ConnectError... Is the model server running?"). `legato setup` suggests Ollama's or LM Studio's port when
+  that server is installed. README and llms.txt: vLLM is the tested local server; Ollama and LM Studio aren't yet.
 - **`legato rl collect --backend fake` works out of the box** (the fake harness is its default). A harness or backend
   that can't load stops before any worker starts, naming the fix, and `collect` exits 1 when no rollout completed.
 - **Sampling for GRPO:**

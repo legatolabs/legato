@@ -864,3 +864,17 @@ def test_an_app_that_does_not_exist_fails_at_once(monkeypatch):
     monkeypatch.setattr(app, "_find", lambda: pytest.fail("should not wait for an app that can't open"))
     with pytest.raises(RuntimeError, match="NoSuchApp123 could not be opened: Unable to find application"):
         app._launch(30)
+
+
+def test_a_stall_is_remembered_by_the_next_process(monkeypatch, tmp_path):
+    """Each `legato run` is a new process: without a shared note, every run would wait the API's 3 s again."""
+    import legato.background as bg
+    monkeypatch.setattr(bg, "_stall_file", lambda: tmp_path / "capture-stalled")
+    assert bg._stall_left(300) == 0.0
+    bg._note_stall()
+    assert 290 < bg._stall_left(300) <= 300
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.Q = object()                                   # the API must not be called at all
+    monkeypatch.setattr(bg, "_screencapture", lambda *a, **k: b"png")
+    monkeypatch.setattr(app, "windows", lambda: [], raising=False)
+    assert app.capture([7], (0, 0, 100, 80)) == b"png"

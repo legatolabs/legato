@@ -118,12 +118,20 @@ def window_capture(app: str = "", perms: dict | None = None) -> dict:
         from legato.background import MacApp, _screencapture
     except ImportError:
         return {"ok": None, "state": "not checked", "fix": 'pip install "legatolabs[local]"'}
-    win = next((w for w in wins if app and w["app"] == app), None) or (wins[0] if wins else None)
-    if win is None:
+    system = {"Window Server", "Dock", "Control Center", "Notification Center", "SystemUIServer", "Wallpaper"}
+    ordinary = [w for w in wins if w["app"] not in system]
+    tries = ([w for w in ordinary if app and w["app"] == app] + [w for w in ordinary if w["app"] != app])[:3]
+    if not tries:
         return {"ok": None, "state": "not checked", "fix": None, "why": "no window on screen to capture"}
-    size = (int(win["rect"][2]), int(win["rect"][3]))
-    out = capture_state(lambda: _api_capture(win), lambda: _screencapture(win["id"], size), MacApp.API_WAIT_S)
-    return {**out, "window": f"{win['app']}'s window"}
+    out: dict = {}
+    for win in tries:            # a window `screencapture` can't take (a panel, an overlay) is no verdict on the Mac
+        size = (int(win["rect"][2]), int(win["rect"][3]))
+        wait = MacApp.API_WAIT_S if not out else 0.5    # the API has had its chance on the first window
+        out = {**capture_state(lambda: _api_capture(win), lambda: _screencapture(win["id"], size), wait),
+               "window": f"{win['app']}'s window"}
+        if out["ok"]:
+            break
+    return out
 
 
 def checks(capture: bool = False) -> dict:

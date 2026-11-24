@@ -80,6 +80,29 @@ def _quote(s: str, cap: int = 2000) -> str:
     return json.dumps(s if len(s) <= cap else s[:cap] + "…", ensure_ascii=False)
 
 
+def _stall_file():
+    from pathlib import Path
+    return Path.home() / ".cache" / "legato" / "capture-stalled"
+
+
+def _note_stall() -> None:
+    """Remember that window capture stalled, so the next Legato process skips the API's 3 s wait for a while."""
+    try:
+        f = _stall_file()
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(str(time.time()))
+    except OSError:
+        pass
+
+
+def _stall_left(window_s: float) -> float:
+    """Seconds left of a recent stall's window (0 if none, or if it can't be read)."""
+    try:
+        return float(_stall_file().read_text()) + window_s - time.time()
+    except (OSError, ValueError):
+        return 0.0
+
+
 def _within(seconds: float, fn):
     """fn() if it returns within `seconds`, else None (it finishes on its own in a background thread)."""
     import threading
@@ -236,7 +259,9 @@ class MacApp:
         screen recorder running and several captures at once), while `screencapture` still works. So the API call
         gets API_WAIT_S, and after a stall the front window is taken with `screencapture` for API_OFF_S."""
         q = self.Q
-        if time.monotonic() >= getattr(self, "_api_off_until", 0.0):
+        if not hasattr(self, "_api_off_until"):        # a stall another Legato process saw in the last minutes
+            self._api_off_until = time.monotonic() + max(0.0, _stall_left(self.API_OFF_S))
+        if time.monotonic() >= self._api_off_until:
             # the API draws the first window in its list on top: what covers the window goes first, or it is hidden
             img = _within(self.API_WAIT_S, lambda: q.CGWindowListCreateImageFromArray(
                 q.CGRectMake(*rect), ids[1:] + ids[:1],
@@ -246,6 +271,7 @@ class MacApp:
                 rep = NSBitmapImageRep.alloc().initWithCGImage_(img)
                 return bytes(rep.representationUsingType_properties_(NSPNGFileType, None))
             self._api_off_until = time.monotonic() + self.API_OFF_S
+            _note_stall()
         x, y, w, h = rect
         hosts = [(v["x"], v["y"], v["w"], v["h"]) for v in self.windows()
                  if v["layer"] == 0 and v["id"] != ids[0] and v["x"] <= x and v["y"] <= y

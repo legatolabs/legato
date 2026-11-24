@@ -227,7 +227,10 @@ def _main(argv) -> int:
             base_url, models = hit
             say(f"   found a model server at {base_url}")
         elif asking:
-            base_url = _text("   Base URL of your model server (ends in /v1)", base_url)
+            guess = ("http://localhost:11434/v1" if shutil.which("ollama") else "http://localhost:1234/v1"
+                     if Path("/Applications/LM Studio.app").exists() else base_url)
+            base_url = _text("   No model server answered on :8000, :11434 or :1234. Base URL of yours (ends in /v1)",
+                             guess)
     elif provider == "custom" and asking and not base_url:
         base_url = _text("   Base URL (OpenAI-compatible, ends in /v1)")
     if not base_url:

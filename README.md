@@ -35,7 +35,7 @@ Choose your model once. Every way in runs the same agent with it.
 | **Python** | `legato.run("...")`, or `legato.Harness(...).run(task, desktop)` | Your own agent, RL rollouts ([docs](https://legato.computer/docs/python)) |
 
 **Any model** with an OpenAI-compatible API and vision: Qwen, Claude, GPT, Gemini, Grok, through OpenRouter or the
-maker's own API, or on your own GPU (vLLM, Ollama, LM Studio), where nothing leaves your machine
+maker's own API, or on your own GPU with vLLM (Ollama and LM Studio serve the same API; untested so far), where nothing leaves your machine
 ([models](https://legato.computer/docs/models)).
 
 **Any computer** ([desktops](https://legato.computer/docs/sandboxes)):

@@ -1,6 +1,6 @@
 # Legato
 
-> A fast, open-source computer-use agent for any model (Apache-2.0). It uses a computer (clicks, types, reads the screen) with any OpenAI-compatible vision model: Qwen, Claude, GPT, Gemini, through OpenRouter, the maker's API, or a local server (vLLM, Ollama, LM Studio). Four ways in, one agent: the Mac app, `legato run` in a terminal, an MCP server for coding agents, and the Python package. It waits for the screen instead of sleeping and bounds every model call. PyPI name `legatolabs`, import name `legato`.
+> A fast, open-source computer-use agent for any model (Apache-2.0). It uses a computer (clicks, types, reads the screen) with any OpenAI-compatible vision model: Qwen, Claude, GPT, Gemini, through OpenRouter, the maker's API, or a local server (vLLM; Ollama and LM Studio untested). Four ways in, one agent: the Mac app, `legato run` in a terminal, an MCP server for coding agents, and the Python package. It waits for the screen instead of sleeping and bounds every model call. PyPI name `legatolabs`, import name `legato`.
 
 ## Set up Legato for your user
 
