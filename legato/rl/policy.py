@@ -46,7 +46,9 @@ class PolicyConfig:
 
 
 class PolicyError(RuntimeError):
-    pass
+    """Every attempt at a model call failed. `cut`: attempts that were sent and cut off before a reply (a timeout,
+    a dropped connection), which the provider may still bill."""
+    cut: int = 0
 
 
 class _Deadline(Exception):
@@ -119,6 +121,12 @@ def _message(j: Any, depth: int = 0) -> str:
     return ""
 
 
+def _failed(message: str, cut: int) -> PolicyError:
+    e = PolicyError(message)
+    e.cut = cut
+    return e
+
+
 def attribution_headers(base_url: str) -> dict[str, str]:
     """OpenRouter's app attribution: names Legato (not you or your task) on OpenRouter's public app rankings.
     Sent only to openrouter.ai; set LEGATO_NO_ATTRIBUTION=1 to turn it off."""
@@ -135,6 +143,8 @@ class PolicyClient:
         # a time.monotonic() deadline (Harness.run's timeout_s): no attempt, retry or wait runs past it, and each
         # attempt's timeout is at most the time left. None: no deadline (each attempt gets timeout_s).
         self.deadline: float | None = None
+        # where the API key came from, by name ("the key in $OPENROUTER_API_KEY"), never its value: a 401 or 403 says it
+        self.key_source = ""
         headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}
         headers.update(attribution_headers(cfg.base_url))
         self.http = httpx.Client(timeout=httpx.Timeout(cfg.timeout_s, connect=min(10.0, cfg.timeout_s)),
@@ -191,12 +201,12 @@ class PolicyClient:
         why: list[str] = []
         seed = self._take_seed()
         t0 = time.perf_counter()
-        attempt = failures = 0
+        attempt = failures = cut = 0                       # cut: attempts sent and cut off before a reply
         busy_waited = 0.0
         while True:
             limit = self._limit()
             if self.deadline is not None and limit <= 0:   # the run's deadline has passed: no new attempt
-                raise PolicyError("the run's time limit ran out" + (f" ({last})" if last else ""))
+                raise _failed("the run's time limit ran out" + (f" ({last})" if last else ""), cut)
             attempt += 1
             wait = None                                    # set when the server asked us to come back later
             acquired = self.sem.acquire(timeout=max(600.0, 10 * self.cfg.timeout_s)) if self.sem is not None else True
@@ -215,17 +225,23 @@ class PolicyClient:
                         wait = min(60.0, ra if ra is not None else 2.0 * min(attempt, 5),
                                    self.cfg.busy_wait_s - busy_waited)
                 elif r.status_code != 200:
-                    raise PolicyError(provider_error(r.status_code, r.content))
+                    msg = provider_error(r.status_code, r.content)
+                    if r.status_code in (401, 403):
+                        msg += ("" if msg.endswith((".", "!", "?")) else ".") + self._key_hint(r.status_code)
+                    raise _failed(msg, cut)
                 else:
                     rec = self._record(r.json(), time.perf_counter() - t0, time.perf_counter() - ta, attempt)
                     rec["sampling"] = {k: body.get(k) for k in ("temperature", "top_p", "seed")}
                     if why:
                         rec["retry_reasons"] = why
+                    rec["cut"] = cut
                     return rec
-            except (httpx.TimeoutException, _Deadline):
+            except (httpx.TimeoutException, _Deadline) as e:
                 last = f"timeout after {limit:.0f} s"
+                cut += not isinstance(e, (httpx.ConnectTimeout, httpx.PoolTimeout))     # those were never sent
             except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
                 last = f"{type(e).__name__}: {str(e)[:200]}"
+                cut += not isinstance(e, httpx.ConnectError)
             finally:
                 if self.sem is not None and acquired:
                     self.sem.release()
@@ -241,8 +257,26 @@ class PolicyClient:
             time.sleep(min(2.0, 0.5 * failures, max(0.0, self._limit())))
         hint = (" Is the model server running?" if "ConnectError" in last and any(
             h in self.cfg.base_url for h in ("localhost", "127.0.0.1", "0.0.0.0")) else "")
-        raise PolicyError(f"the model at {self.cfg.base_url} did not answer ({attempt} attempt"
-                          f"{'' if attempt == 1 else 's'}): {last}.{hint}")
+        raise _failed(f"the model at {self.cfg.base_url} did not answer ({attempt} attempt"
+                      f"{'' if attempt == 1 else 's'}): {last}.{hint}", cut)
+
+    def _key_hint(self, status: int) -> str:
+        """What to do about a 401 or 403: which key was refused, by where it came from (never the key)."""
+        if not self.cfg.api_key:
+            return (f" No API key was sent to {self.cfg.base_url}: pass api_key=, export the provider's key (such as "
+                    "OPENROUTER_API_KEY), or run legato setup.")
+        src = self.key_source or "the API key"
+        var = re.search(r"\$(\w+)", src)
+        if var:
+            fix = f"check it, export a working one as {var.group(1)}, or run legato setup"
+        elif "legato setup" in src:
+            fix = "run legato setup to save a working one, or export LEGATO_API_KEY"
+        elif self.key_source:
+            fix = "check the key you passed"
+        else:
+            fix = "check it, or run legato setup"
+        refused = "was refused" if status == 401 else "was refused, or may not use this model"
+        return f" {src[0].upper()}{src[1:]} {refused} by {self.cfg.base_url}: {fix}."
 
     def _limit(self) -> float:
         """This attempt's timeout: timeout_s, or the time left before the deadline if that is less."""

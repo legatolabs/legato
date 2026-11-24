@@ -343,3 +343,18 @@ def test_legato_run_json_says_error_when_it_cannot_start(capsys):
     assert main(["run", "Say hello", "--json"]) == 2
     got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert got["status"] == "error" and got["done"] is False
+
+
+def test_legato_run_timeout_covers_opening_the_desktop(monkeypatch, own_config, capsys):
+    import legato.agent
+    from legato.rl.fake import tiny_png
+    saved()
+    seen = {}
+
+    def opened(*a, **k):
+        seen.update(k)
+        return legato.attach(screenshot=lambda: tiny_png(1), execute=lambda a: None), (lambda: None), "a test desktop"
+    monkeypatch.setattr(legato.agent, "open_desktop", opened)
+    assert main(["run", "Say hello", "--json", "--timeout", "0"]) == 1
+    got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert seen["timeout_s"] == 0 and got["error"] == "the run's time limit (0 s) ran out"

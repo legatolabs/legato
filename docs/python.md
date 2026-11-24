@@ -39,16 +39,20 @@ print(result.report())        # done or failed, the turns, and where the time we
 `legato.run(task, desktop=None, *, model=None, base_url=None, api_key=None, app=None, max_steps=40, on_step=None,
 confirm="auto", timeout_s=None, cancel=None)` opens the desktop, runs the task and closes the desktop. `desktop` is a
 name (`"background"`, `"screen"`, `"docker"`, `"e2b"`) or a desktop you opened yourself. It returns a result for
-every way a run can end, model and desktop errors included; only a missing model or a bad argument raises.
+every way a run can end, model and desktop errors included; only a missing model or a bad argument (a `desktop` that
+names none) raises.
 
-- **`timeout_s`** is a deadline for the whole run: each model call gets at most the time left. **`cancel`** is a
-  `threading.Event`: set it from another thread and the run ends before its next model call. Both return what was
-  done so far, usage included.
+- **`timeout_s`** is a deadline for the whole call, opening the desktop included: an app's launch, a docker desktop
+  (image pull included) and E2B's create request stop at the time left, and so does each model call. Your own
+  `--sandbox` function and the first screenshot can't be cut short. **`cancel`** is a `threading.Event`: set it from
+  another thread and the run ends before its next model call. Both return what was done so far, usage included.
 - **`confirm`** decides risky actions (keys such as Cmd+Delete or Cmd+Q, a typed `rm` or `sudo`:
-  [the list](sandboxes.md#this-computer)) on this computer (`"background"`, `"screen"`); other desktops ignore it. `"auto"` asks yes/no in the terminal when there is one, and
-  in an unattended run (a server, a job) asks nothing and runs them. A function `confirm(description) -> bool` decides
-  each one; on `False` the action is skipped and the model looks for another way. `None` runs them all without
-  asking; `legato.safety.deny` refuses them all, the safe choice for an unattended run on a real computer.
+  [the list](sandboxes.md#this-computer)) on this computer (`"background"`, `"screen"`); other desktops ignore it.
+  `"auto"` asks yes/no in the terminal when there is one; **in an unattended run (a server, a job) `legato.run`
+  refuses them**, and the model is told they were not allowed. A function `confirm(description) -> bool` decides each
+  one. `None` runs them all without asking; `legato.safety.deny` refuses them all, even at a terminal.
+  (`legato.local()`, `legato run` and the MCP server keep `"auto"` as asking at a terminal and running them
+  unattended.)
 
 ### Choose each part yourself
 
@@ -83,9 +87,14 @@ to get it back as a result, as `legato.run` does.
   desktop; `legato.Tool(name, description, json_schema, handler)` wraps your own function, whose text result goes
   back to the model.
 - **The result:** `status` (how it ended, below), `done`, `failed`, `answer` (what the model said at the end),
-  `actions`, `steps`, `wall_s`, `timings` (per turn: model, actions, waiting for the screen, screenshots), `usage`
-  (`prompt`, `completion` and `cached` tokens, and `cost_usd` when the provider reports it), `error`, `stopped`, and
-  `report()`.
+  `actions`, `steps`, `wall_s`, `timings` (per turn: model, actions, waiting for the screen, screenshots), `usage`,
+  `error`, `stopped`, and `report()`.
+  - `actions` are strings, one per action that ran, such as `"click (29, 316)"`, `"type 'hello'"` or
+    `"not allowed: key cmd+q"`, then `"done"` or `"fail"`. For `legato.Action` objects, collect them in `on_step`,
+    whose `actions` are the Actions (and `ToolCall`s) each turn ran.
+  - `usage` (`legato.Usage`) counts the model calls that answered: `prompt`, `completion` and `cached` tokens, and
+    `cost_usd` when the provider reports it. `complete` is `False` when a call was sent and cut off before its reply
+    (a timeout, `timeout_s`) or sent twice: the provider may still bill it, and it is not in the counts.
 - **Stopping it** on your own screen: move the mouse into a corner, or hold Escape on a Mac. Risky actions wait for
   your yes in the terminal ([what counts](sandboxes.md#this-computer)).
 - **Models:** coordinates, thinking models and settings for each are in [models](models.md).
@@ -102,7 +111,12 @@ to get it back as a result, as `legato.run` does.
 | `timeout` | `timeout_s` ran out | raise `timeout_s`; `actions` shows how far it got |
 | `cancelled` | your `cancel` event was set | nothing |
 | `stopped` | the person at the computer stopped it | nothing; their choice |
-| `error` | a model call failed (`HTTP 401: ...`, a timeout) or the desktop did (`the desktop failed: ...`) | fix the key, model or desktop that `error` names, then retry |
+| `error` | a model call failed (`HTTP 401: ...`, a timeout) or the desktop did (`the desktop failed: ...`) | fix the key, model or desktop that `error` names, then retry; a refused key's error names where the key came from (`$OPENROUTER_API_KEY`, the one `legato setup` saved), never the key |
+
+Opening a desktop yourself raises instead: `legato.local(background="NoSuchApp")`, `legato.providers.docker(...)` and
+the other built-in desktops raise `legato.DesktopStartError` when they can't start, and a desktop that fails later
+raises `legato.DesktopError` out of `agent.run` (unless `raise_desktop_errors=False`). `DesktopStartError` is a
+`DesktopError`, and both are `RuntimeError`s, so `except RuntimeError` still catches them.
 
 ### Write a starting point
 

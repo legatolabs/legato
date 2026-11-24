@@ -12,13 +12,14 @@
 from legato import config, providers, tools
 from legato.actions import Action, parse
 from legato.agent import agent_for, run
-from legato.env import Env, Obs, attach
+from legato.env import DesktopError, DesktopStartError, Env, Obs, attach
 from legato.delegate import Planner
 from legato.harness import Harness, RunResult, RunStatus, Usage, computer_tool
 from legato.local import local
 from legato.settle import Waiter, wrap
 from legato.tools import Tool
 
-__all__ = ["Action", "Env", "Harness", "Obs", "Planner", "RunResult", "RunStatus", "Tool", "Usage", "Waiter", "agent_for",
-           "attach", "computer_tool", "config", "local", "parse", "providers", "run", "tools", "wrap"]
+__all__ = ["Action", "DesktopError", "DesktopStartError", "Env", "Harness", "Obs", "Planner", "RunResult", "RunStatus",
+           "Tool", "Usage", "Waiter", "agent_for", "attach", "computer_tool", "config", "local", "parse", "providers",
+           "run", "tools", "wrap"]
 __version__ = "0.3.1"

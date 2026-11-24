@@ -36,7 +36,7 @@ from typing import Any
 
 from legato import safety
 from legato.actions import Action
-from legato.env import Env
+from legato.env import DesktopError, DesktopStartError, Env
 from legato.local import LocalEnv
 from legato.settle import LOCAL_RULES, Waiter
 
@@ -171,6 +171,7 @@ class MacApp:
     Coordinates here are screen points, origin at the top left of the main display. Elements are AXUIElements."""
 
     def __init__(self, app: str, launch_s: float = 30.0):
+        """launch_s: how long to wait for the app to start when it is not running (DesktopStartError after it)."""
         try:
             import ApplicationServices as AS
             import Quartz
@@ -209,16 +210,20 @@ class MacApp:
         return self._bid
 
     def _launch(self, wait_s: float) -> int:
-        r = subprocess.run(["open", "-g", self.flag, self.name], capture_output=True, text=True, timeout=30)  # -g: not in front
+        end = time.monotonic() + wait_s
+        try:                                                                  # -g: not in front
+            r = subprocess.run(["open", "-g", self.flag, self.name], capture_output=True, text=True,
+                               timeout=max(0.5, min(30.0, wait_s)))
+        except subprocess.TimeoutExpired:
+            raise DesktopStartError(f"{self.name} did not open within {wait_s:g} s") from None
         if r is not None and getattr(r, "returncode", 0) != 0:                # no such app: say so now, not in 30 s
             why = (getattr(r, "stderr", "") or "").strip().splitlines()
-            raise RuntimeError(f"{self.name} could not be opened: {why[-1] if why else 'is it installed?'}")
-        end = time.monotonic() + wait_s
+            raise DesktopStartError(f"{self.name} could not be opened: {why[-1] if why else 'is it installed?'}")
         while time.monotonic() < end:
             if pid := self._find():
                 return pid
             _pump(0.2)
-        raise RuntimeError(f"{self.name} did not open within {wait_s:.0f} s (is it installed?)")
+        raise DesktopStartError(f"{self.name} did not open within {wait_s:g} s (is it installed?)")
 
     def unhide(self) -> bool:
         """Show the app again if it was hidden (cmd+H), without bringing it to the front. True if it was hidden."""
@@ -278,7 +283,7 @@ class MacApp:
                  and v["x"] + v["w"] >= x + w and v["y"] + v["h"] >= y + h]
         png = _screencapture(ids[0], rect, hosts, self.scale_at(x + w / 2, y + h / 2) if hosts else None)
         if png is None:
-            raise RuntimeError("the window could not be captured: check Screen Recording for this app in System "
+            raise DesktopError("the window could not be captured: check Screen Recording for this app in System "
                                "Settings; if it is on, macOS's screen capture is busy (quit other screen recorders) "
                                "or needs a restart")
         return png
@@ -404,9 +409,9 @@ class BackgroundEnv(LocalEnv):
     don't apply here, since the mouse and keyboard stay theirs: stop the run from the program running it."""
 
     def __init__(self, app: str, mac_cmd: bool = True, fixed_wait_s: float | None = None, *,
-                 confirm: safety.Confirm | str | None = "auto", mac: Any = None):
+                 confirm: safety.Confirm | str | None = "auto", mac: Any = None, launch_s: float = 30.0):
         if mac is None and sys.platform != "darwin":
-            raise RuntimeError("background mode is macOS only: use legato.local() or a sandbox elsewhere")
+            raise DesktopStartError("background mode is macOS only: use legato.local() or a sandbox elsewhere")
         self.mac = True                       # LocalEnv: Ctrl shortcuts are sent as Cmd
         self.mac_cmd = mac_cmd
         self.gui = None
@@ -419,7 +424,7 @@ class BackgroundEnv(LocalEnv):
         self.mackeys = self.macmouse = None
         self.wait_scope, self.wait = "app", "screen"
         self.confirm = safety.default_confirm() if confirm == "auto" else confirm
-        self.m = mac or MacApp(app)
+        self.m = mac or MacApp(app, launch_s=launch_s)
         self.app = app
         self.win: dict | None = None          # the window the latest screenshot showed
         Env.__init__(self, self._png, self._exec, fixed_wait_s=fixed_wait_s)
@@ -443,7 +448,7 @@ class BackgroundEnv(LocalEnv):
                     time.sleep(0.2)
                     if any(w["layer"] == 0 for w in self.m.windows()):
                         break
-        raise RuntimeError(f"{self.app} has no window on screen (is it minimized or on another Space?)")
+        raise DesktopError(f"{self.app} has no window on screen (is it minimized or on another Space?)")
 
     def _capture(self) -> tuple[dict, bytes]:
         w = self.window()
@@ -472,7 +477,7 @@ class BackgroundEnv(LocalEnv):
         self.window()
         win = self._ax_window()
         if win is None:
-            raise RuntimeError(f"{self.app}'s window has no Accessibility tree to read")
+            raise DesktopError(f"{self.app}'s window has no Accessibility tree to read")
         page = self._find_role(win, "AXWebArea")
         root = page if page is not None else win
         a = self._attrs(root, ["AXTitle", "AXURL"])
@@ -936,6 +941,7 @@ class BackgroundEnv(LocalEnv):
 
 
 def background(app: str, mac_cmd: bool = True, fixed_wait_s: float | None = None, *,
-               confirm: safety.Confirm | str | None = "auto") -> BackgroundEnv:
-    """`app`'s front window on this Mac, worked in the background (see the module docstring)."""
-    return BackgroundEnv(app, mac_cmd=mac_cmd, fixed_wait_s=fixed_wait_s, confirm=confirm)
+               confirm: safety.Confirm | str | None = "auto", launch_s: float = 30.0) -> BackgroundEnv:
+    """`app`'s front window on this Mac, worked in the background (see the module docstring). launch_s: how long to
+    wait for the app to start if it is not running. Raises legato.DesktopStartError when it can't be opened."""
+    return BackgroundEnv(app, mac_cmd=mac_cmd, fixed_wait_s=fixed_wait_s, confirm=confirm, launch_s=launch_s)

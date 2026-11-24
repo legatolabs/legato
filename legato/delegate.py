@@ -150,7 +150,7 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                   on_step: Callable | None = None, *, res: "RunResult | None" = None, limits=None) -> "RunResult":
     """Harness.run with a planner (see the module docstring). max_steps counts executor turns. res: the result to
     fill in (Harness.run's); limits: its deadline and cancel event, checked before each model call."""
-    from legato.harness import RunResult
+    from legato.harness import RunResult, _book
     p: Planner = h.planner
     res = RunResult(task) if res is None else res
     t0 = time.monotonic()
@@ -179,6 +179,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 40,
         pl["completion"] += u.get("completion") or 0
         pl["cost_usd"] += u.get("cost") or 0.0
         res.usage["cost_usd"] += u.get("cost") or 0.0
+        if rec.get("cut") or rec.get("hedged"):
+            res.usage["complete"] = False
         res.timings.append({"planner_s": time.monotonic() - t, "planner": reason_key})
         res.trace.append({"planner": reason_key, "status": status, "s": round(time.monotonic() - t, 2),
                           "steps": [[x["do"][:140], x["expect"][:100]] for x in steps]})
@@ -189,7 +191,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 40,
         try:
             status, steps = call_planner("start", "No plan yet: write the first one.")
         except PolicyError as e:
-            res.error = f"planner: {str(e)[:280]}"
+            _book(res.usage, error=e)
+            res.error = f"planner: {str(e)[:480]}"
             if limits is not None:
                 limits.hit(res)                 # a call cut short by the deadline: a timeout
             return res
@@ -215,14 +218,12 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                 try:
                     plan = h.decide(ep)
                 except PolicyError as e:
-                    res.error = str(e)[:300]
+                    _book(res.usage, error=e)
+                    res.error = str(e)[:500]
                     if limits is not None:
                         limits.hit(res)
                     break
-                u = plan.rec.get("usage") or {}
-                for k in ("prompt", "completion", "cached"):
-                    res.usage[k] += u.get(k) or 0
-                res.usage["cost_usd"] += u.get("cost") or 0.0
+                _book(res.usage, plan.rec)
                 timing = {"model_s": plan.rec["s"], "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
                 turns += 1
                 turns_in_step += 1
@@ -299,7 +300,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 40,
             try:
                 status, steps = call_planner(reason_key, _describe(st, reason))
             except PolicyError as e:
-                res.error = f"planner: {str(e)[:280]}"
+                _book(res.usage, error=e)
+                res.error = f"planner: {str(e)[:480]}"
                 if limits is not None:
                     limits.hit(res)
                 break

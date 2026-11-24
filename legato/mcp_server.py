@@ -302,13 +302,17 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         from legato.agent import agent_for
         d = get(desktop_id)
         key = os.environ.get(api_key_env, "") if api_key_env else None
+        source = f"the key in ${api_key_env}" if api_key_env else None
         if model and not base_url and not config.load().base_url:
             base_url = "https://openrouter.ai/api/v1"
             key = key if key is not None else os.environ.get("OPENROUTER_API_KEY", "")
+            source = source or "the key in $OPENROUTER_API_KEY"
         try:
             agent = agent_for(d["env"], model=model, base_url=base_url, api_key=key)
         except ValueError as e:
             raise ToolError(f"no model for desktop_run_task: {e}") from None
+        if source and hasattr(agent.client, "key_source"):  # named if the server refuses the key
+            agent.client.key_source = source
         from legato.agent import ANSWER_NOTE
         res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps, raise_desktop_errors=False)
         answer = f"answer: {res.answer}\n" if res.answer else ""

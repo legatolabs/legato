@@ -118,14 +118,16 @@ def run_main(argv) -> int:
     label = (f"--sandbox {a.sandbox}" if a.sandbox else f"{a.app}'s window" if a.app else "this screen" if a.screen
              else "the desktop")
     from legato.agent import agent_for, open_desktop
+    import time
+    t_start = time.monotonic()                           # --timeout covers opening the desktop too
     try:
-        env, close, what = open_desktop(desktop, task=a.task, app=a.app, confirm=None if a.yes else "auto", cfg=cfg)
+        env, close, what = open_desktop(desktop, task=a.task, app=a.app, confirm=None if a.yes else "auto", cfg=cfg,
+                                        timeout_s=a.timeout)
     except ImportError as e:
         return fail(f"cannot start {label}: a package is missing ({e}). Run: pip install -U legatolabs")
     except (RuntimeError, OSError, ValueError, AttributeError) as e:     # Docker stopped, no screen permission, ...
         return fail(f"cannot start {label}: {e}")
     say = (lambda *_: None) if a.json else print
-    import time
     t0 = time.monotonic()
     say(f"{cfg.model} · {what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
 
@@ -135,8 +137,11 @@ def run_main(argv) -> int:
         agent = agent_for(env, cfg=cfg, **({"coords": a.coords} if a.coords else {}))
         from legato.agent import ANSWER_NOTE
         # a desktop that fails mid-run comes back as status "error", with the usage so far
-        res = agent.run(a.task + ANSWER_NOTE, env, max_steps=a.max_steps, on_step=show, timeout_s=a.timeout,
+        left = None if a.timeout is None else max(0.0, a.timeout - (time.monotonic() - t_start))
+        res = agent.run(a.task + ANSWER_NOTE, env, max_steps=a.max_steps, on_step=show, timeout_s=left,
                         raise_desktop_errors=False)
+        if res.status == "timeout" and a.timeout is not None:
+            res.error = f"the run's time limit ({a.timeout:g} s) ran out"
     except ValueError as e:
         return fail(str(e))
     finally:

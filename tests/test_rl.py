@@ -507,3 +507,12 @@ def test_fake_screen_is_readable_and_tiny_png_is_unchanged():
     assert Image.open(io.BytesIO(a)).size == (640, 400) and a != b
     assert Image.open(io.BytesIO(fake_screen("x", 0, (320, 200)))).size == (320, 200)
     assert Image.open(io.BytesIO(tiny_png(1, w=8, h=8))).size == (8, 8)
+
+
+def test_cut_off_attempts_are_counted_on_the_error_and_the_record(server):
+    server.delay_s = 1.0
+    with pytest.raises(PolicyError) as e:
+        PolicyClient(PolicyConfig(server.url, "m", timeout_s=0.3, retries=1)).chat([{"role": "user", "content": "x"}])
+    assert e.value.cut == 2                          # both were sent and may be billed
+    server.delay_s = 0.0
+    assert PolicyClient(PolicyConfig(server.url, "m")).chat([{"role": "user", "content": "x"}])["cut"] == 0

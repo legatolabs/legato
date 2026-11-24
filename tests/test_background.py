@@ -521,7 +521,7 @@ def test_mcp_background_desktop_defaults_to_the_browser_and_reports_the_window(m
 def test_local_with_background_returns_the_background_desktop(monkeypatch):
     import legato.background as bg
     made = []
-    monkeypatch.setattr(bg, "MacApp", lambda app: made.append(app) or FakeMac())
+    monkeypatch.setattr(bg, "MacApp", lambda app, **kw: made.append(app) or FakeMac())
     monkeypatch.setattr(bg.sys, "platform", "darwin")
     import legato
     e = legato.local(background="Safari", confirm=None)

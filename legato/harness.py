@@ -263,15 +263,29 @@ RunStatus = Literal["done", "failed", "max_steps", "timeout", "cancelled", "stop
 
 
 class Usage(TypedDict):
-    """A run's model calls: tokens, and the cost the provider reports (OpenRouter does; others leave it 0)."""
+    """A run's model calls that answered: tokens, and the cost the provider reports (OpenRouter does; others leave
+    it 0). complete is False when a call was sent and cut off before its reply (a timeout, the run's deadline, a
+    dropped connection) or sent twice (hedge_after_s): the provider may bill those, and they are not counted here."""
     prompt: int
     completion: int
     cached: int
     cost_usd: float
+    complete: bool
 
 
 def _no_usage() -> Usage:
-    return {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
+    return {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0, "complete": True}
+
+
+def _book(usage: Usage, rec: dict | None = None, error: Exception | None = None) -> None:
+    """Add a model call's usage (rec), or note that a failed call (error) may have been billed."""
+    if rec is not None:
+        u = rec.get("usage") or {}
+        for k in ("prompt", "completion", "cached"):
+            usage[k] += u.get(k) or 0                     # type: ignore[literal-required]
+        usage["cost_usd"] += u.get("cost") or 0.0
+    if (rec is not None and (rec.get("cut") or rec.get("hedged"))) or getattr(error, "cut", 0):
+        usage["complete"] = False
 
 
 @dataclass
@@ -326,7 +340,7 @@ class _Limits:
 def _desktop_error(e: Exception) -> str:
     """A desktop's exception as RunResult.error."""
     if isinstance(e, PolicyError):
-        return str(e)[:300]
+        return str(e)[:500]
     said = str(e) if isinstance(e, (RuntimeError, OSError)) and str(e) else f"{type(e).__name__}: {e}"
     return f"the desktop failed: {said}"[:300]
 
@@ -359,6 +373,7 @@ class Harness:
         upload is most of a hosted call's wait for its first token (legato-research EXP-0052: a call 1.57 s against
         3.11 s at median through OpenRouter, the next action unchanged; EXP-0053: on 27 Mac tasks a call 2.28 against
         3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless."""
+        key_source = "" if api_key is None else "the api_key passed to legato.Harness"
         if model is None or base_url is None or api_key is None:     # what `legato setup` saved
             from legato import config
             cfg = config.load()
@@ -369,7 +384,8 @@ class Harness:
             if not model or not base_url:
                 raise ValueError(cfg.missing() or "pass model= and base_url=, or run legato setup")
             if api_key is None:                     # the saved key goes only to the saved server
-                api_key = cfg.key if base_url.rstrip("/") == cfg.base_url.rstrip("/") else ""
+                same = base_url.rstrip("/") == cfg.base_url.rstrip("/")
+                api_key, key_source = (cfg.key, cfg.key_source) if same else ("", "")
         if image_format not in ("png", "jpeg"):
             raise ValueError("image_format must be 'png' or 'jpeg'")
         coords = coords or ("pixels" if is_claude(model) else "norm1000")
@@ -379,6 +395,7 @@ class Harness:
         self.client = PolicyClient(PolicyConfig(base_url=base_url, model=model, api_key=api_key, version=profile,
                                                 timeout_s=step_timeout_s, retries=retries, logprobs=False,
                                                 token_ids=False, extra_body=dict(extra_body or {})))
+        self.client.key_source = key_source        # named if the server refuses the key
         self.coords, self.image_max, self.fold = coords, image_max, max(1, fold)
         self.plan_mode, self.plan_max = plan, max(1, plan_max_steps)
         self.end_fix = end_fix
@@ -930,13 +947,11 @@ class Harness:
             try:
                 plan = self.decide(ep)
             except PolicyError as e:
+                _book(res.usage, error=e)
                 if not lim.hit(res):                # a call cut short by the deadline is a timeout
-                    res.status, res.error = "error", str(e)[:300]
+                    res.status, res.error = "error", str(e)[:500]
                 break
-            u = plan.rec.get("usage") or {}
-            for k in ("prompt", "completion", "cached"):
-                res.usage[k] += u.get(k) or 0
-            res.usage["cost_usd"] += u.get("cost") or 0.0
+            _book(res.usage, plan.rec)
             timing = {"model_s": plan.rec["s"], "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
             pngs, results, stale, ran, note, denied = [], [], False, [], None, None
             if self.plan_mode:
