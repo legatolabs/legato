@@ -1,7 +1,21 @@
 # Legato FAQ
 
-Legato is an open-source (Apache-2.0) computer-use harness: it sends screenshots to a vision-language model, runs the
-actions it chooses on a desktop, and decides when the screen is ready for the next screenshot.
+Legato is a fast, open-source (Apache-2.0) computer-use agent: it sends screenshots to the vision model you choose,
+runs the actions it picks on a desktop, and decides when the screen is ready for the next screenshot.
+
+**How do I start?**
+Tell Claude Code, Codex or Cursor "Set up Legato for me: https://legato.computer/setup", or run
+`pip install legatolabs && legato setup`, or download the Mac app ([setup](setup.md)).
+
+**What are the Mac app, the terminal, the MCP server and the Python package?**
+Four ways into the same agent. The Mac app is for people (hold Fn, say a task); `legato run` is for one task from a
+terminal or a script; the MCP server gives Claude Code, Codex or Cursor a computer; the Python package is for building
+your own agent or running RL. `legato setup` saves one model and desktop for the last three.
+
+**Can I keep using my Mac while it works?**
+Yes: on a Mac it works in one app's window in the background by default, without your mouse or keyboard
+([how](sandboxes.md#in-the-background-while-you-keep-working-macos)). A task that moves between apps needs the whole
+screen (`legato run --screen`).
 
 **How is it different from Anthropic's computer-use demo?**
 It runs any OpenAI-compatible model and waits for the screen instead of sleeping 2 s before every screenshot. On the
@@ -18,8 +32,8 @@ Legato covers the agent loop for both: [cua-agent](migrate/from-cua-agent.md), [
 No. Bring any model: Qwen through OpenRouter, Claude, or your own vLLM server, which can run on the same machine.
 
 **Can Claude Code, Cursor or Codex use it?**
-Yes, through the MCP server: `claude mcp add legato -- legato mcp --sandbox docker` gives the agent a desktop container
-to look at and click ([guide](guides/coding-agent-computer.md)).
+Yes, through the MCP server: `legato setup` adds it to them, and they get a computer to look at and click
+([coding agents](mcp.md)).
 
 **Claude Code's `computer-use` server isn't in `/mcp`. What can I use?**
 The built-in server needs a Mac, a Pro, Max or Ultra plan and an interactive session. Legato's MCP server works on
@@ -32,7 +46,12 @@ desktops are Linux today; managed Windows and macOS desktops are planned for Leg
 
 **Is it safe to let an agent use my computer?**
 Use a desktop container (`--sandbox docker`) or a cloud desktop when you can: the agent then never touches your own
-screen or files. On your own screen, move the mouse into a corner to stop it.
+screen or files. On your own screen, move the mouse into a corner to stop it. Risky keys and typed commands (Cmd+Q,
+`rm`, `sudo`...) wait for your yes, and the Mac app also asks before clicking Send, Delete or Pay.
+
+**Where does my data go?**
+Screenshots and the task go to the model you chose, and nowhere else. With a model on your own machine, nothing
+leaves it. Legato has no server of its own and sends no telemetry; the Mac app checks GitHub for updates.
 
 **Should my coding agent test my app with Playwright MCP or Legato?**
 Playwright MCP, when the app is a web page and the accessibility tree describes what you are checking. Legato, when

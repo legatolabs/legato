@@ -58,6 +58,11 @@ def checks() -> dict:
     }
     out["model_note"] = ("a local model server (--base-url http://localhost:8000/v1) needs no key"
                          if not out["model_keys"] else None)
+    from legato import config
+    cfg = config.load()
+    out["setup"] = {"ok": cfg.ready, "model": cfg.model or None, "base_url": cfg.base_url or None,
+                    "desktop": cfg.desktop or config.default_desktop(), "app": cfg.app or None,
+                    "config": str(config.path()), "fix": cfg.missing()}
     return out
 
 
@@ -68,6 +73,9 @@ def main(argv=None) -> int:
         print(json.dumps(c))
         return 0
     print(f"legato {c['legato']}, Python {c['python']} on {c['platform']}")
+    st = c["setup"]
+    print(f"  {'ok ' if st['ok'] else 'no '} setup: " + (f"{st['model']} · {st['desktop']}" + (f" ({st['app']})" if st["app"] else "")
+                                                       if st["ok"] else st["fix"]))
     for name, s in [*c["sandboxes"].items(), ("mcp", c["mcp"])]:
         line = f"  {'ok ' if s['ok'] else 'no '} {name}"
         if s.get("fix"):

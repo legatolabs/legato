@@ -32,7 +32,7 @@
     <a class="brand" href="/" aria-label="Legato home"><img src="/brand/wordmark.svg" alt="Legato" width="92" height="19"></a>
     <nav class="nav" aria-label="Main">
       <a href="/docs/benchmarks">research</a>
-      <a href="/mac">lab</a>
+      <a href="/mac">try it</a>
       <a href="/docs" class="hide-xs">docs</a>
       <a href="https://github.com/legatolabs/legato" rel="noopener" class="hide-sm">github</a>
       <span class="est hide-sm">est. 2026</span>
@@ -94,28 +94,33 @@
 
 <section class="x-sec mac-points">
   <div class="wrap">
-    <p class="eyebrow ways-head">three ways to run it</p>
+    <p class="eyebrow ways-head">get started</p>
+    <div class="ways-lead">
+      <b>Tell your coding agent.</b>
+      <p>Claude Code, Codex or Cursor installs Legato, sets up your model and gives itself a computer too.</p>
+      <button class="way-cmd way-prompt" type="button" data-copy="Set up Legato for me: https://legato.computer/setup"><code>Set up Legato for me: https://legato.computer/setup</code><span class="copied">copy</span></button>
+    </div>
     <div class="trio ways">
-      <div>
-        <b>In your own code.</b>
-        <p>The Python harness. Build agents or run RL with any model, on any sandbox.</p>
-        <button class="way-cmd" type="button" data-copy="pip install legatolabs"><code>pip install legatolabs</code><span class="copied">copy</span></button>
-        <a class="way-link" href="/docs">docs →</a>
-      </div>
-      <div>
-        <b>In your coding agent.</b>
-        <p>The MCP server. Claude Code, Cursor or Codex gets a computer to look at and click.</p>
-        <button class="way-cmd" type="button" data-copy='claude mcp add legato -- uvx --from "legatolabs[mcp]" legato mcp --sandbox docker' title='claude mcp add legato -- uvx --from "legatolabs[mcp]" legato mcp --sandbox docker'><code>claude mcp add legato -- uvx --from "legatolabs[mcp]" legato mcp --sandbox docker</code><span class="copied">copy</span></button>
-        <a class="way-link" href="/docs/mcp">MCP docs →</a>
-      </div>
       <div>
         <b>On your Mac.</b>
         <p>The app. Hold Fn, say the task, and watch it work in the apps you already use.</p>
         <a class="way-cmd" href="https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg"><code>↓ Legato.dmg</code><span class="copied">download</span></a>
-        <a class="way-link" href="https://github.com/legatolabs/legato/releases" rel="noopener">release notes →</a>
+        <a class="way-link" href="/docs/mac">mac app docs →</a>
+      </div>
+      <div>
+        <b>In your terminal.</b>
+        <p>One task at a time: <code>legato run "..."</code>. On a Mac it works in one app's window while you keep working.</p>
+        <button class="way-cmd" type="button" data-copy="pip install legatolabs && legato setup"><code>pip install legatolabs &amp;&amp; legato setup</code><span class="copied">copy</span></button>
+        <a class="way-link" href="/setup">setup →</a>
+      </div>
+      <div>
+        <b>In your code.</b>
+        <p>The same agent from Python, an MCP server for any agent, and RL rollouts, with any model on any sandbox.</p>
+        <button class="way-cmd" type="button" data-copy='import legato; legato.run("your task")'><code>legato.run("your task")</code><span class="copied">copy</span></button>
+        <a class="way-link" href="/docs/python">python docs →</a>
       </div>
     </div>
-    <p class="req ways-foot">Open source, Apache-2.0 · any OpenAI-compatible model, with your own key</p>
+    <p class="req ways-foot">Open source, Apache-2.0 · one agent behind all of them · any OpenAI-compatible model, with your own key</p>
   </div>
 </section>
 </main>
@@ -123,7 +128,7 @@
 <footer>
   <div class="wrap">
     <span>Legato · the runtime for agents that act</span>
-    <nav aria-label="Footer"><a href="/docs/benchmarks">research</a><a href="/mac">lab</a><a href="/docs">docs</a><a href="https://github.com/legatolabs" rel="noopener">github</a><a href="/llms.txt">llms.txt</a></nav>
+    <nav aria-label="Footer"><a href="/docs/benchmarks">research</a><a href="/mac">try it</a><a href="/docs">docs</a><a href="https://github.com/legatolabs" rel="noopener">github</a><a href="/llms.txt">llms.txt</a></nav>
   </div>
 </footer>
 

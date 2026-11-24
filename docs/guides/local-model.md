@@ -4,7 +4,7 @@ Serve an open vision model on your own GPU, point Legato at it, and run it on yo
 No API key, and no screenshot leaves your machine.
 
 ```bash
-pip install "legatolabs[local]"
+pip install legatolabs
 vllm serve Qwen/Qwen3.5-9B --enable-auto-tool-choice --tool-call-parser hermes --max-model-len 32768
 
 legato run "Create a folder named reports on the desktop" --sandbox docker \

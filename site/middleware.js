@@ -1,13 +1,13 @@
 // Markdown for agents: a request for the home page or a docs page with `Accept: text/markdown` gets the Markdown
 // source of that page (the same file GitHub shows). Without that header, HTML is served as usual.
-export const config = { matcher: ["/", "/docs", "/docs/:path*"] };
+export const config = { matcher: ["/", "/setup", "/docs", "/docs/:path*"] };
 
 export default async function middleware(request) {
   const url = new URL(request.url);
   const accept = request.headers.get("accept") || "";
   if (!/text\/markdown/i.test(accept) || url.pathname.endsWith(".md")) return;   // continue to the HTML page
   const path = url.pathname.replace(/\/$/, "");
-  const md = path === "" || path === "/docs" ? "/docs/index.md" : `${path}.md`;
+  const md = path === "" || path === "/docs" ? "/docs/index.md" : path === "/setup" ? "/docs/setup.md" : `${path}.md`;
   const r = await fetch(new URL(md, url.origin));
   if (!r.ok) return;
   const body = await r.text();

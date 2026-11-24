@@ -1,70 +1,56 @@
 # Legato
 
-Open-source computer-use harness for any OpenAI-compatible model: Qwen, DeepSeek, Claude, or your own vLLM server.
-It drives a desktop with a `computer` tool, waits for the screen instead of sleeping, and bounds every model call.
-Bring your own computer: your own screen (macOS, Windows, Linux), any sandbox you already run, or a cloud desktop.
+The fast, open-source computer-use agent. Bring any model.
+
+![Legato enters three invoices from a text file into a Windows desktop app](https://legato.computer/media/invoice-desk-2x.gif)
+
+<sub>A real run on a Windows desktop, shown at 2x with the real-time clock: Legato reads three invoices from Notepad and
+enters them into a desktop app that has no API.</sub>
 
 ## Start
 
-```bash
-pip install "legatolabs[local]"     # PyPI name: legatolabs. Import name: legato.
-legato init                         # pick your model and desktop; writes agent.py, a working agent
-python agent.py "Open example.com and check the page title"
-```
+Tell Claude Code, Codex or Cursor:
 
-Using Claude Code, Cursor or Codex? Ask it: *"Add Legato computer use to this project. Read
-https://legato.computer/llms.txt first."*
+> Set up Legato for me: https://legato.computer/setup
 
-## Give your coding agent a computer
-
-Claude Code, Codex, Cursor or any MCP client gets a desktop to look at and click: a container on your machine (needs
-only Docker), your own screen, or a cloud desktop ([guide](https://legato.computer/docs/guides/coding-agent-computer)).
+Or in a terminal:
 
 ```bash
-pip install "legatolabs[mcp]"
-claude mcp add legato -- legato mcp --sandbox docker
+pip install legatolabs
+legato setup          # your model, where it works, your coding agents; then a first task
 ```
 
-![Claude Code sees a chart bug on a Legato desktop, fixes it and checks the fix](https://legato.computer/media/claude-code-legato.gif)
+Or on a Mac, with no code: [download Legato for Mac](https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg),
+hold Fn and say what to do.
 
-<sub>A real run in real time: told that a revenue chart looks wrong, Claude Code opens the dashboard in a desktop
-container, sees the bars hanging from the top, changes one line and reloads to check the fix. Each image is a screenshot
-the MCP server returned.</sub>
+## One agent, four ways in
 
-Or install the Claude Code plugin, which adds the server and a skill: `/plugin install legato --marketplace
-legatolabs/legato`. One click for other editors (these run the same server with `uvx`):
+Choose your model once. Every way in runs the same agent with it.
 
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/link/mcp/install?name=legato&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJsZWdhdG9sYWJzW21jcF0iLCJsZWdhdG8iLCJtY3AiLCItLXNhbmRib3giLCJkb2NrZXIiXX0%3D) [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Legato-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522legato%2522%252C%2522type%2522%253A%2522stdio%2522%252C%2522command%2522%253A%2522uvx%2522%252C%2522args%2522%253A%255B%2522--from%2522%252C%2522legatolabs%255Bmcp%255D%2522%252C%2522legato%2522%252C%2522mcp%2522%252C%2522--sandbox%2522%252C%2522docker%2522%255D%257D) [![Add to Kiro](https://kiro.dev/images/add-to-kiro.svg)](https://kiro.dev/launch/mcp/add?name=legato&config=%7B%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22--from%22%2C%22legatolabs%5Bmcp%5D%22%2C%22legato%22%2C%22mcp%22%2C%22--sandbox%22%2C%22docker%22%5D%2C%22disabled%22%3Afalse%2C%22autoApprove%22%3A%5B%5D%7D)
+| | How | What for |
+|---|---|---|
+| **Mac app** | Hold Fn, say the task | Your own apps, no code ([docs](https://legato.computer/docs/mac)) |
+| **Terminal** | `legato run "Find the next Caltrain from SF to Palo Alto"` | One task at a time, scripts, cron |
+| **Your coding agent** | Claude Code, Codex or Cursor gets a computer (MCP); `legato setup` adds it | Test the app you are building, do the GUI part of a task ([docs](https://legato.computer/docs/mcp)) |
+| **Python** | `legato.run("...")`, or `legato.Harness(...).run(task, desktop)` | Your own agent, RL rollouts ([docs](https://legato.computer/docs/python)) |
 
-## Build an agent in Python
+**Any model** with an OpenAI-compatible API and vision: Qwen, Claude, GPT, Gemini, Grok, through OpenRouter or the
+maker's own API, or on your own GPU (vLLM, Ollama, LM Studio), where nothing leaves your machine
+([models](https://legato.computer/docs/models)).
 
-The whole loop is one call, `agent.run(task, desktop)`. On a Mac, in one app's window while you keep working:
+**Any computer** ([desktops](https://legato.computer/docs/sandboxes)):
+
+- **In the background on your Mac** (the default there): it works in one app's window while you keep using the Mac.
+  Your mouse and keyboard stay yours.
+- **Your whole screen** on macOS, Windows or Linux.
+- **A desktop container** (Docker), a cloud desktop (E2B), or any sandbox or VM you can run a command in.
 
 ```python
-import os, legato
+import legato
 
-agent = legato.Harness(model="qwen/qwen3.8-27b", base_url="https://openrouter.ai/api/v1",
-                       api_key=os.environ["OPENROUTER_API_KEY"])
-desk = legato.local(background="Safari")             # any app by name: "Google Chrome", "TextEdit"...
-result = agent.run("Open example.com and check the page title", desk)
-print(result.report())                                # where the time went
-```
-
-`legato.local()` drives your whole screen instead (any OS), `legato.providers.docker(w, h)` a desktop container
-on your machine, `legato.attach(Sandbox.create())` an E2B cloud desktop (`legatolabs[e2b]`), and
-`legato.attach(shell=run)` any Linux sandbox you can run a command in, such as a VM
-([sandboxes](https://legato.computer/docs/sandboxes)). With a model on your own GPU, nothing leaves your machine:
-
-```bash
-pip install "legatolabs[local]"
-legato run "Open the terminal and print the date" --sandbox local --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
-```
-
-Give the model a shell beside the screen, or your own functions as `legato.Tool`s. Results go back as text:
-
-```python
-env = legato.attach(desk)
-agent = legato.Harness(model, base_url, api_key, tools=[legato.tools.bash(env)])
+result = legato.run("On Wikipedia, look up the Eiffel Tower and tell me how tall it is")
+print(result.answer)      # The Eiffel Tower is 330 metres (1,083 ft) tall.
+print(result.report())    # done or failed, the turns, and where the time went
 ```
 
 ## Results
@@ -76,21 +62,27 @@ Same model, same desktops, 24 office tasks per run. [Method and raw data](https:
 | Claude Sonnet 5.5 | Anthropic's reference loop | 1.48x faster | 48/48 vs 48/48 |
 | Qwen3.8-27B | OSWorld's Qwen agent | same | 71/96 vs 53/96 |
 
-## How
+## Why it's fast
 
-- Waits until the screen stops changing instead of a fixed 2 s sleep.
-- Up to 3 actions per turn, one screenshot after them.
-- Drops old screenshots in chunks so the prompt cache keeps hitting.
-- A wall-clock timeout and a token budget on every model call.
+Most of a computer-use agent's time goes to waiting: on the model, and on the screen.
 
-## More
+- It waits until the screen stops changing, not a fixed 2 s after every action.
+- Up to three actions per turn, with one screenshot after them; on a Mac, one plan per turn, with a shell and
+  AppleScript beside the screen where they are faster.
+- Screenshots go as JPEG, and old ones are dropped in chunks so the prompt cache keeps hitting.
+- A wall-clock timeout and a token budget on every model call, so nothing hangs.
 
-- Guides: [a computer for your coding agent](https://legato.computer/docs/guides/coding-agent-computer) · [Claude Code computer use on Linux, Team plans and CI](https://legato.computer/docs/guides/claude-code-computer-use-anywhere) · [test a desktop app](https://legato.computer/docs/guides/desktop-apps) · [local model](https://legato.computer/docs/guides/local-model) · [office apps](https://legato.computer/docs/guides/office-tasks) · [why agents are slow](https://legato.computer/docs/guides/faster-agents)
-- [Models](https://legato.computer/docs/models) · [Sandboxes](https://legato.computer/docs/sandboxes) · [MCP server](https://legato.computer/docs/mcp) · [RL rollouts](https://legato.computer/docs/rl) · [FAQ](https://legato.computer/docs/faq)
-- Compare: [computer-use MCP servers](https://legato.computer/docs/compare/computer-use-mcp-servers) · [Playwright MCP](https://legato.computer/docs/compare/playwright-mcp) · [Anthropic's demo](https://legato.computer/docs/compare/anthropic-computer-use-demo) · [OSWorld's Qwen agent](https://legato.computer/docs/compare/osworld-qwen-agent) · [Agent S3](https://legato.computer/docs/compare/agent-s3) · [UI-TARS-desktop](https://legato.computer/docs/compare/ui-tars-desktop)
-- Migrate: [from cua-agent](https://legato.computer/docs/migrate/from-cua-agent) · [from Bytebot](https://legato.computer/docs/migrate/from-bytebot)
-- For coding agents: [llms.txt](https://legato.computer/llms.txt) · [AGENTS.md](https://github.com/legatolabs/legato/blob/main/AGENTS.md)
+## Docs
 
-Apache-2.0. Docs: [legato.computer](https://legato.computer).
+[Set up](https://legato.computer/setup) · [Mac app](https://legato.computer/docs/mac) ·
+[Coding agents (MCP)](https://legato.computer/docs/mcp) · [Terminal and Python](https://legato.computer/docs/python) ·
+[Desktops](https://legato.computer/docs/sandboxes) · [Models](https://legato.computer/docs/models) ·
+[RL rollouts](https://legato.computer/docs/rl) · [Benchmarks](https://legato.computer/docs/benchmarks) ·
+[FAQ](https://legato.computer/docs/faq) · [Guides](https://legato.computer/docs/guides) ·
+[Comparisons](https://legato.computer/docs/compare)
+
+For coding agents: [llms.txt](https://legato.computer/llms.txt) · [AGENTS.md](AGENTS.md)
+
+Apache-2.0.
 
 <!-- mcp-name: io.github.legatolabs/legato -->

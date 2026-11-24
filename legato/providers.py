@@ -154,6 +154,10 @@ ABOUT = {
               "run locally are reachable at http://host.docker.internal:PORT. Right-click the desktop for a menu.",
     "local": "The desktop is the user's own screen, with their real windows, files and accounts. Act carefully: do not "
              "close their windows or change settings unless asked, and ask before anything destructive or irreversible.",
+    "background": "The desktop is one app's window on the user's Mac, worked in the background: the user keeps using "
+                  "their Mac meanwhile. desktop_open(app=...) picks the app (default: their browser; url= opens a "
+                  "page in it). Clicks press, focus or select what is under them; drags are not possible, so use "
+                  "the keyboard for those. Do not close their windows or change settings unless asked.",
     "e2b": "The desktop is a fresh E2B cloud desktop (Linux, XFCE); the dock at the bottom has a terminal, a file "
            "manager and a web browser.",
 }

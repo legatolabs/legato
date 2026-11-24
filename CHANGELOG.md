@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+One agent, four ways in, and one command to set it up.
+
+- **`legato setup`:** choose the model (checked with one call) and where it works, add Legato to the coding agents it
+  finds (Claude Code, Codex, Cursor, Claude Desktop), and watch a first task. `--yes` and `--json` for coding agents;
+  a key can come on stdin (`--api-key -`). Saved to `~/.config/legato/config.json`, readable by you only.
+- **Set up from a coding agent:** tell it "Set up Legato for me: https://legato.computer/setup". The page
+  (`docs/setup.md`) is written for agents to follow.
+- **`legato run "task"`** needs no flags: the saved model and desktop. On a Mac the default is one app's window in the
+  background (the app the task names, else the browser), so you keep using the Mac; `--app NAME`, `--screen` and
+  `--sandbox` choose. It prints each turn with a timer and the answer.
+- **`legato.run(task)`**, **`legato.Harness()`** with no model, and **`legato.agent_for(desktop)`**: the saved choice in
+  Python. Every way in gets the same agent for the same desktop: on a Mac's whole screen, the Mac app's setup (plans,
+  a shell and checked AppleScript, 4 screenshots, the ending fix).
+- **`RunResult.answer`:** what the model said at the end (done's text); `legato run` and `desktop_run_task` return it.
+- **MCP:** `legato mcp` with no flags uses the saved desktop (it was E2B); `desktop_run_task` the saved model; in the
+  background `desktop_open` defaults to the browser.
+- **One install:** the MCP server, this computer's drivers and, on macOS, the Vision text reader that plans use are
+  in `pip install legatolabs`. `[local]` and `[mcp]` still work and add nothing.
+- **Background mode:** an app hidden with Cmd+H is shown again (not brought to the front); the agent's Cmd+H and
+  Cmd+M are not run.
+- macOS: a sum ("1269*5693=") is typed key by key like a number, since Calculator ignores a pasted sum (legato-research
+  EXP-0085: the Calculator task 0.375x the time). The harness reads an action a model left open before its own
+  closing tags (Qwen3.8-27B).
+- Docs: a shorter README; Set up, Mac app, and Terminal and Python pages; the sidebar from 21 links to 12.
+
 ## Unreleased
 
 - `legato.hosted` is no longer exported from `legato`: the managed service isn't live yet. The module stays

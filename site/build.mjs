@@ -17,22 +17,16 @@ const TODAY = new Date().toISOString().slice(0, 10);   // sitemap lastmod: the d
 
 // sidebar order; anything else under docs/ is still built and linked from the sitemap
 const NAV = [
-  ["Start", [["README.md", "Overview and quickstart"], ["docs/models.md", "Models"], ["docs/sandboxes.md", "Sandboxes"],
-             ["docs/mcp.md", "MCP server"], ["docs/rl.md", "RL rollouts"], ["docs/faq.md", "FAQ"]]],
-  ["Guides", [["docs/guides/coding-agent-computer.md", "A computer for your coding agent"],
-              ["docs/guides/claude-code-computer-use-anywhere.md", "Claude Code computer use anywhere"],
-              ["docs/guides/desktop-apps.md", "Test a desktop app"],
-              ["docs/guides/local-model.md", "With a local model"],
-              ["docs/guides/office-tasks.md", "Spreadsheets and office apps"],
-              ["docs/guides/faster-agents.md", "Why agents are slow"]]],
-  ["Results", [["docs/benchmarks.md", "Benchmarks"]]],
-  ["Compare", [["docs/compare/computer-use-mcp-servers.md", "Computer-use MCP servers"],
-               ["docs/compare/playwright-mcp.md", "Playwright MCP or a desktop"],
-               ["docs/compare/anthropic-computer-use-demo.md", "vs Anthropic's demo"],
-               ["docs/compare/osworld-qwen-agent.md", "vs OSWorld's Qwen agent"],
-               ["docs/compare/agent-s3.md", "vs Agent S3"], ["docs/compare/ui-tars-desktop.md", "vs UI-TARS-desktop"]]],
-  ["Migrate", [["docs/migrate/from-cua-agent.md", "From cua-agent"], ["docs/migrate/from-bytebot.md", "From Bytebot"]]],
+  ["Start", [["README.md", "Overview"], ["docs/setup.md", "Set up"]]],
+  ["Ways in", [["docs/mac.md", "Mac app"], ["docs/mcp.md", "Coding agents (MCP)"], ["docs/python.md", "Terminal and Python"]]],
+  ["Reference", [["docs/sandboxes.md", "Desktops"], ["docs/models.md", "Models"], ["docs/rl.md", "RL rollouts"],
+                 ["docs/benchmarks.md", "Benchmarks"], ["docs/faq.md", "FAQ"]]],
+  ["More", [["docs/guides.md", "Guides"], ["docs/compare.md", "Comparisons"]]],
 ];
+
+// a page under docs/guides/ (or compare/, migrate/) lights up its index in the sidebar
+const inSection = (rel, r) => (r === "docs/guides.md" && rel.startsWith("docs/guides/"))
+  || (r === "docs/compare.md" && (rel.startsWith("docs/compare/") || rel.startsWith("docs/migrate/")));
 
 function walk(dir) {
   return readdirSync(dir).flatMap((n) => {
@@ -84,7 +78,7 @@ function describe(md) {
 
 function page({ title, description, body, rel, url, ld = "" }) {
   const side = NAV.map(([group, items]) => `<div class="g">${group}</div>` + items.map(([r, label]) =>
-    `<a href="${urlOf(r)}"${r === rel ? ' aria-current="page"' : ""}>${label}</a>`).join("")).join("");
+    `<a href="${urlOf(r)}"${r === rel || inSection(rel, r) ? ' aria-current="page"' : ""}>${label}</a>`).join("")).join("");
   return `<!doctype html>
 <html lang="en">
 <head>

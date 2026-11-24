@@ -1,21 +1,25 @@
-# Which computers Legato can drive
+# Desktops: which computers Legato can drive
 
-Bring your own. Legato drives your own computer (macOS, Windows or Linux), a desktop container on your machine, any
-Linux sandbox you can run a command in (SSH, Daytona, Modal, your own VMs), E2B cloud desktops, or anything you can
-screenshot and send input to. Managed Windows and macOS cloud desktops are planned for Legato Cloud.
+Bring your own. Legato drives one app's window on your Mac in the background, your own screen (macOS, Windows or
+Linux), a desktop container on your machine, any Linux sandbox you can run a command in (SSH, Daytona, Modal, your own
+VMs), E2B cloud desktops, or anything you can screenshot and send input to.
+
+`legato setup` saves which one `legato run`, `legato mcp` and `legato.run()` use: on a Mac the default is the
+background, elsewhere the whole screen.
 
 ```python
 import legato
 
-env = legato.local()                                          # this computer: pip install "legatolabs[local]"
+env = legato.local(background="Safari")                       # one app's window on a Mac, in the background
+env = legato.local()                                          # this computer's whole screen
 stop, env = legato.providers.docker(1280, 800)                # a desktop container on this machine
 env = legato.attach(shell=run)                                # any Linux sandbox: run(cmd) returns stdout
 env = legato.attach(Sandbox.create())                         # E2B: from e2b_desktop import Sandbox
 env = legato.attach(screenshot=grab_png, execute=run_action)  # anything else
 ```
 
-From the shell and for coding agents, `--sandbox` takes the same choices: `e2b` (the default), `local`, `docker` (or
-`docker:IMAGE`), or your own function as `path/to/file.py:function` or `module:function`. The function gets `(width, height)` and returns a
+From the shell and for coding agents, `--sandbox` takes the same choices: `local`, `docker` (or
+`docker:IMAGE`), `e2b` (with `pip install "legatolabs[e2b]"` and `E2B_API_KEY`), or your own function as `path/to/file.py:function` or `module:function`. The function gets `(width, height)` and returns a
 `legato.attach(...)` result, or `(handle, env)` so Legato can call `handle.kill()` (or `close`, `stop`, `delete`) at
 the end. For example, a container on another machine over SSH works the same way as this one:
 
@@ -70,8 +74,9 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 ### In the background, while you keep working (macOS)
 
 `legato.local(background="TextEdit")` works in one app's front window and leaves the rest of the Mac to you: your
-pointer, the app in front and the clipboard stay yours. From the command line: `legato run "..." --background Safari`.
-In the MCP server: `legato mcp --background`, then `desktop_open(app="Safari", url=...)`.
+pointer, the app in front and the clipboard stay yours. It is the default on a Mac: `legato run "..."` works in the
+app the task names ("... in Notes", "... on Spotify"), else in your browser (Safari, unless your default is Chrome);
+`--app NAME` picks one. In the MCP server: `desktop_open(app="Safari", url=...)`.
 
 ```python
 env = legato.local(background="Safari")
@@ -93,7 +98,10 @@ agent.run("Sign up with the name Ada Lovelace", env)
   paste (the clipboard is yours), and anything outside the app (the Dock, the menu bar, Spotlight, other apps).
 - **Don't use the same app yourself** while it works: its keys go to whatever has the focus in that app. Give it its own
   app, or its own browser (Chrome while you use Safari).
-- The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it.
+- The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it. An app
+  hidden with Cmd+H is shown again (behind your app); the agent's own Cmd+H and Cmd+M are not run.
+- **One app per task.** A task that moves between apps needs the whole screen (`--screen`).
+- **Firefox** works, but slowly in the background: use Safari or Chrome.
 - Your stop signals (a corner, Escape) don't apply, since the mouse and keyboard are yours: stop it from the program
   that runs it. Risky keys and typed commands still wait for your yes.
 - **Tested** with `tests/test_background.py` (any OS) and, on a Mac, `LEGATO_TEST_BACKGROUND=1 pytest

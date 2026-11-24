@@ -494,19 +494,22 @@ def test_the_harness_tells_the_model_and_carries_on_after_an_unavailable_action(
     assert not any("did not allow" in t for t in told)
 
 
-def test_mcp_background_desktop_needs_an_app_and_reports_the_window(monkeypatch):
+def test_mcp_background_desktop_defaults_to_the_browser_and_reports_the_window(monkeypatch):
     pytest.importorskip("mcp")
     import asyncio
 
+    from legato import config
     from legato.mcp_server import build_server
     m = FakeMac()
+    opened = []
+    monkeypatch.setattr(config, "default_browser", lambda: "Google Chrome")
     srv = build_server(lambda res: (_ for _ in ()).throw(AssertionError("no full-screen desktop")),
-                       background=lambda app: BackgroundEnv(app, mac=m, confirm=None))
+                       background=lambda app: opened.append(app) or BackgroundEnv(app, mac=m, confirm=None))
 
     async def call(name, **args):
         return await srv.call_tool(name, args)
-    with pytest.raises(Exception, match="pass app"):
-        asyncio.run(call("desktop_open"))
+    asyncio.run(call("desktop_open"))                       # no app: the browser
+    assert opened == ["Google Chrome"]
     out = asyncio.run(call("desktop_open", app="TextEdit"))
     text = out.content[0].text
     assert "(400x300)" in text and "background" in text and out.content[1].type == "image"
@@ -530,3 +533,28 @@ def test_background_mode_is_macos_only(monkeypatch):
     monkeypatch.setattr(bg.sys, "platform", "linux")
     with pytest.raises(RuntimeError, match="macOS only"):
         BackgroundEnv("TextEdit")
+
+
+def test_hide_and_minimize_keys_are_not_run():
+    from legato.actions import Action
+    from legato.safety import Unavailable
+    m = FakeMac()
+    env = BackgroundEnv("TextEdit", mac=m, confirm=None)
+    for keys in ("cmd+h", "ctrl+m", "cmd+alt+h"):
+        with pytest.raises(Unavailable, match="hide or minimize"):
+            env.act(Action("key", keys=keys))
+    assert m.keys == []
+
+
+def test_a_hidden_app_is_shown_again_not_reopened():
+    m = FakeMac()
+    wins, m.wins = m.wins, []
+    shown = []
+
+    def unhide():
+        shown.append(1)
+        m.wins = wins
+        return True
+    m.unhide = unhide
+    env = BackgroundEnv("TextEdit", mac=m, confirm=None)
+    assert env.window()["id"] == 7 and shown and m.reopened == 0

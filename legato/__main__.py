@@ -1,21 +1,19 @@
 """legato command line.
 
-  legato run "Add a Total row under the table and save" \\
-      --model qwen/qwen3-vl-235b-a22b-instruct --base-url https://openrouter.ai/api/v1 [--api-key-env OPENROUTER_API_KEY]
-      [--max-steps 30] [--coords norm1000|pixels] [--sandbox e2b|local] [--yes]
+  legato setup                    choose your model and where it works; adds Legato to your coding agents
+  legato run "task"               do one task with that model and desktop, and print where the time went
+      [--app NAME | --screen | --sandbox docker|e2b|path/to/file.py:function]   where (default: the saved one; on
+                                  a Mac, one app's window in the background, so you keep using the Mac)
+      [--model M --base-url URL --api-key-env VAR]   another model for this run
+      [--max-steps 40] [--json] [--yes]
+  legato mcp                      an MCP server: a computer for Claude Code, Codex, Cursor (see docs/mcp.md)
+  legato doctor [--json]          what is installed and set up, and how to fix what is missing
+  legato init                     write agent.py, a working agent to copy into your own code
+  legato                          what to do first
 
-Runs the open harness on a fresh E2B Desktop sandbox (needs `pip install "legatolabs[e2b]"` and E2B_API_KEY), or with
-`--sandbox local` on this computer's own screen (`pip install "legatolabs[local]"`), and prints where the time went.
-A local model server (`--base-url http://localhost:8000/v1`) needs no key.
-
-  legato bench office generate|report ...   the Legato Office Bench (Excel to PowerPoint tasks)
-  legato bench h2h --tasks ... --arm a=DIR --arm b=DIR --ref a --out DIR   compare harness runs
-  legato rl probe|collect|export|profile ... graded rollouts for RL (see docs/rl.md)
-  legato mcp [--local]                       an MCP server: a desktop for any agent (see docs/mcp.md)
-  legato doctor [--json]                     what is installed and configured, and how to fix what is missing
-  legato init                                pick a model and a desktop, and write agent.py, a working agent
-  legato                                     what to do first
-  legato app-engine                          the engine the Legato Mac app starts (JSON lines on stdin/stdout)
+  legato bench office|h2h ...     benchmarks (docs/benchmarks.md)
+  legato rl probe|collect|export|profile ...   graded rollouts for RL (docs/rl.md)
+  legato app-engine               the engine the Legato Mac app starts (JSON lines on stdin/stdout)
 """
 from __future__ import annotations
 
@@ -59,74 +57,93 @@ def main(argv=None) -> int:
             return h2h_main(argv[2:])
         print("usage: legato bench office|h2h ...", file=sys.stderr)
         return 2
-    ap = argparse.ArgumentParser(prog="legato", epilog="also: legato bench office|h2h ... (benchmarks), "
-                                 "legato rl probe|collect|export|profile ... (RL rollouts), legato mcp (MCP server), "
-                                 "legato doctor [--json] (what is installed and configured), legato init (write a working agent.py)")
-    sub = ap.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("run", help="run one task with the open harness on a fresh sandbox")
-    r.add_argument("task")
-    r.add_argument("--model", required=True)
-    r.add_argument("--base-url", required=True, help="OpenAI-compatible root, e.g. https://openrouter.ai/api/v1")
-    r.add_argument("--api-key-env", default="OPENROUTER_API_KEY")
-    r.add_argument("--max-steps", type=int, default=30)
-    r.add_argument("--coords", default=None, choices=["norm1000", "pixels"],
-                   help="default: pixels for Claude models, norm1000 (0-1000 grid) otherwise")
-    r.add_argument("--sandbox", default="e2b",
-                   help="e2b: a fresh cloud desktop (default); local: this computer (moves your real mouse); or your "
-                        "own: path/to/file.py:function or module:function returning a legato Env (docs/sandboxes.md)")
-    r.add_argument("--background", metavar="APP",
-                   help="macOS: work in this app's window (e.g. Safari) without your mouse, so you keep using the Mac")
-    r.add_argument("--yes", action="store_true",
-                   help="with --sandbox local: do not ask before risky actions (cmd+Delete, a typed rm or sudo...)")
-    r.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
+    if argv[:1] == ["setup"]:
+        from legato.setup import main as setup_main
+        return setup_main(argv[1:])
+    if argv[:1] in (["-h"], ["--help"], ["help"]):
+        print(__doc__.strip())
+        return 0
+    if argv[:1] in (["-V"], ["--version"]):
+        from legato import __version__
+        print(f"legato {__version__}")
+        return 0
+    if argv[:1] == ["run"]:
+        return run_main(argv[1:])
+    print(f"legato: unknown command {argv[0]!r}. Run legato --help", file=sys.stderr)
+    return 2
+
+
+def run_main(argv) -> int:
+    from legato import config
+    ap = argparse.ArgumentParser(prog="legato run", description="Do one task with your model on your desktop "
+                                 "(legato setup chooses both).")
+    ap.add_argument("task")
+    where = ap.add_mutually_exclusive_group()
+    where.add_argument("--app", "--background", dest="app", metavar="APP",
+                       help="macOS: work in this app's window in the background (e.g. Safari, Notes), so you keep "
+                            "using the Mac")
+    where.add_argument("--screen", action="store_true", help="use this whole screen (moves your real mouse)")
+    where.add_argument("--sandbox", help="docker (a desktop container), e2b (a cloud desktop), local (= --screen), or "
+                                         "your own: path/to/file.py:function or module:function (docs/sandboxes.md)")
+    ap.add_argument("--model", help="default: the one legato setup saved")
+    ap.add_argument("--base-url", help="OpenAI-compatible root, e.g. https://openrouter.ai/api/v1")
+    ap.add_argument("--api-key-env", help="the environment variable holding the key for --base-url")
+    ap.add_argument("--max-steps", type=int, default=40)
+    ap.add_argument("--coords", default=None, choices=["norm1000", "pixels"],
+                    help="default: pixels for Claude models, norm1000 (0-1000 grid) otherwise")
+    ap.add_argument("--yes", action="store_true",
+                    help="on this computer: do not ask before risky actions (cmd+Delete, a typed rm or sudo...)")
+    ap.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
     a = ap.parse_args(argv)
-    from legato import Harness
-    from legato import providers
-    if a.background:
-        a.sandbox = "local"
-    if a.sandbox == "local":
-        try:
-            from legato.local import local
-            env, close = local(confirm=None if a.yes else "auto", background=a.background), (lambda: None)
-        except ImportError:
-            return _fail('Driving this computer needs extra packages. Run: pip install "legatolabs[local]"')
-        except Exception as e:                    # no display, or no screen-recording permission
-            return _fail(f"cannot use this computer's screen: {e}")
-    elif a.sandbox == "e2b":
+    cfg = config.load()
+    if a.model or a.base_url:
+        cfg = config.Config(model=a.model or cfg.model, base_url=a.base_url or cfg.base_url,
+                            api_key_env=a.api_key_env or ("" if a.base_url and a.base_url != cfg.base_url else cfg.api_key_env),
+                            api_key="" if a.base_url and a.base_url != cfg.base_url else cfg.api_key,
+                            desktop=cfg.desktop, app=cfg.app)
+    elif a.api_key_env:
+        cfg.api_key, cfg.api_key_env = "", a.api_key_env
+    if cfg.missing():
+        return _fail(cfg.missing())
+    desktop = "background" if a.app else "screen" if a.screen else a.sandbox
+    if (desktop or cfg.desktop) == "e2b":
         try:
             import e2b_desktop  # noqa: F401
         except ImportError:
             return _fail('E2B Desktop is not installed. Run: pip install "legatolabs[e2b]"')
         if not os.environ.get("E2B_API_KEY"):
-            return _fail("E2B_API_KEY is not set. Get a key at https://e2b.dev and export it, or use --sandbox local.")
-        env = close = None
-    else:
-        try:
-            make = providers.load(a.sandbox)
-        except (ValueError, ImportError, AttributeError, OSError) as e:
-            return _fail(f"cannot load --sandbox {a.sandbox}: {e}")
-        env = close = None
-    key = os.environ.get(a.api_key_env, "")
-    if not key and not any(h in a.base_url for h in ("localhost", "127.0.0.1", "0.0.0.0")):
-        return _fail(f"{a.api_key_env} is not set. Export your model provider's key, or pass --api-key-env NAME.")
-    agent = Harness(model=a.model, base_url=a.base_url, api_key=key, coords=a.coords)
-    say = (lambda *_: None) if a.json else print
-    if env is None:
-        try:
-            handle, env = (providers.e2b if a.sandbox == "e2b" else make)(1280, 800)
-        except (RuntimeError, ImportError, OSError) as e:     # Docker stopped, a package missing, no sandbox
-            return _fail(f"cannot start --sandbox {a.sandbox}: {e}")
-        close = lambda: providers.close(handle)  # noqa: E731
+            return _fail("E2B_API_KEY is not set. Get a key at https://e2b.dev and export it, or use --screen.")
+    label = (f"--sandbox {a.sandbox}" if a.sandbox else f"{a.app}'s window" if a.app else "this screen" if a.screen
+             else "the desktop")
+    from legato.agent import agent_for, open_desktop
     try:
-        res = agent.run(a.task, env, max_steps=a.max_steps,
-                        on_step=lambda i, acts, t: say(f"turn {i + 1}: {', '.join(x.describe() if x else 'screenshot' for x in acts) or '-'}"
-                                                       f" (model {t['model_s']:.1f} s, waiting {t['settle_s']:.1f} s)"))
+        env, close, what = open_desktop(desktop, task=a.task, app=a.app, confirm=None if a.yes else "auto", cfg=cfg)
+    except ImportError as e:
+        return _fail(f"cannot start {label}: a package is missing ({e}). Run: pip install -U legatolabs")
+    except (RuntimeError, OSError, ValueError, AttributeError) as e:     # Docker stopped, no screen permission, ...
+        return _fail(f"cannot start {label}: {e}")
+    say = (lambda *_: None) if a.json else print
+    import time
+    t0 = time.monotonic()
+    say(f"{cfg.model} · {what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
+
+    def show(i, acts, t):
+        say(f"  {time.monotonic() - t0:5.1f} s  {', '.join(x.describe() if x else 'looking' for x in acts) or 'looking'}")
+    try:
+        agent = agent_for(env, cfg=cfg, **({"coords": a.coords} if a.coords else {}))
+        from legato.agent import ANSWER_NOTE
+        res = agent.run(a.task + ANSWER_NOTE, env, max_steps=a.max_steps, on_step=show)
+    except ValueError as e:
+        return _fail(str(e))
     finally:
         close()
     if a.json:
-        print(json.dumps({"done": res.done, "failed": res.failed, "error": res.error, "stopped": res.stopped, "steps": res.steps,
-                          "actions": res.actions, "wall_s": round(res.wall_s, 2), "usage": res.usage}))
+        print(json.dumps({"done": res.done, "failed": res.failed, "answer": res.answer, "error": res.error,
+                          "stopped": res.stopped, "steps": res.steps, "actions": res.actions,
+                          "wall_s": round(res.wall_s, 2), "usage": res.usage, "desktop": what, "model": cfg.model}))
     else:
+        if res.answer:
+            print(f"\n{res.answer}\n")
         print(res.report())
     return 0 if res.done else 1
 
