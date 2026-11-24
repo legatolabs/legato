@@ -84,6 +84,12 @@ formula and asks for one AppleScript that sets them all, so the run is one model
 with that prompt took 7.4 s; 21 takes with earlier prompts took 15.8 to 75.5 s (median 23.6 s), all 81 of 81. Raw data:
 [benchmarks/results/dcf-demo](../benchmarks/results/dcf-demo).
 
+**Without the formulas** (24 Nov): told only where the assumptions, projections, valuation and sensitivity block go,
+and that it is a standard unlevered DCF, it got 81 of 81 cells right in 5 of 5 takes (6 of 6 with the smoke take), in
+6.9 to 15.6 s (median 15.1 s), for $0.005 to $0.023 a take. Four of the six took two model calls (a script to read the
+sheet's labels, then the formulas). Two takes with the formulas in the same session: 6.6 and 6.7 s. One sheet with clear
+labels and one model; the prompt still names the cell ranges and the AppleScript route. Raw data: `nofx-takes.jsonl`.
+
 ## Where agent time goes (public traces)
 
 Across 434,912 steps from real Claude Code and Codex sessions (TraceLab, 8,058 sessions), the machine took more of the
