@@ -128,7 +128,23 @@ class MacApp:
         for a in self.ws.runningApplications():
             if self.name in (a.localizedName(), a.bundleIdentifier()):
                 return int(a.processIdentifier())
+        # NSWorkspace's list is refreshed only by the main run loop, so in a long-lived process (the MCP server runs
+        # tools on worker threads) it can miss an app opened after the first look. Asking by bundle id is always fresh.
+        if bid := self._bundle_id():
+            from AppKit import NSRunningApplication
+            for a in NSRunningApplication.runningApplicationsWithBundleIdentifier_(bid) or []:
+                return int(a.processIdentifier())
         return None
+
+    def _bundle_id(self) -> str | None:
+        if self.flag == "-b":
+            return self.name
+        if not hasattr(self, "_bid"):
+            from Foundation import NSBundle
+            path = self.ws.fullPathForApplication_(self.name)
+            bundle = NSBundle.bundleWithPath_(path) if path else None
+            self._bid = bundle.bundleIdentifier() if bundle is not None else None
+        return self._bid
 
     def _launch(self, wait_s: float) -> int:
         subprocess.run(["open", "-g", self.flag, self.name], capture_output=True, timeout=30)    # -g: not in front

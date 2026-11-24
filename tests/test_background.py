@@ -609,3 +609,23 @@ def test_a_stalled_window_capture_falls_back_to_screencapture(monkeypatch):
     monkeypatch.setattr(bg, "_screencapture", lambda wid, size: None)
     with pytest.raises(RuntimeError, match="capture is busy"):
         app.capture([7], (10, 20, 300, 200))
+
+
+def test_an_app_missing_from_the_stale_list_is_found_by_bundle_id(monkeypatch):
+    """In the MCP server (tools on worker threads) NSWorkspace's list can stay stale: a lookup by bundle id is fresh."""
+    import sys
+    import types
+    import legato.background as bg
+
+    class App:
+        def processIdentifier(self):
+            return 4242
+    fake_appkit = types.SimpleNamespace(NSRunningApplication=types.SimpleNamespace(
+        runningApplicationsWithBundleIdentifier_=lambda bid: [App()] if bid == "com.example.Chess" else []))
+    monkeypatch.setitem(sys.modules, "AppKit", fake_appkit)
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.name, app.flag, app._bid = "Chess", "-a", "com.example.Chess"
+    app.ws = types.SimpleNamespace(runningApplications=lambda: [])          # the stale list: nothing
+    assert app._find() == 4242
+    app._bid = None
+    assert app._find() is None

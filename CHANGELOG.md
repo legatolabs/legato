@@ -6,6 +6,8 @@
   updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
   a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs
   the run loop (the app is found in about a second) and allows 30 s.
+  In the MCP server, which runs tools on worker threads, the list could stay stale even so: apps are now also looked
+  up by bundle id, which is always fresh (`desktop_open` on an app that isn't running: 1.6 s).
 - **Background mode keeps working when macOS's window capture stalls.** With its capture service busy (a screen
   recorder running, several captures at once), `CGWindowListCreateImageFromArray` can hang 30 s and return nothing on
   every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
