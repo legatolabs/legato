@@ -2,6 +2,8 @@
 nothing reaches the person's pointer, front app or clipboard. Runs anywhere; tests/test_background_live.py runs the
 same on a real Mac."""
 import io
+import re
+import time
 
 import pytest
 from PIL import Image
@@ -9,8 +11,18 @@ from PIL import Image
 from legato import safety
 from legato.actions import Action
 from legato.background import FLAGS, KEYCODES, BackgroundEnv
+from legato.env import DesktopError, DesktopStartError
 from legato.harness import UNAVAILABLE_NOTE, _refused
 from test_harness import server, tc  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def no_claims():
+    """Each test's desktops start with no windows taken by another test's (the fakes share a pid)."""
+    import legato.background as bg
+    bg._CLAIMS.clear()
+    bg._MAKING.clear()
+    yield
 
 
 class El:
@@ -176,6 +188,40 @@ def test_typing_is_posted_to_the_app_as_text():
     assert m.keys[-1][0] == KEYCODES["enter"]
 
 
+def test_text_goes_into_a_native_text_view_exactly_as_given():
+    """TextEdit wrote typed "alpha" as "Alpha" (its automatic capitalisation), and a run spent 2.5 minutes retyping
+    a list against it. Into a text area of an app that isn't a browser, the text is inserted through Accessibility
+    as given; a field's newline is still Return (it submits). An app whose text doesn't change gets keys."""
+    e, m = env()
+    area = El("AXTextArea", value="")
+    m.app.extra = {"AXFocusedUIElement": area}
+    real_set = m.set
+
+    def insert(el, name, value):
+        if name == "AXSelectedText":
+            el.value += value
+            m.sets.append((el, name, value))
+            return True
+        return real_set(el, name, value)
+    m.set = insert
+    e.act(Action("type", text='alpha\nbeta "q" -- teh\n'))
+    assert area.value == 'alpha\nbeta "q" -- teh\n' and m.keys == []
+    field = El("AXTextField", value="")
+    m.app.extra = {"AXFocusedUIElement": field}
+    e.act(Action("type", text="cats\n"))
+    assert field.value == "cats" and m.keys == [(KEYCODES["enter"], 0, None)]
+    m.keys.clear()
+    m.set = lambda el, name, value: True              # says yes, changes nothing (a Chromium app): keys
+    e.act(Action("type", text="hi"))
+    assert [c for _, _, c in m.keys] == ["h", "i"]
+    m.keys.clear()
+    m.set = insert
+    safari, _ = env(m)
+    safari.app = "Safari"                             # a web page listens for keys
+    safari.act(Action("type", text="ok"))
+    assert [c for _, _, c in m.keys] == ["o", "k"]
+
+
 def test_shortcuts_carry_their_flags_and_ctrl_is_cmd():
     e, m = env()
     e.act(Action("key", keys="ctrl+s"))
@@ -209,6 +255,19 @@ def test_menu_shortcuts_press_the_menu_item_since_posted_keys_never_reach_menus(
         e.act(Action("key", keys="super+f"))                 # turned off right now
     e.act(Action("key", keys="super+Down"))                  # no menu item: a key press, as before
     assert m.keys == [(KEYCODES["down"], FLAGS["command"], None)]
+
+
+def test_save_duplicate_export_and_print_are_refused_whether_their_menu_item_is_on_or_off():
+    """Cmd+S opened a real Save sheet that no click could reach, and Cmd+Shift+S ran TextEdit's Duplicate first (a
+    round-five tester, as super+shift+s; shift+super+s had been refused): every key order and every such item is
+    refused, on or off, with the same reason."""
+    e, m = env()
+    items = menu(m, ("Save…", "S", 0, True), ("Duplicate", "S", 1, True), ("Export as PDF…", "E", 0, True),
+                 ("Print…", "P", 0, False))
+    for keys in ("super+s", "super+shift+s", "shift+super+s", "super+e", "super+p"):
+        with pytest.raises(safety.Unavailable, match="isn't possible in background mode: saving, duplicating"):
+            e.act(Action("key", keys=keys))
+    assert m.performed == [] and m.keys == [] and len(items) == 4
 
 
 def test_select_all_in_a_field_selects_its_text_without_the_menu():
@@ -508,8 +567,8 @@ def test_mcp_background_desktop_defaults_to_the_browser_and_reports_the_window(m
 
     async def call(name, **args):
         return await srv.call_tool(name, args)
-    asyncio.run(call("desktop_open"))                       # no app: the browser
-    assert opened == ["Google Chrome"]
+    asyncio.run(call("desktop_open"))                       # no app: Safari (Chrome 158 ignores background clicks)
+    assert opened == ["Safari"]
     out = asyncio.run(call("desktop_open", app="TextEdit"))
     text = out.content[0].text
     assert "(400x300)" in text and "background" in text and out.content[1].type == "image"
@@ -521,7 +580,7 @@ def test_mcp_background_desktop_defaults_to_the_browser_and_reports_the_window(m
 def test_local_with_background_returns_the_background_desktop(monkeypatch):
     import legato.background as bg
     made = []
-    monkeypatch.setattr(bg, "MacApp", lambda app: made.append(app) or FakeMac())
+    monkeypatch.setattr(bg, "MacApp", lambda app, **kw: made.append(app) or FakeMac())
     monkeypatch.setattr(bg.sys, "platform", "darwin")
     import legato
     e = legato.local(background="Safari", confirm=None)
@@ -600,15 +659,86 @@ def test_a_stalled_window_capture_falls_back_to_screencapture(monkeypatch):
 
     app = bg.MacApp.__new__(bg.MacApp)
     app.Q = Q
+    app.windows = lambda: []
     monkeypatch.setattr(bg.MacApp, "API_WAIT_S", 0.05)
-    monkeypatch.setattr(bg, "_screencapture", lambda wid, size: calls.__setitem__("fallback", calls["fallback"] + 1)
-                        or f"png {wid} {size}".encode())
-    assert app.capture([7, 8], (10, 20, 300, 200)) == b"png 7 (300, 200)"
-    assert app.capture([7], (10, 20, 300, 200)) == b"png 7 (300, 200)"
+    monkeypatch.setattr(bg, "_screencapture", lambda wid, rect, hosts, scale: calls.__setitem__(
+        "fallback", calls["fallback"] + 1) or f"png {wid} {rect}".encode())
+    assert app.capture([7, 8], (10, 20, 300, 200)) == b"png 7 (10, 20, 300, 200)"
+    assert app.capture([7], (10, 20, 300, 200)) == b"png 7 (10, 20, 300, 200)"
     assert calls == {"api": 1, "fallback": 2}      # the API was tried once, then left alone
-    monkeypatch.setattr(bg, "_screencapture", lambda wid, size: None)
+    monkeypatch.setattr(bg, "_screencapture", lambda wid, rect, hosts, scale: None)
     with pytest.raises(RuntimeError, match="capture is busy"):
         app.capture([7], (10, 20, 300, 200))
+
+
+def test_menus_go_in_front_of_the_window_in_the_capture(monkeypatch):
+    """The window capture API draws the first window of its list on top: with the window first, an open menu or
+    popover was hidden behind it (seen with a Chess pop-up). The fallback still takes the window itself, and is told
+    which of the app's windows could hold it (a sheet's `screencapture` is its whole parent window)."""
+    import legato.background as bg
+    seen, taken = [], []
+
+    class Q:
+        kCGWindowImageBoundsIgnoreFraming = kCGWindowImageNominalResolution = 0
+
+        @staticmethod
+        def CGRectMake(*r):
+            return r
+
+        @staticmethod
+        def CGWindowListCreateImageFromArray(rect, ids, opts):
+            seen.append(list(ids))
+            return None                           # then the fallback, which shows what it was given
+
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.Q = Q
+    app.windows = lambda: [
+        {"id": 9, "x": 130, "y": 70, "w": 60, "h": 40, "layer": 101},      # a menu over the sheet
+        {"id": 7, "x": 120, "y": 60, "w": 40, "h": 30, "layer": 0},        # the sheet: the front window
+        {"id": 3, "x": 100, "y": 50, "w": 100, "h": 80, "layer": 0},       # the window it hangs from
+        {"id": 4, "x": 500, "y": 50, "w": 100, "h": 80, "layer": 0}]       # another window, elsewhere
+    app.scale_at = lambda x, y: 2.0
+    monkeypatch.setattr(bg, "_screencapture", lambda *a: taken.append(a) or b"png")
+    assert app.capture([7, 9, 8], (120, 60, 40, 30)) == b"png"
+    assert seen == [[9, 8, 7]]
+    assert taken == [(7, (120, 60, 40, 30), [(100, 50, 100, 80)], 2.0)]
+
+
+def _fake_screencapture(monkeypatch, im):
+    import legato.background as bg
+
+    def run(cmd, **kw):
+        im.save(cmd[-1], "PNG")
+
+        class R:
+            returncode = 0
+        return R()
+    monkeypatch.setattr(bg.subprocess, "run", run)
+
+
+def test_a_sheet_is_cut_out_of_the_window_screencapture_takes(monkeypatch):
+    """`screencapture -l<sheet>` gives the whole window the sheet hangs from: squeezed to the sheet's size, the model's
+    coordinates were wrong. The sheet's part is cut out instead."""
+    import legato.background as bg
+    host, sheet = (100, 50, 100, 80), (120, 60, 40, 30)
+    im = Image.new("RGB", (200, 160), (255, 0, 0))                 # the host at 2 pixels per point
+    im.paste((0, 0, 255), (40, 20, 120, 80))                       # the sheet, at (20, 10) points in it
+    _fake_screencapture(monkeypatch, im)
+    out = Image.open(io.BytesIO(bg._screencapture(7, sheet, [host], 2.0))).convert("RGB")
+    assert out.size == (40, 30)
+    assert {out.getpixel(p) for p in [(0, 0), (39, 0), (0, 29), (39, 29), (20, 15)]} == {(0, 0, 255)}
+
+
+def test_a_window_screencapture_takes_is_only_scaled_to_points(monkeypatch):
+    """A window that only sits inside another of the app's windows (no sheet) comes back as itself: it is not cut."""
+    import legato.background as bg
+    im = Image.new("RGB", (80, 60), (0, 255, 0))
+    im.paste((0, 0, 255), (0, 0, 40, 60))
+    _fake_screencapture(monkeypatch, im)
+    out = Image.open(io.BytesIO(bg._screencapture(7, (120, 60, 40, 30), [(100, 50, 100, 80)], 2.0))).convert("RGB")
+    assert out.size == (40, 30) and out.getpixel((5, 15)) == (0, 0, 255) and out.getpixel((35, 15)) == (0, 255, 0)
+    out = Image.open(io.BytesIO(bg._screencapture(7, (120, 60, 40, 30)))).convert("RGB")      # no scale: as before
+    assert out.size == (40, 30)
 
 
 def test_an_app_missing_from_the_stale_list_is_found_by_bundle_id(monkeypatch):
@@ -629,3 +759,668 @@ def test_an_app_missing_from_the_stale_list_is_found_by_bundle_id(monkeypatch):
     assert app._find() == 4242
     app._bid = None
     assert app._find() is None
+
+
+# ------------------------------------------------------------ the title bar's buttons
+def _window_with_buttons(m):
+    """The fake window as Accessibility shows it, with its close, minimize and zoom buttons at the usual places."""
+    win = El("AXWindow", m.app, frame=(100.0, 50.0, 400.0, 300.0))
+    buttons = {}
+    for i, name in enumerate(("AXCloseButton", "AXMinimizeButton", "AXZoomButton")):
+        b = El("AXButton", win, actions=["AXPress"], frame=(108.0 + 20 * i, 56.0, 14.0, 16.0))
+        b.extra = {"AXSubrole": name}
+        buttons[name] = b
+    win.extra = dict(buttons)
+    m.app.extra = {"AXWindows": [win]}
+    return win, buttons
+
+
+def test_the_windows_close_minimize_and_zoom_buttons_are_not_pressed():
+    """A model clicked TextEdit's zoom button after finishing a task (click (59, 20)), and TextEdit stopped
+    answering. Like cmd+H and cmd+M, the title bar's buttons are refused, found through the window's own attributes."""
+    e, m = env()
+    win, buttons = _window_with_buttons(m)
+    e.observe()
+    for x, (name, shown) in zip((15, 35, 55), (("AXCloseButton", "close"), ("AXMinimizeButton", "minimize"),
+                                               ("AXZoomButton", "zoom"))):
+        m.hits = [(100, 50, 500, 350, buttons[name])]
+        with pytest.raises(safety.Unavailable, match=f"window's {shown} button"):
+            e.act(Action("click", x=x, y=14))
+    m.hits = [(100, 50, 500, 350, win)]                     # the hit test answers with the window: frames decide
+    with pytest.raises(safety.Unavailable, match="zoom button"):
+        e.act(Action("double_click", x=59, y=12))
+    assert m.performed == []
+
+
+def test_a_close_button_inside_the_window_is_still_pressed():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    tab = El("AXGroup", win)
+    close_tab = El("AXButton", tab, actions=["AXPress"], frame=(400.0, 60.0, 16.0, 16.0))
+    close_tab.extra = {"AXSubrole": "AXCloseButton"}       # a tab's close button: not the window's
+    m.hits = [(400, 60, 416, 76, close_tab)]
+    e.observe()
+    e.act(Action("click", x=305, y=15))
+    assert m.performed == [(close_tab, "AXPress")]
+
+
+# ------------------------------------------------------------ reading the window's text
+def _page(m):
+    """A browser window: its toolbar, then a page with a heading, a counter, a button, a field and a checkbox."""
+    win, _ = _window_with_buttons(m)
+    win.title = "Counter - Google Chrome"
+    bar = El("AXToolbar", win)
+    El("AXButton", bar, actions=["AXPress"], title="Back")
+    holder = El("AXGroup", win)
+    page = El("AXWebArea", holder, title="Counter")
+    page.extra = {"AXURL": "file:///tmp/app/index.html"}
+    h = El("AXHeading", page)
+    El("AXStaticText", h, value="Counter")
+    box = El("AXGroup", page)
+    El("AXStaticText", box, value="Count: 1")
+    plus = El("AXButton", page, actions=["AXPress"], title="+1")
+    El("AXStaticText", plus, value="+1")                     # the button's own text: not repeated
+    name = El("AXTextField", page, title="Name", value="Ada")
+    name.extra = {"AXFocused": True}
+    agree = El("AXCheckBox", page, title="agree", value=1)
+    off = El("AXButton", page, actions=["AXPress"], title="Send")
+    off.extra = {"AXEnabled": False}
+    El("AXStaticText", page, value="  ")                     # nothing to say
+    return win, page, (name, agree)
+
+
+def test_read_outlines_the_page_and_leaves_out_the_browser_toolbar():
+    e, m = env()
+    _page(m)
+    assert e.read() == "\n".join([
+        'page "Counter" file:///tmp/app/index.html',
+        '- heading "Counter"',
+        '- text "Count: 1"',
+        '- button "+1"',
+        '- textbox "Name": "Ada" [focused]',
+        '- checkbox "agree" [checked]',
+        '- button "Send" [disabled]'])
+
+
+def test_read_outlines_an_apps_window_and_nests_what_says_something():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    win.title = "Untitled"
+    scroll = El("AXScrollArea", win)
+    El("AXTextArea", scroll, value="passport\nphone charger")
+    rows = El("AXList", win, title="Recent")
+    row = El("AXRow", rows)
+    row.extra = {"AXSelected": True}
+    El("AXStaticText", row, value="note.txt")
+    field = El("AXTextField", win, title="Search", value="")
+    field.extra = {"AXPlaceholderValue": "Search notes"}
+    out = e.read().splitlines()
+    assert out[0] == 'window "Untitled"'
+    assert '- textarea' not in out and '- textbox: "passport\\nphone charger"' in out
+    assert '- list "Recent"' in out and '  - row "note.txt" [selected]' in out
+    assert '- textbox "Search": "" [placeholder "Search notes"]' in out
+
+
+def test_read_is_cut_at_max_chars_and_says_so():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    for i in range(200):
+        El("AXStaticText", win, value=f"line {i}")
+    out = e.read(max_chars=300)
+    assert len(out) <= 300 and out.splitlines()[-1].startswith("[cut at 300 characters")
+    assert '- text "line 0"' in out and '- text "line 199"' not in out
+    out = e.read(max_chars=120)                             # small ones too: a tester asked for 120 and got 200
+    assert len(out) <= 120 and out.endswith("[cut]") and '- text "line 0"' in out
+    assert len(e.read(max_chars=5)) == 5
+
+
+def test_read_leaves_out_textedits_ruler_and_a_headings_level():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    ruler = El("AXRuler", win)
+    for v in (0, 0.5, 1):
+        El("AXRulerMarker", ruler, value=v)
+    El("AXTextArea", win, value="hi")
+    h = El("AXHeading", win, value=1)
+    El("AXStaticText", h, value="Title")
+    assert e.read().splitlines()[1:] == ['- textbox: "hi"', '- heading "Title"']
+
+
+def test_read_says_so_when_the_window_has_no_tree():
+    e, m = env()
+    _window_with_buttons(m)
+    assert "Accessibility tree is empty" in e.read()
+
+
+def test_mcp_desktop_read_reads_a_background_window_and_is_refused_elsewhere():
+    pytest.importorskip("mcp")
+    import asyncio
+
+    import legato
+    from legato.mcp_server import build_server
+    m = FakeMac()
+    _page(m)
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: b"", execute=lambda a: None)),
+                       background=lambda app: BackgroundEnv(app, mac=m, confirm=None))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"app": "Safari"})
+        did = r.content[0].text.split("desktop_id: ")[1].split()[0]
+        r = await srv.call_tool("desktop_read", {"desktop_id": did})
+        assert r.content[0].text.splitlines()[:3] == ['page "Counter" file:///tmp/app/index.html',
+                                                      '- heading "Counter"', '- text "Count: 1"']
+        r = await srv.call_tool("desktop_read", {"desktop_id": did, "max_chars": 60})
+        assert len(r.content[0].text) <= 60 and r.content[0].text.endswith("[cut]")
+        with pytest.raises(Exception, match="no open desktop"):
+            await srv.call_tool("desktop_read", {"desktop_id": "nope"})
+    asyncio.run(go())
+
+    from test_mcp import png
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def elsewhere():
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        did = r.content[0].text.split()[1]
+        with pytest.raises(Exception, match="only in background mode"):
+            await srv.call_tool("desktop_read", {"desktop_id": did})
+    asyncio.run(elsewhere())
+
+
+def test_an_app_that_does_not_exist_fails_at_once(monkeypatch):
+    """`open -a NoSuchApp` exits 1 right away: say so, instead of waiting 30 s for it to appear."""
+    import subprocess
+    import legato.background as bg
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.name, app.flag = "NoSuchApp123", "-a"
+    monkeypatch.setattr(bg.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 1, "", "Unable to find application named 'NoSuchApp123'\n"))
+    monkeypatch.setattr(app, "_find", lambda: pytest.fail("should not wait for an app that can't open"))
+    with pytest.raises(RuntimeError, match="NoSuchApp123 could not be opened: Unable to find application"):
+        app._launch(30)
+
+
+def test_a_stall_is_remembered_by_the_next_process(monkeypatch, tmp_path):
+    """Each `legato run` is a new process: without a shared note, every run would wait the API's 3 s again."""
+    import legato.background as bg
+    monkeypatch.setattr(bg, "_stall_file", lambda: tmp_path / "capture-stalled")
+    assert bg._stall_left(300) == 0.0
+    bg._note_stall()
+    assert 290 < bg._stall_left(300) <= 300
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.Q = object()                                   # the API must not be called at all
+    monkeypatch.setattr(bg, "_screencapture", lambda *a, **k: b"png")
+    monkeypatch.setattr(app, "windows", lambda: [], raising=False)
+    assert app.capture([7], (0, 0, 100, 80)) == b"png"
+
+
+def test_a_chrome_page_control_that_ignores_background_presses_says_so_and_suggests_safari():
+    """Chrome 158's page elements offer no press from the back: say so instead of "the AXButton can't be pressed"."""
+    m = FakeMac()
+    e = BackgroundEnv("Google Chrome", mac=m, confirm=None, window="front")
+    page = El("AXWebArea", frame=(100.0, 50.0, 400.0, 300.0))
+    button = El("AXButton", page, actions=["AXShowMenu", "AXScrollToVisible"], title="+1", frame=(150, 100, 40, 20))
+    m.hits = [(150, 100, 190, 120, button)]
+    e.observe()
+    with pytest.raises(safety.Unavailable, match="Chrome ignores background clicks on web pages.*Safari"):
+        e.act(Action("click", x=60, y=60))
+    e2 = BackgroundEnv("TextEdit", mac=m, confirm=None)
+    e2.observe()
+    with pytest.raises(safety.Unavailable, match="the AXButton at that point can't be pressed"):
+        e2.act(Action("click", x=60, y=60))
+    assert m.performed == []
+
+
+# ------------------------------------------------------------ which window is "the window"
+def _doc_and_bubble(m, listed_bubble=False):
+    """TextEdit's document window with its autocorrect bubble (a window of its own, 120x46, in front of it)."""
+    doc = El("AXWindow", m.app, frame=(100.0, 50.0, 400.0, 300.0))
+    doc.extra = {"AXSubrole": "AXStandardWindow"}
+    m.wins = [{"id": 9, "x": 180.0, "y": 120.0, "w": 120.0, "h": 46.0, "layer": 0}] + m.wins
+    listed = [doc]
+    if listed_bubble:                                      # Chrome lists its help bubble, as AXUnknown
+        bubble = El("AXWindow", m.app, frame=(180.0, 120.0, 120.0, 46.0))
+        bubble.extra = {"AXSubrole": "AXUnknown"}
+        listed.insert(0, bubble)
+    m.app.extra = {"AXWindows": listed}
+    return doc
+
+
+def test_a_bubble_in_front_is_not_taken_for_the_window_but_shows_over_it():
+    """TextEdit's autocorrect bubble (120x46) became "the window": the run's last screen and the next desktop_open
+    were 120x46."""
+    for listed in (False, True):
+        e, m = env()
+        _doc_and_bubble(m, listed_bubble=listed)
+        obs = e.observe()
+        assert (obs.width, obs.height) == (400, 300) and e.win["id"] == 7
+        assert m.captures[-1] == ([7, 9], (100.0, 50.0, 400.0, 300.0))      # the bubble drawn over the window
+
+
+def test_a_sheet_in_front_is_still_the_window():
+    e, m = env()
+    doc = El("AXWindow", m.app, frame=(100.0, 50.0, 400.0, 300.0))
+    doc.extra = {"AXSubrole": "AXStandardWindow"}
+    El("AXSheet", doc, frame=(150.0, 72.0, 300.0, 150.0))
+    m.app.extra = {"AXWindows": [doc]}
+    m.wins = [{"id": 8, "x": 150.0, "y": 72.0, "w": 300.0, "h": 150.0, "layer": 0}] + m.wins
+    e.observe()
+    assert e.win["id"] == 8
+
+
+def test_its_window_closing_is_an_error_naming_it_never_another_window():
+    """A desktop's window closed (or a capture found it gone): it never falls back to the app's other windows, the
+    person's, which a model then steered (round three turned three of the person's Safari tabs into apple.com)."""
+    e, m = env()
+    e.observe()                                            # it works in window 7
+    m.wins = [{"id": 8, "x": 0.0, "y": 0.0, "w": 500.0, "h": 400.0, "layer": 0}]      # the person's, and not 7
+    with pytest.raises(DesktopError, match="window this desktop worked in was closed"):
+        e.observe()
+    e2, m2 = env()
+    e2.observe()
+    taken = m2.capture
+
+    def capture(ids, rect):                                # it closes between the look and the capture
+        m2.wins = [{"id": 8, "x": 0.0, "y": 0.0, "w": 500.0, "h": 400.0, "layer": 0}]
+        raise RuntimeError("the window could not be captured: check Screen Recording")
+    m2.capture = capture
+    with pytest.raises(DesktopError, match="was closed"):
+        e2.observe()
+    m2.capture, m2.wins = taken, [{"id": 7, "x": 100.0, "y": 50.0, "w": 400.0, "h": 300.0, "layer": 0}]
+    m2.capture = lambda ids, rect: (_ for _ in ()).throw(RuntimeError("Screen Recording is off"))
+    with pytest.raises(RuntimeError, match="Screen Recording"):          # still there: the error stands
+        e2.observe()
+
+
+# ------------------------------------------------------------ fonts can't change from the back
+def test_bold_and_italic_are_refused_since_the_text_would_not_change():
+    """TextEdit in the back: cmd+B's menu item is off, and its format bar's Bold looks switched on while the text stays
+    Helvetica (checked through AXAttributedStringForRange). A model reported "now bold" twice. Underline and
+    alignment do apply, so they still run."""
+    e, m = env()
+    menu(m, ("Bold", "B", 0, False), ("Underline", "U", 0, False))
+    with pytest.raises(safety.Unavailable, match="changing the font .* isn't possible in the background.*Don't report"):
+        e.act(Action("key", keys="cmd+b"))
+    with pytest.raises(safety.Unavailable, match="Underline.*turned off.*do it another way"):
+        e.act(Action("key", keys="cmd+u"))
+    win = El("AXWindow")
+    bar = {}
+    for i, name in enumerate(("bold", "italic", "underline", "align center")):
+        bar[name] = El("AXCheckBox", win, actions=["AXPress"], frame=(110.0 + 30 * i, 70.0, 20.0, 20.0))
+        bar[name].extra = {"AXDescription": name}
+    size = El("AXPopUpButton", win, actions=["AXPress"], title="", frame=(300.0, 70.0, 40.0, 20.0))
+    size.extra = {"AXDescription": "font size"}
+    m.hits = [(f[0], f[1], f[0] + f[2], f[1] + f[3], el)
+              for el in (*bar.values(), size) for f in [el.frame]]
+    e.observe()
+    for x in (20, 50, 210):                                  # bold, italic, font size
+        with pytest.raises(safety.Unavailable, match="isn't possible in the background"):
+            e.act(Action("click", x=x, y=30))
+    e.act(Action("click", x=80, y=30))                       # underline
+    e.act(Action("click", x=110, y=30))                      # align center
+    assert m.performed == [(bar["underline"], "AXPress"), (bar["align center"], "AXPress")]
+
+
+# ------------------------------------------------------------ desktop_open(url=...): a window of its own
+class Browser(FakeMac):
+    """A browser with the person's window (7) open, whose File > New Window (cmd+N) opens a window with an address
+    field that loads what is typed. `new` is the cmd+N item's title (TextEdit's is "New")."""
+
+    def __init__(self, navigates=True, new="New Window"):
+        super().__init__()
+        self.navigates = navigates
+        self.person = El("AXWindow", frame=(100.0, 50.0, 400.0, 300.0))
+        self.person.extra = {"AXSubrole": "AXStandardWindow", "AXTitle": "the person's tab"}
+        self.new_window, = menu(self, (new, "N", 0, True))
+        self.app.extra["AXWindows"] = [self.person]
+        self.closed, self.made = [], []
+
+    def perform(self, el, action):
+        super().perform(el, action)
+        if el is self.new_window:
+            n = len(self.made)
+            win = El("AXWindow", frame=(120.0 + 20 * n, 60.0, 400.0, 300.0))
+            close = El("AXButton", win, actions=["AXPress"])
+            win.extra = {"AXSubrole": "AXStandardWindow", "AXCloseButton": close}
+            bar = El("AXToolbar", win)
+            El("AXTextField", bar, actions=["AXConfirm"])
+            El("AXButton", bar, actions=["AXPress"], title="").extra = {"AXDescription": "Reload this page"}
+            self.app.extra["AXWindows"].insert(0, win)
+            self.wins.insert(0, {"id": 20 + n, "x": 120.0 + 20 * n, "y": 60.0, "w": 400.0, "h": 300.0, "layer": 0})
+            self.made.append(win)
+        elif action == "AXConfirm" and self.navigates:
+            page = El("AXWebArea", el.parent.parent)
+            page.extra = {"AXURL": el.value, "AXLoaded": True}
+        elif action == "AXPress" and el.role == "AXButton" and el.parent.role == "AXWindow":
+            self.closed.append(el.parent)
+            if getattr(self, "asks_to_close", False):    # a page with typed text: Safari asks first
+                sheet = El("AXSheet", el.parent)
+                El("AXButton", sheet, actions=["AXPress"], title="Cancel")
+                El("AXButton", sheet, actions=["AXPress"], title="Close").extra = {"closes": el.parent}
+            elif el.parent in self.app.extra["AXWindows"]:
+                self.app.extra["AXWindows"].remove(el.parent)
+        elif action == "AXPress" and getattr(el, "extra", {}).get("closes") is not None:
+            self.app.extra["AXWindows"].remove(el.extra["closes"])
+            self.confirmed = True
+        return True
+
+    def attr(self, el, name):
+        if name == "AXMain":
+            return getattr(self, "main", None) is el
+        return super().attr(el, name)
+
+    def set(self, el, name, value):
+        if name == "AXMain":
+            self.main = el
+        return super().set(el, name, value)
+
+
+def test_a_page_opens_in_a_window_of_its_own_ready_for_clicks_and_closes_with_the_desktop():
+    """Safari put the page in the person's window as a tab (their other tabs' titles reached the model), dropped a
+    query string, took 15.7 s, left the address field focused so the first click on the page was refused, and
+    desktop_close left the tab."""
+    m = Browser()
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    m.open_url = lambda url: pytest.fail("no tab in the person's window")
+    t = time.monotonic()
+    e.open_url("file:///tmp/app/index.html?run=2")
+    assert time.monotonic() - t < 1.0
+    new = m.app.extra["AXWindows"][0]
+    assert m.made == [new]                                  # the desktop's own window, and the page loaded in it
+    field = new.children[1].children[0]
+    page = next(c for c in new.children if c.role == "AXWebArea")
+    assert field.value == "file:///tmp/app/index.html?run=2" and page.focused is True     # the page has the keyboard
+    assert e.window()["id"] == 20 and m.front == 999 and m.activated == []
+    assert e.read().splitlines()[0] == 'page "Safari" file:///tmp/app/index.html?run=2'      # the query kept
+    e.close()
+    assert m.closed == [new] and e.opened == []
+    e.close()                                               # once only
+    assert m.closed == [new]
+
+
+def test_a_browser_whose_new_window_does_not_load_gets_the_url_as_a_tab_as_before():
+    m = Browser(navigates=False)
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    m.open_url = lambda url: m.urls.append(url)
+    e.open_url("http://example.test/", wait_s=0.2)
+    assert m.urls == ["http://example.test/"] and len(e.opened) == 1     # the window is still closed afterwards
+
+
+def test_mcp_desktop_close_closes_the_window_desktop_open_opened(monkeypatch):
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from legato.mcp_server import build_server
+    m = Browser()
+    srv = build_server(lambda res: pytest.fail("no full-screen desktop"),
+                       background=lambda app: BackgroundEnv(app, mac=m, confirm=None))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"app": "Safari", "url": "http://example.test/?q=1"})
+        did = r.content[0].text.split("desktop_id: ")[1].split()[0]
+        await srv.call_tool("desktop_close", {"desktop_id": did})
+    asyncio.run(go())
+    assert len(m.closed) == 1
+
+
+def test_a_new_windows_own_page_is_not_taken_for_the_page_asked_for():
+    from legato.background import _is_page
+    assert not _is_page("chrome://newtab/", "https://example.com") and not _is_page("favorites://", "file:///a.html")
+    assert not _is_page("", "https://example.com") and _is_page("https://example.com/", "https://example.com")
+    assert _is_page("https://www.example.com/login", "http://example.com")         # where it led
+    assert _is_page("about:blank", "about:blank")
+
+
+def test_a_cold_start_waits_for_its_first_window_within_the_launch_time(monkeypatch):
+    """An app Legato just opened can show its window seconds after its process: wait for it until the launch time
+    is up, instead of the 5 s an app that was already running gets, and don't call it an error."""
+    import legato.background as bg
+    t = {"now": 0.0}
+    monkeypatch.setattr(bg.time, "monotonic", lambda: t["now"])
+    monkeypatch.setattr(bg.time, "sleep", lambda s: t.__setitem__("now", t["now"] + s))
+    win = {"id": 1, "layer": 0, "x": 0, "y": 0, "w": 300, "h": 200}
+
+    class Mac:
+        window_until = 20.0                     # opened by Legato, with 20 s of launch time left
+        def windows(self):
+            return [win] if t["now"] >= 8.0 else []   # the window shows up 8 s in
+        def reopen(self):
+            pass
+        def unhide(self):
+            return False
+    env = bg.BackgroundEnv.__new__(bg.BackgroundEnv)
+    env.m, env.app, env._kinds, env._bubbles = Mac(), "Calculator", {}, set()
+    env.own, env.known, env.kind, env._acting, env._ax = [], set(), "attached", False, {}
+    monkeypatch.setattr(env, "_is_real", lambda w: True)
+    assert env.window() == win and 8.0 <= t["now"] < 9.0
+
+
+# ------------------------------------------------------------ a window of its own, never the person's
+def test_a_browser_desktop_opens_its_own_window_and_never_steers_the_persons():
+    """Round three: legato run in Safari navigated the person's front tab, then turned three of their five tabs into
+    apple.com. Every background desktop now opens a window of its own and works only there."""
+    m = Browser()
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    assert e.kind == "window" and e.own == [20] and 7 in e.known
+    assert e.describe() == "a new Safari window of its own"
+    obs = e.observe()
+    assert e.win["id"] == 20 and m.captures[-1][0] == [20] and (obs.width, obs.height) == (400, 300)
+    e.act(Action("type", text="hi"))
+    assert m.main is m.made[0]                              # keys go to its window, not to the person's
+    m.app.extra["AXFocusedWindow"] = m.person               # something else keeps the person's window in front
+    with pytest.raises(safety.Unavailable, match="another Safari window has the keyboard"):
+        e.act(Action("type", text="x"))
+    del m.app.extra["AXFocusedWindow"]
+    assert [c for _, _, c in m.keys] == ["h", "i"]
+    m.wins.insert(0, {"id": 30, "x": 0.0, "y": 0.0, "w": 600.0, "h": 400.0, "layer": 0})   # the person opens one
+    theirs = El("AXWindow", frame=(0.0, 0.0, 600.0, 400.0))
+    theirs.extra = {"AXSubrole": "AXStandardWindow"}
+    m.app.extra["AXWindows"].insert(0, theirs)
+    e.observe()
+    assert e.win["id"] == 20 and 30 in e.known
+    m.wins = [w for w in m.wins if w["id"] != 20]           # its window closed: an error, not the person's window
+    with pytest.raises(DesktopError, match="was closed"):
+        e.observe()
+
+
+def test_two_desktops_in_one_app_each_keep_their_own_window():
+    """After a second desktop_open, the first desktop's read, screenshot and act all hit the second one's window."""
+    m = Browser()
+    one = BackgroundEnv("Safari", mac=m, confirm=None)
+    two = BackgroundEnv("Safari", mac=m, confirm=None)
+    assert one.own == [20] and two.own == [21]
+    one.observe()
+    assert one.win["id"] == 20 and m.captures[-1][0] == [20]
+    two.observe()
+    assert two.win["id"] == 21
+    one.act(Action("key", keys="Return"))
+    assert m.main is m.made[0]
+    two.act(Action("key", keys="Return"))
+    assert m.main is m.made[1]
+    assert one.read().splitlines()[0].startswith("window") and one._ax_window() is m.made[0]
+
+
+def test_a_window_that_opens_from_its_own_action_is_followed():
+    m = Browser()
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    e.observe()
+
+    def cmd_n(code, flags=0, char=None):                    # its own cmd+N: a window appears while it acts
+        m.wins.insert(0, {"id": 40, "x": 200.0, "y": 80.0, "w": 400.0, "h": 300.0, "layer": 0})
+        doc = El("AXWindow", frame=(200.0, 80.0, 400.0, 300.0))
+        doc.extra = {"AXSubrole": "AXStandardWindow"}
+        m.app.extra["AXWindows"].insert(0, doc)
+    m.key = cmd_n
+    e.act(Action("key", keys="Return"))
+    assert e.win["id"] == 40 and e.own == [20, 40]
+
+
+def test_a_document_app_gets_a_new_document_and_keeps_it_at_close():
+    m = Browser(new="New")                                  # TextEdit: cmd+N is New, a fresh document
+    e = BackgroundEnv("TextEdit", mac=m, confirm=None)
+    assert e.kind == "document" and e.own == [20] and "a new TextEdit document" in e.describe()
+    e.close()
+    assert m.closed == []                                   # the document holds the agent's work: it stays
+
+
+def test_an_app_without_a_fresh_window_is_worked_in_its_front_window_and_says_so():
+    for title in ("New Note", "New Game"):                  # pressing these would change the person's data
+        m = Browser(new=title)
+        e = BackgroundEnv("Notes", mac=m, confirm=None)
+        e.observe()
+        assert e.kind == "attached" and m.made == [] and e.win["id"] == 7
+        assert "front window" in e.describe() and "already open" in e.describe()
+    e = BackgroundEnv("Calculator", mac=FakeMac(), confirm=None)   # no menu at all
+    e.observe()
+    assert e.kind == "attached" and e.win["id"] == 7
+
+
+def test_system_shortcuts_are_refused_since_they_would_only_reach_the_app():
+    """cmd+space then "Terminal" typed "Terminal" into the person's document (local model, round three)."""
+    e, m = env()
+    for keys in ("super+space", "cmd+tab", "cmd+shift+tab", "ctrl+space", "cmd+alt+Escape"):
+        with pytest.raises(safety.Unavailable, match="the system handles.*works in TextEdit's window only"):
+            e.act(Action("key", keys=keys))
+    assert m.keys == []
+    e.act(Action("key", keys="cmd+shift+z"))               # the app's own shortcuts still run
+    assert len(m.keys) == 1
+
+
+def test_reload_back_and_forward_off_in_the_back_press_the_toolbar_button():
+    """Safari's Reload Page (cmd+R) is turned off while it is in the back; a dev loop needs it."""
+    m = Browser()
+    reload_item = El("AXMenuItem", m.new_window.parent, actions=["AXPress"], title="Reload Page")
+    reload_item.extra = {"AXMenuItemCmdChar": "R", "AXMenuItemCmdModifiers": 0, "AXEnabled": False}
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    e.observe()
+    e.act(Action("key", keys="cmd+r"))
+    button = m.made[0].children[1].children[1]
+    assert m.performed[-1] == (button, "AXPress")
+
+
+def test_a_click_where_another_window_of_the_app_is_in_front_raises_its_own_window_first():
+    """Two Safari desktops: a click on desktop 1 pressed desktop 2's +1, since the app's hit test answers for the
+    front window. The element hit must be in its own window: its window is raised, or nothing is done."""
+    m = Browser()
+    one = BackgroundEnv("Safari", mac=m, confirm=None)
+    BackgroundEnv("Safari", mac=m, confirm=None)            # the second desktop, its window in front
+    win1, win2 = m.made
+    b1 = El("AXButton", win1, actions=["AXPress"], frame=(150.0, 100.0, 40.0, 20.0))
+    b2 = El("AXButton", win2, actions=["AXPress"], frame=(150.0, 100.0, 40.0, 20.0))
+    for b, w in ((b1, win1), (b2, win2)):
+        b.extra = {"AXWindow": w}
+    win1.acts.append("AXRaise")
+    front = {"win": win2}
+    m.element_at = lambda x, y: b1 if front["win"] is win1 else b2
+    real_perform = m.perform
+
+    def perform(el, action):
+        if action == "AXRaise":
+            front["win"] = el
+        return real_perform(el, action)
+    m.perform = perform
+    one.observe()
+    one.act(Action("click", x=50, y=60))
+    assert (win1, "AXRaise") in m.performed and m.performed[-1] == (b1, "AXPress")
+    assert (b2, "AXPress") not in m.performed
+    win1.acts.remove("AXRaise")                            # can't be raised: nothing is pressed
+    front["win"] = win2
+    with pytest.raises(safety.Unavailable, match="another window covers"):
+        one.act(Action("click", x=50, y=60))
+    assert (b2, "AXPress") not in m.performed
+
+
+def test_a_capture_always_takes_its_window_even_when_the_list_misses_it_for_a_moment():
+    """legato run failed with IndexError: the window list taken for the capture had left its window out."""
+    e, m = env()
+    e.observe()
+    listed = m.windows
+    m.windows = lambda: []                                  # gone from the list between the look and the capture
+    e._take(e.win)
+    assert m.captures[-1][0] == [7]
+    m.windows = listed
+
+
+def test_browsers_other_than_safari_are_refused_in_a_window_of_their_own():
+    """Firefox (24 Nov 2026): a run's screenshots and keys reached the person's own Firefox window and changed its
+    selected tab, though the window it had opened was its own. Until that is pinned down, only Safari is a background
+    browser; window="front" (the front window, on purpose) is still allowed."""
+    from legato.background import other_browser
+    for app in ("Firefox", "Google Chrome", "Brave Browser", "Microsoft Edge", "Arc", "org.mozilla.firefox",
+                "com.google.Chrome"):
+        assert other_browser(app), app
+        with pytest.raises(DesktopStartError, match=f"works in Safari, not {re.escape(app)}.*--app Safari"):
+            BackgroundEnv(app, mac=FakeMac(), confirm=None)
+    for app in ("Safari", "com.apple.Safari", "TextEdit", "Calculator", "Knowledge Base", "Research"):
+        assert not other_browser(app), app
+    BackgroundEnv("Firefox", mac=FakeMac(), confirm=None, window="front")
+
+
+def test_opening_its_own_window_gives_the_front_back():
+    """Safari came to the front as a tester's desktop opened its window, and stayed there."""
+    m = Browser()
+    real = m.perform
+
+    def press(el, action):
+        if action == "AXPress" and el.role == "AXMenuItem":
+            m.front = m.pid                                # the app took the front as its window opened
+        return real(el, action)
+    m.perform = press
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    assert e.kind == "window" and m.front == 999 and m.activated == [999]
+
+
+def test_another_desktops_window_is_never_taken_even_after_it_closes_or_from_another_process():
+    """A live check (two processes in one Safari) found A acting in its window took B's: B had closed it, and macOS
+    still listed it. Windows another desktop took stay its own, in this process or another, and a closed one stays
+    nobody's while macOS lists it."""
+    import os
+
+    import legato.background as bg
+    m = Browser()
+    a = BackgroundEnv("Safari", mac=m, confirm=None)
+    b = BackgroundEnv("Safari", mac=m, confirm=None)
+    theirs = b.own[0]
+    a._acting = True
+    a.window()
+    assert theirs not in a.own
+    b.close()                                              # closed, but the fake (like macOS) still lists it
+    a.window()
+    assert a.own == [a.own[0]] and theirs not in a.own
+    c = BackgroundEnv("Safari", mac=m, confirm=None)       # a new desktop, acting: the closed window is nobody's
+    c._acting = True
+    c.window()
+    assert theirs not in c.own
+    m.wins.insert(0, {"id": 77, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0, "layer": 0})
+    bg._mark(f"{m.pid}-77")                                # taken by another live Legato process
+    (bg._windows_dir() / f"{m.pid}-77").write_text(str(os.getppid()))
+    a.window()
+    assert 77 not in a.own and a._taken(77) and not c._taken(c.own[0])
+
+
+def test_a_page_that_asks_before_closing_is_closed_with_its_prompt():
+    """Five sign-up checks each left their window open behind "Are you sure you want to close this window? You have
+    entered text": close() now answers its own window's prompt with Close."""
+    m = Browser()
+    e = BackgroundEnv("Safari", mac=m, confirm=None)
+    e.open_url("http://127.0.0.1:8765/")
+    new = m.app.extra["AXWindows"][0]
+    m.asks_to_close = True
+    t = time.monotonic()
+    e.close()
+    assert getattr(m, "confirmed", False) and new not in m.app.extra["AXWindows"] and time.monotonic() - t < 1.0
+
+
+def test_a_sheet_on_another_window_is_not_taken_while_acting():
+    """Another tester's close prompt appeared on their window while this desktop clicked; it was taken as this
+    desktop's, and their form reached the model."""
+    m = Browser()
+    a = BackgroundEnv("Safari", mac=m, confirm=None)
+    theirs = next(w for w in m.app.extra["AXWindows"] if w not in m.made)    # the person's (or another process's)
+    tw = next(w for w in m.wins if w["id"] not in a.own)
+    sheet = El("AXSheet", theirs, frame=(tw["x"] + 50, tw["y"] + 20, 300.0, 120.0))
+    sheet.extra = {"AXSubrole": "AXStandardWindow"}
+    m.wins.insert(0, {"id": 90, "x": tw["x"] + 50, "y": tw["y"] + 20, "w": 300.0, "h": 120.0, "layer": 0})
+    a._acting = True
+    a.window()
+    assert 90 not in a.own and 90 in a.known

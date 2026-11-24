@@ -6,8 +6,8 @@ number, use a title, find the top region, list the top three, compute a total, b
 chart. The inputs are generated from a seed, so every task has one right answer, and the grader opens the saved deck
 with python-pptx and checks it. The reward is the share of checks passed; success means all of them.
 
-    python -m legato.rl.bench.office generate --out ~/bench          # files + tasks.json for legato.rl collect
-    python -m legato.rl collect --tasks ~/bench/tasks.json ...        # run it (OSWorld backend)
+    legato bench office generate --out ~/bench          # files + tasks.json for legato rl collect
+    legato rl collect --tasks ~/bench/tasks.json ...     # run it (OSWorld backend)
 
 The files are real .xlsx and .pptx; the apps are LibreOffice Calc and Impress on OSWorld's Ubuntu desktop.
 """
@@ -317,7 +317,7 @@ def demo(base_dir: str | Path, legato_dir: str | Path, tasks: list[dict], out: s
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m legato.rl.bench.office")
+    ap = argparse.ArgumentParser(prog="legato bench office")
     sub = ap.add_subparsers(dest="cmd", required=True)
     g = sub.add_parser("generate")
     g.add_argument("--out", required=True)

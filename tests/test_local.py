@@ -319,3 +319,15 @@ def test_wait_scope_is_checked():
     import pytest
     with pytest.raises(ValueError):
         LocalEnv(gui=Gui(), grabber=Screen(), wait_scope="window")
+
+
+def test_a_screen_that_cannot_be_captured_raises_a_desktop_error():
+    import pytest
+    import legato
+
+    class Gone(Screen):
+        def grab(self, mon):
+            raise OSError("XGetImage() failed")
+    e = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Gone())
+    with pytest.raises(legato.DesktopError, match="the screen could not be captured: XGetImage"):
+        e.observe()

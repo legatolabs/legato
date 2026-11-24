@@ -80,9 +80,11 @@ def test_sandbox_loader(tmp_path):
         providers.load("not-a-spec")
 
 
-def test_doctor_json(capsys):
+def test_doctor_json(capsys, monkeypatch):
     import json
+    from legato import doctor
     from legato.doctor import main
+    monkeypatch.setattr(doctor, "window_capture", lambda app, perms: {"ok": None, "state": "not checked", "fix": None})
     assert main(["--json"]) == 0
     d = json.loads(capsys.readouterr().out)
     assert {"docker", "local", "e2b"} <= set(d["sandboxes"]) and "mcp" in d and d["legato"] == legato.__version__

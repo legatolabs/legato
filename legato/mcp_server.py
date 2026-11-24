@@ -14,6 +14,8 @@ Tools:
 - desktop_act: click, type, press keys, scroll or drag. The tool returns once the screen has stopped changing, with
   the new screenshot. Coordinates are pixels of the last screenshot.
 - desktop_screenshot: the current screen.
+- desktop_read: in the background on a Mac, the window's text from its Accessibility tree, to check what it says
+  without a screenshot.
 - desktop_shell: run a shell command on the desktop's computer and get its output and exit code.
 - desktop_run_task: hand a whole task to Legato's own agent (your saved model, or one you name) and get back its
   report and the final screen.
@@ -28,6 +30,8 @@ import sys
 import time
 import uuid
 from typing import Any, Callable
+
+from typing_extensions import TypedDict
 
 from legato.actions import ALIASES, KINDS, Action, norm_keys
 from legato.env import Env
@@ -66,15 +70,18 @@ def _said(fn):
 
 
 LAUNCH_RULE = {"launch": {"floor": 0.5, "quiet": 1.0, "min_same": 2}}   # once the window starts drawing
+PAGE_RULE = {"page": {"floor": 0.1, "quiet": 0.3, "min_same": 2}}       # a page already loaded: until it is drawn
 
 
 def launch_command(platform: str, url: str | None = None, app: str | None = None) -> str:
     """The shell command that opens `url` (in the default browser) or starts `app`, without waiting for it. `app` is
-    an app name on macOS (open -a) and a command elsewhere. `platform`: "darwin", "win32" or anything else for Linux."""
+    an app name on macOS (open -a) and a command elsewhere. `platform`: "darwin", "win32" (PowerShell, which is what
+    Legato's shell runs there) or anything else for Linux."""
     if platform == "darwin":
         return f"open -a {shlex.quote(app)}" + (f" {shlex.quote(url)}" if url else "") if app else f"open {shlex.quote(url or '')}"
     if platform == "win32":
-        return f'start "" {app} {url or ""}'.strip() if app else f'start "" "{url}"'
+        q = "'" + (url or "").replace("'", "''") + "'"           # PowerShell: Start-Process, as cmd's `start` is not there
+        return f"Start-Process {app}" + (f" {q}" if url else "") if app else f"Start-Process {q}"
     if app:
         return f"nohup {app}" + (f" {shlex.quote(url)}" if url else "") + " >/dev/null 2>&1 &"
     q = shlex.quote(url or "")
@@ -90,6 +97,37 @@ def wait_for_launch(screenshot, before: str, appear_s: float = 10.0) -> None:
             Waiter(screenshot, LAUNCH_RULE).settle("launch", cap_s=10.0, poll_s=0.15)
             return
         time.sleep(0.15)
+
+
+class RunTaskOutput(TypedDict):
+    """desktop_run_task's structured result, for a client to branch on."""
+    status: str               # done, failed, max_steps, timeout, cancelled, stopped or error
+    answer: str               # what the agent said at the end ("" if nothing)
+    seconds: float            # how long the run took
+    steps: int                # model turns
+    error: str | None         # why it failed, for error and timeout
+
+
+FAILED = ("failed", "timeout", "error")       # statuses reported as a failed tool call (isError)
+NEW_MCP = _Server.__module__.startswith("mcp.server.mcpserver")    # mcp 2: a tool can return its own CallToolResult
+if NEW_MCP:
+    from typing import Annotated
+
+    from mcp.types import CallToolResult, TextContent
+    RUN_RETURN: Any = Annotated[CallToolResult, RunTaskOutput]
+else:                                         # mcp 1: text and the screenshot, as before
+    RUN_RETURN = list
+
+
+def run_result(text: str, img: Any, out: dict) -> Any:
+    """desktop_run_task's reply: the report as text (older clients read that), the final screen, and `out` as
+    structured content; a run that failed, timed out or errored is marked as an error (isError), so a client sees it
+    without reading the text. With mcp 1, the text and the screen only."""
+    if not NEW_MCP:
+        return [text] + ([img] if img is not None else [])
+    content = [TextContent(type="text", text=text)] + ([img.to_image_content()] if img is not None else [])
+    return CallToolResult.model_validate({"content": content, "structuredContent": out,
+                                          "isError": out["status"] in FAILED})
 
 
 def e2b_factory(resolution: tuple[int, int]):
@@ -166,8 +204,8 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         screen, a desktop container, a cloud desktop or their own sandbox. With --sandbox docker, the first call can
         take a few minutes while the desktop image downloads. url: open it in the browser first. app: start it first
         (an app name on macOS, such as "TextEdit"; in the background, the app to work in, default the browser; a
-        command on Linux, such as "gnome-calculator"). With url or app the screenshot is taken once the window has
-        drawn."""
+        command on Linux or Windows, such as "gnome-calculator" or "notepad"). With url or app the screenshot is taken
+        once the window has drawn; if starting it failed, the text says so and nothing was opened."""
         if background is not None:
             return open_background(url, app)
         sb, env = factory((width, height))
@@ -183,7 +221,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                 t = time.monotonic()
                 out = env.shell(launch_command(platform, url, app), 30.0)
                 if not out.rstrip().endswith("[exit 0]"):
-                    note = f" (starting it failed: {out.strip()[-300:]})"
+                    note = f" (NOT started: starting {app or url} failed, so the desktop is as it was: {out.strip()[-300:]})"
                 else:
                     wait_for_launch(lambda: env.observe().screenshot, before)
                     note = f" (started {app or url} in {time.monotonic() - t:.1f} s)"
@@ -196,21 +234,26 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         if not app:
             from legato import config
             app = config.pick_app("")                       # the saved app, else the browser
+        env = None
         try:
-            env = background(app)
+            env = background(app)                           # a window of its own: the person's stay as they are
             if url:
-                env.open_url(url)
-                wait_for_launch(lambda: env.observe().screenshot, digest(env.observe().screenshot))
+                env.open_url(url)                           # returns once the page has loaded (Accessibility)
+                Waiter(lambda: env.observe().screenshot, PAGE_RULE).settle("page", cap_s=5.0, poll_s=0.1)
+            did = uuid.uuid4().hex[:12]
+            desks[did] = {"sb": None, "env": env, "wh": (0, 0), "opened": time.time()}
+            img = shot(desks[did])
         except (RuntimeError, OSError, subprocess.SubprocessError) as e:
+            close = getattr(env, "close", None)
+            if callable(close):
+                close()                                     # the window it opened, if it got that far
             raise ToolError(f"could not open {app} in the background: {e}") from None
-        did = uuid.uuid4().hex[:12]
-        desks[did] = {"sb": None, "env": env, "wh": (0, 0), "opened": time.time()}
-        img = shot(desks[did])
         w, h = desks[did]["wh"]
-        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app)
-        return [f"desktop_id: {did} ({w}x{h}): {app}'s window, worked in the background. Coordinates are pixels of "
-                "this window. Clicks press, focus or select what is under them; drags and clicks on nothing "
-                "pressable are not possible here, so use the keyboard for those.", img]
+        what = env.describe() if hasattr(env, "describe") else f"{app}'s window"
+        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app, window=what)
+        return [f"desktop_id: {did} ({w}x{h}): {what}, worked in the background; the person's other windows are left "
+                "alone. Coordinates are pixels of this window. Clicks press, focus or select what is under them; "
+                "drags and clicks on nothing pressable are not possible here, so use the keyboard for those.", img]
 
     @srv.tool()
     @_said
@@ -255,10 +298,30 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
 
     @srv.tool()
     @_said
+    def desktop_read(desktop_id: str, max_chars: int = 8000) -> str:
+        """The text of a background desktop's window (legato mcp --background, macOS), read from its Accessibility
+        tree: an outline with one line per element, such as `- heading "Counter"`, `- text "Count: 1"` or
+        `- textbox "Name": "Ada" [focused]`. In a browser it is the page, with its title and address first. Use it to
+        check what an app or page says (a count, a message, a field's value) without a screenshot. max_chars: where
+        the outline is cut (default 8000). Other desktops have no such tree: use desktop_screenshot."""
+        from legato.background import BackgroundEnv
+        d = get(desktop_id)
+        if not isinstance(d["env"], BackgroundEnv):
+            raise ToolError("desktop_read works only in background mode on a Mac (legato mcp --background), where it "
+                            "reads the window's Accessibility tree; on this desktop use desktop_screenshot, or "
+                            "desktop_shell to check files and output")
+        t = time.monotonic()
+        text = d["env"].read(max_chars=min(max(int(max_chars), 1), 200_000))
+        keep(desktop_id, "read", None, chars=len(text), seconds=round(time.monotonic() - t, 3))
+        return text
+
+    @srv.tool()
+    @_said
     def desktop_shell(desktop_id: str, command: str, timeout_s: float = 30.0) -> str:
         """Run a shell command on the desktop's computer and return its output (stdout and stderr) and exit code.
-        Use it to start apps, read and write files and check results; it is faster than the screen. Start a GUI app
-        in the background (nohup app >/dev/null 2>&1 &), or the command waits for it to exit. timeout_s: 1 to 300."""
+        Use it to start apps, read and write files and check results; it is faster than the screen. On Windows the
+        shell is PowerShell; elsewhere bash. Start a GUI app in the background, or the command waits for it to exit:
+        `nohup app >/dev/null 2>&1 &` (macOS, Linux), `Start-Process app` (Windows). timeout_s: 1 to 300."""
         from legato.tools import bash
         d = get(desktop_id)
         try:
@@ -270,43 +333,97 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         keep(desktop_id, "shell", None, command=command, seconds=round(time.monotonic() - t, 3))
         return out
 
-    @srv.tool()
-    @_said
     def desktop_run_task(desktop_id: str, task: str, model: str | None = None, base_url: str | None = None,
-                         api_key_env: str | None = None, max_steps: int = 40) -> list:
+                         api_key_env: str | None = None, max_steps: int = 40, timeout_s: float | None = None) -> Any:
         """Hand a whole task to Legato's own agent and get back what it found, its report and the final screen. It
         uses the model saved by `legato setup` unless you name one (model, base_url: any OpenAI-compatible endpoint;
-        the key is read from the environment variable api_key_env). Good for long GUI chores while you keep working."""
+        the key is read from the environment variable api_key_env). Good for long GUI chores while you keep working.
+        The reply starts with `status:`, how the run ended: done, failed, max_steps, timeout, cancelled, stopped or
+        error; only done means the agent says it finished, so check the result before relying on it. timeout_s: a
+        deadline for the whole run in seconds (status timeout, with what was done so far)."""
         from legato import config
         from legato.agent import agent_for
         d = get(desktop_id)
         key = os.environ.get(api_key_env, "") if api_key_env else None
+        source = f"the key in ${api_key_env}" if api_key_env else None
         if model and not base_url and not config.load().base_url:
             base_url = "https://openrouter.ai/api/v1"
             key = key if key is not None else os.environ.get("OPENROUTER_API_KEY", "")
+            source = source or "the key in $OPENROUTER_API_KEY"
         try:
             agent = agent_for(d["env"], model=model, base_url=base_url, api_key=key)
         except ValueError as e:
             raise ToolError(f"no model for desktop_run_task: {e}") from None
+        if source and hasattr(agent.client, "key_source"):  # named if the server refuses the key
+            agent.client.key_source = source
         from legato.agent import ANSWER_NOTE
-        res = agent.run(task + ANSWER_NOTE, d["env"], max_steps=max_steps)
-        img = shot(d)
-        keep(desktop_id, "run_task", d["png"], task=task, model=agent.model, done=res.done, actions=res.actions[-50:])
+        env, last = d["env"], {}
+        on_step = None
+        if record:                              # each step's actions and screen, not only the last one
+            def seen(fn):
+                def wrapped(*a, **k):
+                    obs = fn(*a, **k)
+                    last["png"] = getattr(obs, "screenshot", None)
+                    return obs
+                return wrapped
+            env.observe, env.act = seen(env.observe), seen(env.act)
+
+            def on_step(turn, actions, timing):
+                keep(desktop_id, "run_step", last.pop("png", None), turn=turn,
+                     actions=[a.describe() if a else "screenshot" for a in actions],
+                     seconds={k: round(v, 3) for k, v in timing.items() if isinstance(v, float)})
+        try:
+            res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, raise_desktop_errors=False,
+                            timeout_s=float(timeout_s) if timeout_s else None)
+        finally:
+            if record:
+                del env.observe, env.act                # the class's own again
         answer = f"answer: {res.answer}\n" if res.answer else ""
-        return [answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]), img]
+        text = (f"status: {res.status}\n" + answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]))
+        out = {"status": res.status, "answer": res.answer, "seconds": round(res.wall_s, 2), "steps": res.steps,
+               "error": res.error}
+        try:
+            img = shot(d)
+        except Exception:  # noqa: BLE001 - the desktop that failed the run may not give a screenshot either
+            if res.status != "error":
+                raise
+            img = None                          # report() leads with the error
+        keep(desktop_id, "run_task", d.get("png") if img is not None else None, task=task, model=agent.model,
+             status=res.status, done=res.done, actions=res.actions[-50:])
+        return run_result(text, img, out)
+
+    desktop_run_task.__annotations__["return"] = RUN_RETURN
+    srv.tool()(_said(desktop_run_task))
 
     @srv.tool()
     @_said
     def desktop_close(desktop_id: str) -> str:
-        """Stop a desktop."""
+        """Stop a desktop. In the background, the window desktop_open(url=...) opened is closed; the app stays."""
         if desktop_id not in desks:
             return f"no open desktop {desktop_id!r}"
         keep(desktop_id, "close", None)
         d = desks.pop(desktop_id)
         from legato import providers
         providers.close(d["sb"])
+        from legato.background import BackgroundEnv
+        if isinstance(d["env"], BackgroundEnv):           # the window desktop_open(url=...) opened
+            try:
+                d["env"].close()
+            except Exception:  # noqa: BLE001 - the desktop is gone from the list either way
+                pass
         return f"closed {desktop_id} after {time.time() - d['opened']:.0f} s"
 
+    def close_left() -> None:                   # the client went without desktop_close: its windows go with the server
+        from legato.background import BackgroundEnv
+        for d in list(desks.values()):
+            if isinstance(d["env"], BackgroundEnv):
+                try:
+                    d["env"].close()
+                except Exception:  # noqa: BLE001 - exiting anyway
+                    pass
+    import atexit
+    atexit.register(close_left)
+    srv.close_left = close_left                 # for tests
     return srv
 
 

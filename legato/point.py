@@ -455,12 +455,15 @@ class Pointing:
         self.why = ("denied", "The last action was not allowed and was not run. This is the screen now.")
 
 
-def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
-                on_step: Callable | None = None) -> "RunResult":
+def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
+                on_step: Callable | None = None, *, res: "RunResult | None" = None, limits=None) -> "RunResult":
     """Harness.run with a planner whose style is "point" (see the module docstring). max_steps counts every model
-    call, the planner's and the pointer's."""
+    call, the planner's and the pointer's. res: the result to fill in (Harness.run's); limits: its deadline and
+    cancel event, checked before each planner turn."""
     from legato.harness import RunResult
-    res, t0 = RunResult(task), time.monotonic()
+    res = RunResult(task) if res is None else res
+    t0 = time.monotonic()
+    ended = False                           # the limits ended it: res.status says how
     obs = env.observe()
     png = obs.screenshot
     s = Pointing(h, task, png, max_calls=max_steps)
@@ -471,6 +474,8 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         model_s = 0.0
         for _req, rec in s.calls:
             res.usage["cost_usd"] += (rec.get("usage") or {}).get("cost") or 0.0
+            if rec.get("cut") or rec.get("hedged"):
+                res.usage["complete"] = False
         n = s.planner["calls"] - len([t for t in res.timings if "planner" in t])
         for _ in range(n):
             res.timings.append({"planner_s": s.planner["s"] / max(1, s.planner["calls"]), "planner": "call"})
@@ -483,11 +488,17 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
 
     try:
         while not res.stopped:
+            if limits is not None and limits.hit(res):
+                ended = True
+                break
             try:
                 actions = s.next(png)
             except PolicyError as e:
-                res.error = (f"planner: {str(e)[:280]}" if not s.planner["calls"] or not s.running else str(e)[:300])
+                res.error = (f"planner: {str(e)[:480]}" if not s.planner["calls"] or not s.running else str(e)[:500])
+                if getattr(e, "cut", 0):
+                    res.usage["complete"] = False
                 account()
+                ended = limits is not None and limits.hit(res)    # a call cut short by the deadline: a timeout
                 break
             timing = {"model_s": account(), "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
             if not actions:
@@ -531,6 +542,9 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         if not res.error:
             res.done, res.failed = s.status == "done", s.status == "fail"
             res.actions.append("done" if res.done else "fail")
+        if not ended:
+            res.status = ("stopped" if res.stopped else "max_steps" if res.error and res.error == s.error else
+                          "error" if res.error else "done" if res.done else "failed")
     finally:
         res.wall_s = time.monotonic() - t0
     return res

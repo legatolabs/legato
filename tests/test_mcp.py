@@ -38,8 +38,8 @@ def test_open_act_screenshot_close():
 
     async def go():
         names = {t.name for t in await srv.list_tools()}
-        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_shell", "desktop_run_task",
-                         "desktop_close"}
+        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_read", "desktop_shell",
+                         "desktop_run_task", "desktop_close"}
         r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
         assert kinds(r) == ["text", "image"]
         did = r.content[0].text.split()[1]
@@ -110,7 +110,8 @@ def test_launch_command():
     assert launch_command("darwin", url="https://a.b/c d") == "open 'https://a.b/c d'"
     assert launch_command("linux", app="xterm") == "nohup xterm >/dev/null 2>&1 &"
     assert launch_command("linux", url="http://h:3000").startswith("(xdg-open http://h:3000 || firefox-esr")
-    assert launch_command("win32", url="https://a.b") == 'start "" "https://a.b"'
+    assert launch_command("win32", url="https://a.b") == "Start-Process 'https://a.b'"
+    assert launch_command("win32", app="notepad") == "Start-Process notepad"
 
 
 def test_open_with_app_waits_for_its_window():
@@ -137,7 +138,7 @@ def test_open_with_app_waits_for_its_window():
         assert sent == ["nohup xterm >/dev/null 2>&1 &"]
         assert "started xterm" in r.content[0].text and r.content[0].text.split()[2] == "(64x42)"
         r = await build_server(failing).call_tool("desktop_open", {"width": 64, "height": 40, "app": "xcalc"})
-        assert "starting it failed" in r.content[0].text and "not found" in r.content[0].text
+        assert "NOT started" in r.content[0].text and "not found" in r.content[0].text
         r = await build_server(lambda res: (None, legato.attach(screenshot=lambda: png(64, 40),
                                                                 execute=lambda a: None))).call_tool(
             "desktop_open", {"width": 64, "height": 40, "url": "https://a.b"})
@@ -204,3 +205,104 @@ def test_a_desktop_failure_reaches_the_client_with_its_reason():
         with pytest.raises(Exception, match="desktop_screenshot failed: the window could not be captured"):
             await srv.call_tool("desktop_screenshot", {"desktop_id": did})
     asyncio.run(go())
+
+
+def test_run_task_reports_its_status_and_a_desktop_error(monkeypatch):
+    """desktop_run_task leads with the run's status; a desktop that fails mid-run comes back as status error, not as
+    an exception, even when the final screenshot cannot be taken either."""
+    import json
+    import legato.agent
+    shots, sent = {"n": 0, "fail_after": 99}, []
+
+    def screenshot():
+        shots["n"] += 1
+        if shots["n"] > shots["fail_after"]:
+            raise RuntimeError("the window could not be captured")
+        return png()
+
+    def agent_for(env, **kw):
+        h = legato.Harness("m", "http://x/v1", "", coords="pixels", model_size=None)
+
+        def chat(msgs, **k):
+            sent.append(msgs)
+            call = {"action": "left_click", "coordinate": [5, 5]} if len(sent) % 2 else {"action": "done"}
+            return {"content": "", "tool_calls": [{"type": "function", "function": {
+                "name": "computer", "arguments": json.dumps(call)}}], "usage": {"prompt": 7}, "s": 0.01}
+        h.client.chat = chat
+        return h
+    monkeypatch.setattr(legato.agent, "agent_for", agent_for)
+    srv = build_server(lambda res: (None, legato.attach(screenshot=screenshot, execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        did = r.content[0].text.split()[1]
+        r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
+        assert kinds(r) == ["text", "image"] and r.content[0].text.startswith("status: done\n")
+        assert r.structured_content["status"] == "done" and r.structured_content["steps"] == 2 and not r.is_error
+        assert set(r.structured_content) == {"status", "answer", "seconds", "steps", "error"}
+        shots["fail_after"] = shots["n"] + 1               # the first screenshot works, the one after the click fails
+        r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
+        assert kinds(r) == ["text"] and r.content[0].text.startswith(
+            "status: error\nthe desktop failed: the window could not be captured")
+        assert r.is_error and r.structured_content["status"] == "error" and "captured" in r.structured_content["error"]
+    asyncio.run(go())
+
+
+def test_run_task_passes_its_deadline_and_says_status_in_its_description(monkeypatch):
+    import legato.agent
+    from legato.harness import RunResult
+    got = []
+
+    class Agent:
+        model = "m"
+
+        def run(self, task, env, **kw):
+            got.append(kw)
+            return RunResult(task, status="timeout", error="the run's deadline passed")
+    monkeypatch.setattr(legato.agent, "agent_for", lambda env, **kw: Agent())
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def go():
+        tool = next(t for t in await srv.list_tools() if t.name == "desktop_run_task")
+        assert "status" in tool.description and "timeout_s" in tool.description
+        did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
+        r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t", "timeout_s": 90})
+        assert r.content[0].text.startswith("status: timeout\n") and r.is_error            # a client can branch on it
+        assert r.structured_content["status"] == "timeout"
+        assert tool.output_schema["required"] == ["status", "answer", "seconds", "steps", "error"]
+        await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t"})
+    asyncio.run(go())
+    assert got[0]["timeout_s"] == 90.0 and got[1]["timeout_s"] is None
+
+
+def test_run_task_under_record_keeps_each_step(monkeypatch, tmp_path):
+    import json
+    import legato.agent
+    sent = []
+
+    def agent_for(env, **kw):
+        h = legato.Harness("m", "http://x/v1", "", coords="pixels", model_size=None)
+
+        def chat(msgs, **k):
+            sent.append(msgs)
+            call = {"action": "left_click", "coordinate": [5, 5]} if len(sent) < 3 else {"action": "done"}
+            return {"content": "", "tool_calls": [{"type": "function", "function": {
+                "name": "computer", "arguments": json.dumps(call)}}], "usage": {"prompt": 7}, "s": 0.01}
+        h.client.chat = chat
+        return h
+    monkeypatch.setattr(legato.agent, "agent_for", agent_for)
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)), record=str(tmp_path))
+
+    async def go():
+        did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
+        await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it twice"})
+        return did
+    did = asyncio.run(go())
+    log = [json.loads(line) for line in (tmp_path / did / "log.jsonl").read_text().splitlines()]
+    steps = [e for e in log if e["event"] == "run_step"]
+    assert [e["event"] for e in log] == ["open", "run_step", "run_step", "run_step", "run_task"]
+    assert steps[0]["actions"] == ["click (5, 5)"] and all(e["screenshot"] for e in steps[:2])
+    assert (tmp_path / did / steps[0]["screenshot"]).read_bytes().startswith(b"\x89PNG")

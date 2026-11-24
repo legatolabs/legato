@@ -5,10 +5,10 @@ loop between them (screenshot, policy call, action, wait until the screen is rea
 grades each attempt and writes trajectories the trainer can consume (token ids, logprobs, rewards, group
 advantages, policy version). See docs/rl.md for the format and the CLI.
 """
-from legato.rl.collect import DesktopConfig, HarnessConfig, collect, plan_jobs
+from legato.rl.collect import CollectError, DesktopConfig, HarnessConfig, SetupError, collect, plan_jobs
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
 from legato.rl.profile import report, summarize
 from legato.rl.trajectory import export_steps, group_advantages, load_messages, load_request, read_rollouts
 
-__all__ = ["DesktopConfig", "HarnessConfig", "PolicyClient", "PolicyConfig", "PolicyError", "collect",
-           "export_steps", "group_advantages", "load_messages", "load_request", "plan_jobs", "read_rollouts", "report", "summarize"]
+__all__ = ["CollectError", "DesktopConfig", "HarnessConfig", "PolicyClient", "PolicyConfig", "PolicyError",
+           "SetupError", "collect", "export_steps", "group_advantages", "load_messages", "load_request", "plan_jobs", "read_rollouts", "report", "summarize"]

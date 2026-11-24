@@ -104,6 +104,14 @@ def add_mcp(client: str, cmd: list[str] | None = None, run=None) -> str:
     """Add Legato's MCP server to one coding agent (user-wide where it has that), replacing an older entry.
     Returns what was done, as one line."""
     cmd = cmd or legato_command()
+    if client in ("claude", "codex") and run is None:
+        import shutil
+        exe = shutil.which(client)              # the full path: on Windows these are .cmd files a bare name does not run
+        if exe is None:
+            raise RuntimeError(f"{client} is not installed here (no `{client}` command on PATH): nothing was added")
+        real = subprocess.run
+        first = exe if sys.platform == "win32" else client
+        run = lambda argv, **kw: real([first, *argv[1:]], **kw)  # noqa: E731
     run = run or subprocess.run
     if client == "claude":
         run(["claude", "mcp", "remove", "legato", "-s", "user"], capture_output=True, text=True)
@@ -188,7 +196,7 @@ def _main(argv) -> int:
     ap.add_argument("--desktop", help="where it works: background (macOS), screen, docker, e2b, or your own sandbox as "
                                       "path/to/file.py:function (docs/sandboxes.md)")
     ap.add_argument("--app", help="background mode: always work in this app (default: the app the task names, else "
-                                  "your default browser)")
+                                  "Safari)")
     ap.add_argument("--mcp", help=f"add Legato to these coding agents ({', '.join(CLIENTS)}, all found, or none); "
                                   "default: ask, or with --yes all found")
     ap.add_argument("--try", dest="try_task", nargs="?", const=FIRST_TASK, metavar="TASK",
@@ -228,7 +236,10 @@ def _main(argv) -> int:
             base_url, models = hit
             say(f"   found a model server at {base_url}")
         elif asking:
-            base_url = _text("   Base URL of your model server (ends in /v1)", base_url)
+            guess = ("http://localhost:11434/v1" if shutil.which("ollama") else "http://localhost:1234/v1"
+                     if Path("/Applications/LM Studio.app").exists() else base_url)
+            base_url = _text("   No model server answered on :8000, :11434 or :1234. Base URL of yours (ends in /v1)",
+                             guess)
     elif provider == "custom" and asking and not base_url:
         base_url = _text("   Base URL (OpenAI-compatible, ends in /v1)")
     if not base_url:
@@ -252,7 +263,7 @@ def _main(argv) -> int:
         elif not C.is_local_url(base_url):
             say(f"   no key yet: export {key_env or 'LEGATO_API_KEY'}=..., or run legato setup --api-key -")
     elif in_env and not key:
-        say(f"   using the key in ${key_env}")
+        say(f"   using the key in {C.env_name(key_env)}")
 
     model = a.model or (cfg.model if provider == cfg.provider and cfg.model else pv.model)
     if not models and (provider == "local" or (not model and (key or in_env))):
@@ -316,7 +327,7 @@ def _main(argv) -> int:
         cfg.app = a.app
     elif asking and desktop == "background":
         cfg.app = _text("   Always work in one app? Name it, or Enter to use the app each task names "
-                        "(else your browser)", cfg.app)
+                        "(else Safari)", cfg.app)
     if desktop in ("background", "screen") and mac:
         problems = permission_lines(request=asking)
         for p in problems:

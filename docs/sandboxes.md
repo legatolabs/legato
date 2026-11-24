@@ -57,7 +57,7 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
   alone and a command behind an alias are **not** caught. `legato.local(confirm=fn)` takes your own
   `fn(description) -> bool`; `confirm=legato.safety.deny` refuses the list; `confirm=None`, `legato run --yes` or
   `LEGATO_CONFIRM=off` asks nothing. Without a terminal (a script's stdin is a pipe, an MCP server, CI) nothing is
-  asked either.
+  asked either, and the action runs; `legato.run()` refuses it instead unless you pass `confirm`.
 - **macOS:** allow your terminal (or MCP client) under System Settings → Privacy & Security, in both Screen Recording
   and Accessibility. `legato doctor` shows whether each is on and which app to allow, and `legato.local()` prints
   the same when one is off. Screenshots are scaled to the logical screen size, and Ctrl shortcuts are sent as Cmd
@@ -74,10 +74,18 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 
 ### In the background, while you keep working (macOS)
 
-`legato.local(background="TextEdit")` works in one app's front window and leaves the rest of the Mac to you: your
-pointer, the app in front and the clipboard stay yours. It is the default on a Mac: `legato run "..."` works in the
-app the task names ("... in Notes", "... on Spotify"), else in your browser (Safari, unless your default is Chrome);
-`--app NAME` picks one. In the MCP server: `desktop_open(app="Safari", url=...)`.
+`legato.local(background="TextEdit")` works in a window of one app and leaves the rest of the Mac to you: your
+pointer, the app in front, the clipboard and your own windows stay yours. It is the default on a Mac: `legato run
+"..."` works in the app the task names ("... in Notes", "... on Spotify"), else in Safari; `--app NAME` picks one. In
+the MCP server: `desktop_open(app="Safari", url=...)`.
+
+**It works in a window of its own, never in yours.** When the desktop opens, Legato makes one through the app's menu
+(no Apple Events permission): a new window in a browser (Safari's New Window), a new document in a document app
+(TextEdit's New). Windows that open from its own actions (a document it opens, a save sheet) are followed; your
+windows and tabs, and other desktops' windows, never are, and if its window closes the desktop says so rather than
+moving to another. The browser window is closed when the run ends (`legato run`, `legato.run`, `desktop_close`,
+`env.close()`); a new document stays open, with what the agent wrote in it. An app with neither (Calculator, Chess,
+Notes, where New would add a note) is worked in its front window, and the desktop names that window when it opens.
 
 ```python
 env = legato.local(background="Safari")
@@ -93,20 +101,39 @@ agent.run("Sign up with the name Ada Lovelace", env)
   the point is pressed (buttons, links, checkboxes, menu items), focused (fields), or selected (rows), and in text the
   insertion point goes to that character; a double or triple click there selects the word or the line.
 - **Scrolling** moves the scroll bar under the point; a page with none (Chrome) scrolls with the arrow keys.
+- **A page opens in its window** (`env.open_url(url)`, `desktop_open(url=...)`) through the address field, with any
+  query string, and is ready to read and click when the call returns. Reload, Back and Forward (Cmd+R, Cmd+[, Cmd+])
+  press the toolbar's buttons, since their menu items are off while Safari is in the back.
+- **Two desktops in one app** (two `desktop_open(app="Safari")`) each keep their own window: reads, screenshots, clicks
+  and keys go to that window only. Keys reach it because it is made the app's main window first; a click where another
+  of the app's windows is in front raises its window among the app's windows (the app stays in the back).
 - **If the app takes the front** (Chrome does when it opens a URL), it is given back to the app you were in.
-- **Not possible in the background,** and reported to the model as "this desktop can't do that": drags, a click on
+- **Not possible in the background,** and reported to the model as "this desktop can't do that": saving, exporting
+  and printing (an app in the back turns those menu items off, by key, menu or button alike), drags, a click on
   something that can't be pressed, focused or selected (a canvas, an empty area), a click with keys held, copy, cut and
-  paste (the clipboard is yours), and anything outside the app (the Dock, the menu bar, Spotlight, other apps).
-- **Don't use the same app yourself** while it works: its keys go to whatever has the focus in that app. Give it its own
-  app, or its own browser (Chrome while you use Safari).
+  paste (the clipboard is yours), anything outside the app (the Dock, the menu bar, other apps), system shortcuts
+  (Cmd+Space for Spotlight, Cmd+Tab, Mission Control: posted to the app they would do nothing, and the search typed
+  next would land in the window), and font changes such as bold and italic: an app in the back doesn't apply them,
+  though its Bold button may look on (underline and alignment do work).
+- **An app with no New Window or New Document** (Calculator, System Settings) is worked in its one window, which is
+  yours: what it shows (Calculator's display) is changed. `describe()` and `desktop_open` say so.
+- **Typed text goes in as written** in apps other than browsers (through Accessibility), so the app's automatic
+  capitalisation and smart quotes don't change it. A new document stays open after the run with what was written.
+- **Several agents in one app** each keep to their own windows, across processes too. A window you open yourself in
+  that app while an agent is acting may be taken for the one its action opened: open yours between its actions.
+- **Don't use the same app yourself** while it works: it types only while its own window has that app's keyboard, so
+  your typing in the same app holds its keys back. Give it an app you aren't using.
 - The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it. An app
-  hidden with Cmd+H is shown again (behind your app); the agent's own Cmd+H and Cmd+M are not run.
+  hidden with Cmd+H is shown again (behind your app); the agent's own Cmd+H and Cmd+M are not run, nor its clicks on the
+  window's close, minimize and zoom buttons.
 - **One app per task.** A task that moves between apps needs the whole screen (`--screen`).
-- **Firefox** works, but slowly in the background: use Safari or Chrome.
+- **Browsers:** Safari only. Other browsers are refused in the background for now: in Firefox the agent's keys and
+  screenshots reached the person's own Firefox window, not the one it opened, and Chrome 158 and later ignore
+  background clicks on a web page's elements. Use them with `--screen`.
 - Your stop signals (a corner, Escape) don't apply, since the mouse and keyboard are yours: stop it from the program
   that runs it. Risky keys and typed commands still wait for your yes.
 - **Tested** with `tests/test_background.py` (any OS) and, on a Mac, `LEGATO_TEST_BACKGROUND=1 pytest
-  tests/test_background_live.py`: TextEdit, Safari and Chrome in the back while Terminal stays in front, checking
+  tests/test_background_live.py`: TextEdit and Safari in the back while Terminal stays in front, checking
   after each test that the front app, the pointer and the clipboard are unchanged.
 
 ## A desktop container on this machine

@@ -270,6 +270,29 @@ def test_notes_come_back_at_every_call():
         assert "Your notes:\nrows 1-3 read: A=1 B=2" in later["messages"][1]["content"][0]["text"]
 
 
+def test_statuses_in_the_pointing_style():
+    import threading
+    h, _ = harness([act("continue", {"key": "ctrl+s"}), act("done")], [])
+    assert h.run("t", desktop([])).status == "done"
+    h, _ = harness([act("fail")], [])
+    assert h.run("t", desktop([])).status == "failed"
+    h, _ = harness([act("continue", {"click": "a"})] * 3, [at(1, 1)] * 3)
+    res = h.run("t", desktop([]), max_steps=4)
+    assert res.status == "max_steps" and "call limit" in res.error
+    stop = threading.Event()
+    h, _ = harness([act("continue", {"key": "a"})] * 3, [])
+    res = h.run("t", desktop([]), cancel=stop, on_step=lambda *a: stop.set())
+    assert (res.status, res.planner["calls"], res.actions) == ("cancelled", 1, ["key a"])
+
+    def broken(a):
+        raise RuntimeError("the window could not be captured")
+    png = desktop([]).observe().screenshot
+    h, _ = harness([act("continue", {"key": "a"})], [])
+    res = h.run("t", legato.attach(screenshot=lambda: png, execute=broken), raise_desktop_errors=False)
+    assert (res.status, res.error) == ("error", "the desktop failed: the window could not be captured")
+    assert res.usage["cost_usd"] == 0.001
+
+
 def test_on_windows_the_shell_tool_is_powershell_and_the_planner_is_told_so(monkeypatch):
     import subprocess
     import legato.tools as tools

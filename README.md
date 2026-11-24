@@ -35,7 +35,7 @@ Choose your model once. Every way in runs the same agent with it.
 | **Python** | `legato.run("...")`, or `legato.Harness(...).run(task, desktop)` | Your own agent, RL rollouts ([docs](https://legato.computer/docs/python)) |
 
 **Any model** with an OpenAI-compatible API and vision: Qwen, Claude, GPT, Gemini, Grok, through OpenRouter or the
-maker's own API, or on your own GPU (vLLM, Ollama, LM Studio), where nothing leaves your machine
+maker's own API, or on your own GPU with vLLM (Ollama and LM Studio serve the same API; untested so far), where nothing leaves your machine
 ([models](https://legato.computer/docs/models)).
 
 **Any computer** ([desktops](https://legato.computer/docs/sandboxes)):
@@ -59,8 +59,11 @@ Same model, same desktops, 24 office tasks per run. [Method and raw data](https:
 
 | Model | Compared with | Time | Success |
 |---|---|---|---|
-| Claude Sonnet 5.5 | Anthropic's reference loop | 1.48x faster | 48/48 vs 48/48 |
+| Claude Sonnet 5.5 | Anthropic's demo loop (our re-implementation, `legato.Harness.reference`) | 1.48x faster | 48/48 vs 48/48 |
 | Qwen3.8-27B | OSWorld's Qwen agent | same | 71/96 vs 53/96 |
+
+We wrote the 24 tasks (LibreOffice, a spreadsheet into a deck). The Claude row is one run of two attempts a task.
+Check it on your own tasks: `examples/compare_with_reference.py`.
 
 ## Why it's fast
 
@@ -71,6 +74,17 @@ Most of a computer-use agent's time goes to waiting: on the model, and on the sc
   AppleScript beside the screen where they are faster.
 - Screenshots go as JPEG, and old ones are dropped in chunks so the prompt cache keeps hitting.
 - A wall-clock timeout and a token budget on every model call, so nothing hangs.
+
+## Safety and limits
+
+- **Your own screen:** risky keys and typed commands (`rm`, `sudo`, Cmd+Q...) wait for your yes; move the mouse into
+  a corner to stop a run. `--sandbox docker` or a cloud desktop keeps the agent off your screen and files.
+- **Your data:** screenshots and the task go to the model you chose and nowhere else. Legato has no server of its
+  own and sends no telemetry.
+- **Limits you set:** `timeout_s` and `max_steps` bound a run, and `result.status` says how it ended
+  ([Python](https://legato.computer/docs/python)).
+- **What it is not good at yet:** tasks of many minutes across several apps, and anything that needs a drag in
+  background mode (one app's window, Safari among browsers). It is an alpha: the API may change before 1.0.
 
 ## Docs
 

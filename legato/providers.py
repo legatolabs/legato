@@ -10,11 +10,15 @@
 Your function can return any `legato.attach(...)` result. If it also returns a handle, Legato calls the handle's
 `kill()`, `close()`, `stop()` or `delete()`, or calls the handle itself if it is a function, when the desktop is
 closed.
+
+The built-in desktops raise legato.DesktopStartError (a RuntimeError) when they cannot start. docker and e2b take
+`timeout_s`, a limit on starting (`start()` passes it to the factories that take it).
 """
 from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
 import os
 import subprocess
 import threading
@@ -22,20 +26,50 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from legato.env import Env, attach
+from legato.env import DesktopStartError, Env, attach
 
 Factory = Callable[[int, int], "tuple[Any, Env]"]
 
 
-def e2b(width: int, height: int) -> tuple[Any, Env]:
+class SpecError(ValueError):
+    """A desktop spec that names no desktop (`--sandbox nonsense`). `spec` is what was given; `path` the file that
+    could not be loaded, if that was the problem."""
+
+    def __init__(self, spec: str, message: str, path: str = ""):
+        super().__init__(message)
+        self.spec, self.path = spec, path
+
+
+def e2b(width: int, height: int, *, timeout_s: float | None = None) -> tuple[Any, Env]:
     from e2b_desktop import Sandbox
-    sb = Sandbox.create(resolution=(width, height), timeout=3600)
+    kw: dict = {}
+    try:                                       # the SDK's limit on its create request, where it has one
+        if timeout_s is not None and "request_timeout" in inspect.signature(Sandbox.create).parameters:
+            kw["request_timeout"] = max(1.0, timeout_s)
+    except (TypeError, ValueError):
+        pass
+    try:
+        sb = Sandbox.create(resolution=(width, height), timeout=3600, **kw)
+    except Exception as e:  # noqa: BLE001 - a bad key, no quota, the network: one typed error with E2B's reason
+        raise DesktopStartError(f"the E2B desktop could not start: {type(e).__name__}: {e}") from e
     return sb, attach(sb)
 
 
 def local(width: int, height: int) -> tuple[Any, Env]:
     from legato.local import local as this_computer
     return None, this_computer()
+
+
+def start(factory: Factory, width: int, height: int, timeout_s: float | None = None) -> tuple[Any, Env]:
+    """factory(width, height), with timeout_s for the factories that take it (docker, e2b); others are not bounded."""
+    if timeout_s is not None:
+        try:
+            takes = "timeout_s" in inspect.signature(factory).parameters
+        except (TypeError, ValueError):
+            takes = False
+        if takes:
+            return factory(width, height, timeout_s=timeout_s)
+    return factory(width, height)
 
 
 DOCKER_IMAGE = "ghcr.io/legatolabs/desktop:latest"
@@ -47,48 +81,81 @@ DOCKER_SOURCE = "https://github.com/legatolabs/legato.git#main:docker/desktop"
 _image_lock = threading.Lock()
 
 
-def ensure_image(image: str) -> None:
+class _Clock:
+    """Time left before a start limit (None: no limit); past it, DesktopStartError."""
+
+    def __init__(self, what: str, timeout_s: float | None):
+        self.what, self.timeout_s = what, timeout_s
+        self.end = None if timeout_s is None else time.monotonic() + timeout_s
+
+    def left(self) -> float | None:
+        if self.end is None:
+            return None
+        t = self.end - time.monotonic()
+        if t <= 0:
+            raise DesktopStartError(f"{self.what} did not start within {self.timeout_s:g} s")
+        return t
+
+    def run(self, args: list, **kw) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(args, timeout=self.left(), **kw)
+        except subprocess.TimeoutExpired:
+            raise DesktopStartError(f"{self.what} did not start within {self.timeout_s:g} s") from None
+
+
+def ensure_image(image: str, timeout_s: float | None = None) -> None:
     """Use the local image, else pull it; the default image is built from the repo if the pull fails. Concurrent calls
-    wait for the first one."""
-    with _image_lock:
-        _ensure_image(image)
+    wait for the first one. Raises DesktopStartError (Docker missing or stopped, no image, past timeout_s)."""
+    _ensure_within(image, _Clock("the docker desktop", timeout_s))
 
 
-def _ensure_image(image: str) -> None:
+def _ensure_within(image: str, clock: _Clock) -> None:
+    left = clock.left()
+    if not _image_lock.acquire(timeout=-1 if left is None else left):
+        raise DesktopStartError(f"{clock.what} did not start within {clock.timeout_s:g} s (waiting for its image)")
+    try:
+        _ensure_image(image, clock)
+    finally:
+        _image_lock.release()
+
+
+def _ensure_image(image: str, clock: _Clock) -> None:
     import shutil
     if not shutil.which("docker"):
-        raise RuntimeError("--sandbox docker needs Docker: install Docker Desktop (macOS, Windows) or Docker Engine "
-                           "(Linux), or use --sandbox local or e2b")
-    if subprocess.run(["docker", "info"], capture_output=True).returncode != 0:
-        raise RuntimeError("Docker is installed but not running: start Docker Desktop (or the docker service), then "
-                           "try again")
-    if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode == 0:
+        raise DesktopStartError("the docker desktop needs Docker: install Docker Desktop (macOS, Windows) or Docker "
+                                "Engine (Linux), or use another desktop (local or e2b)")
+    if clock.run(["docker", "info"], capture_output=True).returncode != 0:
+        raise DesktopStartError("Docker is installed but not running: start Docker Desktop (or the docker service), "
+                                "then try again")
+    if clock.run(["docker", "image", "inspect", image], capture_output=True).returncode == 0:
         return
-    if subprocess.run(["docker", "pull", "-q", image], capture_output=True).returncode == 0:
+    if clock.run(["docker", "pull", "-q", image], capture_output=True).returncode == 0:
         return
     if image != DOCKER_IMAGE:
-        raise RuntimeError(f"docker image {image} is neither local nor pullable")
+        raise DesktopStartError(f"docker image {image} is neither local nor pullable")
     import sys
     print(f"legato: building the desktop image from {DOCKER_SOURCE} (first use only, a few minutes)", file=sys.stderr)
-    out = subprocess.run(["docker", "build", "-q", "-t", image, DOCKER_SOURCE], capture_output=True, text=True)
+    out = clock.run(["docker", "build", "-q", "-t", image, DOCKER_SOURCE], capture_output=True, text=True)
     if out.returncode != 0:
-        raise RuntimeError(f"could not pull or build {image}: {out.stderr.strip()[-300:]}")
+        raise DesktopStartError(f"could not pull or build {image}: {out.stderr.strip()[-300:]}")
 
 
-def docker(width: int, height: int, image: str | None = None) -> tuple[Any, Env]:
+def docker(width: int, height: int, image: str | None = None, *, timeout_s: float | None = None) -> tuple[Any, Env]:
     """A fresh desktop container on this machine (needs Docker). The image needs an X display on :0 with python3,
     xdotool and scrot; ghcr.io/legatolabs/desktop has them, plus a terminal and Firefox. Apps running on your machine
     are reachable from inside at http://host.docker.internal:PORT. LEGATO_DOCKER_ARGS adds `docker run` arguments,
-    for example a volume with your project."""
+    for example a volume with your project. timeout_s: a limit on starting it, image pull included
+    (DesktopStartError after it, as for any failure to start)."""
     image = image or os.environ.get("LEGATO_DOCKER_IMAGE") or DOCKER_IMAGE
-    ensure_image(image)
+    clock = _Clock("the docker desktop", timeout_s)
+    _ensure_within(image, clock)
     import shlex
     extra = shlex.split(os.environ.get("LEGATO_DOCKER_ARGS", ""))   # e.g. -v "$PWD:/home/user/project"
-    out = subprocess.run(["docker", "run", "-d", "--rm", "--shm-size", "512m", "-e", f"RESOLUTION={width}x{height}x24",
-                          "--add-host", "host.docker.internal:host-gateway",   # reach apps on your machine
-                          *extra, image], capture_output=True, text=True)
+    out = clock.run(["docker", "run", "-d", "--rm", "--shm-size", "512m", "-e", f"RESOLUTION={width}x{height}x24",
+                     "--add-host", "host.docker.internal:host-gateway",   # reach apps on your machine
+                     *extra, image], capture_output=True, text=True)
     if out.returncode != 0:
-        raise RuntimeError(f"docker run {image} failed: {out.stderr.strip()[-300:]}")
+        raise DesktopStartError(f"docker run {image} failed: {out.stderr.strip()[-300:]}")
     cid = out.stdout.strip()
 
     def run(cmd: str) -> str:
@@ -97,18 +164,22 @@ def docker(width: int, height: int, image: str | None = None) -> tuple[Any, Env]
     def stop() -> None:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
 
-    for _ in range(100):                          # wait for the X server
-        if subprocess.run(["docker", "exec", cid, "sh", "-c", "xdpyinfo -display :0 >/dev/null 2>&1"]).returncode == 0:
-            break
-        time.sleep(0.1)
-    else:
+    try:
+        for _ in range(100):                      # wait for the X server
+            if clock.run(["docker", "exec", cid, "sh", "-c", "xdpyinfo -display :0 >/dev/null 2>&1"]).returncode == 0:
+                break
+            time.sleep(0.1)
+        else:
+            raise DesktopStartError(f"no X display came up in {image}")
+        for _ in range(80):                       # and for the first window, so the first screenshot is not black
+            if clock.run(["docker", "exec", cid, "sh", "-c", "xdotool search --onlyvisible --name . 2>/dev/null | "
+                          "head -1"], capture_output=True, text=True).stdout.strip():
+                time.sleep(0.5)
+                break
+            time.sleep(0.1)
+    except BaseException:
         stop()
-        raise RuntimeError(f"no X display came up in {image}")
-    for _ in range(80):                           # and for the first window, so the first screenshot is not black
-        if run("xdotool search --onlyvisible --name . 2>/dev/null | head -1").strip():
-            time.sleep(0.5)
-            break
-        time.sleep(0.1)
+        raise
     return stop, attach(shell=run)
 
 
@@ -122,16 +193,16 @@ def load(spec: str) -> Factory:
         return BUILTIN[spec]
     if spec.startswith("docker:"):
         image = spec[len("docker:"):]
-        return lambda width, height: docker(width, height, image)
+        return lambda width, height, timeout_s=None: docker(width, height, image, timeout_s=timeout_s)
     where, sep, name = spec.rpartition(":")
     if not sep or not where or not name:
-        raise ValueError(f"--sandbox {spec!r}: use e2b, local, docker, docker:IMAGE, path/to/file.py:function or "
-                         "module:function")
+        raise SpecError(spec, f"--sandbox {spec!r}: use e2b, local, docker, docker:IMAGE, path/to/file.py:function or "
+                              "module:function")
     if where.endswith(".py"):
         path = Path(where).expanduser().resolve()
         mod_spec = importlib.util.spec_from_file_location(path.stem, path)
         if mod_spec is None or mod_spec.loader is None:
-            raise ValueError(f"--sandbox {spec!r}: cannot load {path}")
+            raise SpecError(spec, f"--sandbox {spec!r}: cannot load {path}", str(path))
         mod = importlib.util.module_from_spec(mod_spec)
         mod_spec.loader.exec_module(mod)
     else:

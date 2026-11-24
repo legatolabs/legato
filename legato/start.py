@@ -23,7 +23,7 @@ DESKTOPS = {
     "local": "this whole screen: it moves your real mouse, so leave the computer alone while it runs",
     "docker": "a throwaway Linux desktop in Docker: the safest, it can't touch your files",
 }
-TESTED_APPS = ("Safari", "Google Chrome", "TextEdit")   # background mode is tested on these (tests/test_background_live.py)
+TESTED_APPS = ("Safari", "TextEdit")   # background mode is tested on these (tests/test_background_live.py)
 DOCS = "https://legato.computer/docs"
 SETUP_URL = "https://legato.computer/setup"
 AGENT_PROMPT = f"Set up Legato for me: {SETUP_URL}"
@@ -99,7 +99,7 @@ def show(turn, actions, timing):
     print(f"turn {{turn + 1}}: {{', '.join(a.describe() for a in actions if a) or 'looking'}}")
 
 
-result = agent.run(task, desk, max_steps=30, on_step=show)
+result = agent.run(task, desk, max_steps=40, on_step=show)
 print(result.report())          # done or failed, the steps, and where the time went{close_desk}
 '''
 
@@ -161,7 +161,7 @@ def _init(argv) -> int:
     ap.add_argument("--base-url")
     ap.add_argument("--api-key-env", help="the environment variable holding the model key ('' for none)")
     ap.add_argument("--desktop", choices=list(DESKTOPS))
-    ap.add_argument("--app", help="with --desktop background: the app to work in (default: your default browser)")
+    ap.add_argument("--app", help="with --desktop background: the app to work in (default: the app the task names, else Safari)")
     ap.add_argument("--out", default="agent.py")
     ap.add_argument("--force", action="store_true", help="overwrite --out if it exists")
     ap.add_argument("--yes", action="store_true", help="ask nothing: use the flags and the defaults")
@@ -208,12 +208,19 @@ def _init(argv) -> int:
         return 2
     app = None
     if desktop == "background":
-        app = a.app or saved.app or default_browser() or "Safari"
+        from legato.config import BROWSERS_TESTED
+        browser = default_browser()
+        app = a.app or saved.app or (browser if browser in BROWSERS_TESTED else "Safari")
         if asking and not a.app:
             app = _text("Which app should it work in? (any app, by name)", app)
+        from legato.background import other_browser
+        if other_browser(app):
+            print(f"legato: background mode works in Safari, not {app} yet (its keys and screenshots can reach your "
+                  f"own {app} windows): use --app Safari, or --desktop local for the whole screen", file=sys.stderr)
+            return 2
         if app not in TESTED_APPS:
             print(f"note: background mode is tested on {', '.join(TESTED_APPS)}. {app} may not show all of its "
-                  f"window to macOS Accessibility; if clicks do nothing, try --app Safari or 'Google Chrome'.")
+                  f"window to macOS Accessibility; if clicks do nothing, try --app Safari.")
 
     out.write_text(agent_source(model, base_url, key_env, desktop, app))
     print(f"\nWrote {out}: {model} at {base_url}, " + (f"working in {app}'s window" if app else f"desktop: {desktop}"))

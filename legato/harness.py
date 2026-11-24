@@ -29,9 +29,10 @@ import base64
 import io
 import json
 import re
+import threading
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Literal, TypedDict
 
 from legato.actions import Action, parse
 from legato.env import Env, png_size
@@ -83,8 +84,37 @@ UNAVAILABLE_NOTE = ("This desktop can't do that action, so it was NOT run, and n
 def _refused(e: Denied) -> str:
     return (UNAVAILABLE_NOTE if isinstance(e, Unavailable) else DENIED_NOTE).format(what=e)
 
+
+REFUSALS_TO_END = 3     # the same impossible action refused this often ends the run as failed, instead of a loop
+REFUSALS_IN_ALL = 6     # and impossible actions of any kind, this often (Save's key, Save As's, then its buttons)
+
+
+def _again(refusals: dict, e: Denied) -> str:
+    """Count an impossible action; from its second refusal, or the fourth of any kind, tell the model plainly to
+    stop (a background app's Save stays turned off however often, and however, it is asked for)."""
+    if not isinstance(e, Unavailable):
+        return ""
+    n = refusals[str(e)] = refusals.pop(str(e), 0) + 1        # the latest refused stays last
+    if n >= 2:
+        return f" It has now been refused {n} times and can't be done here: call fail now and say what couldn't be done."
+    total = sum(refusals.values())
+    return (f" That is {total} actions refused in this run: if the task needs what they do, it can't be done here, so "
+            "call fail now and say what couldn't be done." if total >= 4 else "")
+
+
+def _refusals_end(refusals: dict) -> str:
+    """Why the run ends now (the same impossible action, or too many of any kind), or ""."""
+    if max(refusals.values(), default=0) >= REFUSALS_TO_END:
+        return f"not possible here, refused {REFUSALS_TO_END} times: {max(refusals, key=refusals.get)}"
+    if sum(refusals.values()) >= REFUSALS_IN_ALL:
+        return f"not possible here: {REFUSALS_IN_ALL} actions were refused, the last: {list(refusals)[-1]}"
+    return ""
+
 END_NOTE = ("Your last reply had no action, so nothing happened. If the task is complete, call done; otherwise take "
             "the next step.")
+ANSWER_ASK = ("You called done without the answer. This is the screen now: if the task asks for information, call done "
+              "again with the answer itself in its text (the number, name or sentence asked for); if the page is not "
+              "there yet, take the next step. If the task asks for no information, call done again.")
 CUT_OFF_NOTE = ("Your last reply reached the token limit before you called the tool, so nothing happened. Keep your "
                 "reasoning short and call the tool now.")
 
@@ -253,8 +283,47 @@ class Plan:
     cut_off: bool = False       # the reply hit the token limit before any action (a thinking model ran out of room)
 
 
+# How a run ended (RunResult.status); docs/python.md "When a run fails" says what to do about each:
+#   done       the model called done                     failed     the model called fail (the task cannot be done)
+#   max_steps  max_steps ran out first                   timeout    run(timeout_s=) ran out
+#   cancelled  run(cancel=) was set                      stopped    the person stopped it (legato.safety.Stopped)
+#   error      the model call or the desktop failed: `error` says which and why
+RunStatus = Literal["done", "failed", "max_steps", "timeout", "cancelled", "stopped", "error"]
+
+
+class Usage(TypedDict):
+    """A run's model calls that answered: tokens, and the cost the provider reports (OpenRouter does; others leave
+    it 0). complete is False when a call was sent and cut off before its reply (a timeout, the run's deadline, a
+    dropped connection) or sent twice (hedge_after_s): the provider may bill those, and they are not counted here."""
+    prompt: int
+    completion: int
+    cached: int
+    cost_usd: float
+    complete: bool
+
+
+def _no_usage() -> Usage:
+    return {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0, "complete": True}
+
+
+def _book(usage: Usage, rec: dict | None = None, error: Exception | None = None) -> None:
+    """Add a model call's usage (rec), or note that a failed call (error) may have been billed."""
+    if rec is not None:
+        u = rec.get("usage") or {}
+        for k in ("prompt", "completion", "cached"):
+            usage[k] += u.get(k) or 0                     # type: ignore[literal-required]
+        usage["cost_usd"] += u.get("cost") or 0.0
+    if (rec is not None and (rec.get("cut") or rec.get("hedged"))) or getattr(error, "cut", 0):
+        usage["complete"] = False
+
+
 @dataclass
 class RunResult:
+    """How a run went. status: how it ended (done, failed, max_steps, timeout, cancelled, stopped, error); done and
+    failed: the model called done or fail (failed also when the desktop refused the same action 3 times, or 6 in
+    all); answer: the text the model ended with (a question's answer); error: why, when it ended any other way, or the
+    refusals that ended it; steps: model turns; actions: what ran, as text; wall_s: seconds; timings: per turn;
+    usage: tokens and cost (legato.Usage); report(): one paragraph of all that."""
     task: str
     done: bool = False
     failed: bool = False
@@ -265,21 +334,57 @@ class RunResult:
     error: str | None = None
     stopped: bool = False       # the person stopped the run (legato.safety.Stopped): `error` says how
     answer: str = ""            # what the model said when it ended (the answer to "find out ..." tasks)
-    usage: dict = field(default_factory=lambda: {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0})
+    usage: Usage = field(default_factory=_no_usage)
     planner: dict = field(default_factory=dict)   # with a planner: its calls, by trigger, seconds, tokens, cost
     trace: list = field(default_factory=list)     # with a planner: each planner call and executor turn, in order
+    status: RunStatus = "error"  # how it ended (RunStatus above); every run sets it
 
     def report(self) -> str:
         tot = {k: sum(t.get(k, 0.0) for t in self.timings) for k in ("model_s", "act_s", "settle_s", "obs_s", "tool_s")}
         other = max(0.0, self.wall_s - sum(tot.values()))
         share = lambda v: f"{100 * v / self.wall_s:.0f}%" if self.wall_s else "-"  # noqa: E731
-        status = "done" if self.done else "failed" if self.failed else self.error or "stopped"
-        return (f"{status} in {self.wall_s:.1f} s, {self.steps} model turns, {len(self.actions)} actions\n"
+        cost = (self.usage or {}).get("cost_usd")
+        counts = f"{self.steps} model turns, {len(self.actions)} actions" + (f", ${cost:.4f}" if cost else "")
+        if self.failed and self.error:                   # ended by the harness: why
+            head = f"failed: {self.error} (after {self.wall_s:.1f} s, {counts})"
+        elif self.done or self.failed or not self.error:
+            status = "done" if self.done else "failed" if self.failed else (
+                "out of steps" if self.status == "max_steps" else self.status)
+            head = f"{status} in {self.wall_s:.1f} s, {counts}"
+        else:                                            # the error first, then how long it took
+            head = f"{self.error} (after {self.wall_s:.1f} s, {counts})"
+        return (f"{head}\n"
                 f"model {tot['model_s']:.1f} s ({share(tot['model_s'])}) · actions {tot['act_s']:.1f} s "
                 f"({share(tot['act_s'])}) · waiting for the screen {tot['settle_s']:.1f} s ({share(tot['settle_s'])}) · "
                 f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])}) · "
                 + (f"tools {tot['tool_s']:.1f} s ({share(tot['tool_s'])}) · " if tot["tool_s"] else "")
                 + f"other {other:.1f} s")
+
+
+class _Limits:
+    """A run's deadline (timeout_s) and cancel event, checked between model turns."""
+
+    def __init__(self, timeout_s: float | None = None, cancel: threading.Event | None = None):
+        self.timeout_s, self.cancel = timeout_s, cancel
+        self.deadline = None if timeout_s is None else time.monotonic() + max(0.0, float(timeout_s))
+
+    def hit(self, res: RunResult) -> bool:
+        """True, with the result's status and error saying why, when the run has to end now."""
+        if self.cancel is not None and self.cancel.is_set():
+            res.status, res.error = "cancelled", "cancelled"
+        elif self.deadline is not None and time.monotonic() >= self.deadline:
+            res.status, res.error = "timeout", f"the run's time limit ({self.timeout_s:g} s) ran out"
+        else:
+            return False
+        return True
+
+
+def _desktop_error(e: Exception) -> str:
+    """A desktop's exception as RunResult.error."""
+    if isinstance(e, PolicyError):
+        return str(e)[:500]
+    said = str(e) if isinstance(e, (RuntimeError, OSError)) and str(e) else f"{type(e).__name__}: {e}"
+    return f"the desktop failed: {said}"[:300]
 
 
 class Harness:
@@ -297,7 +402,7 @@ class Harness:
                  plan_trust_first_click: bool = False, ocr_cache: bool = False,
                  ocr_near: bool = False, strict_done: bool = False, image_format: str = "jpeg", jpeg_quality: int = 85,
                  change_log_lines: int = 15, change_log_turns: int | None = None, progress_note: bool = False,
-                 history_scale: float | None = None, planner: "Planner | None" = None):
+                 history_scale: float | None = None, planner: "Planner | None" = None, ask_answer: bool = False):
         """plan: one `plan` tool whose steps (screen actions, click_text, shell through the `bash` tool in `tools`,
         wait_for, done) run in order until one cannot go on (legato/plan.py). end_fix: a reply with no action gets
         a note to call done if the task is complete, and a second such reply in a row ends the task as done. coords: "norm1000" or "pixels" (default: pixels for Claude, norm1000 otherwise). image_max: screenshots kept
@@ -309,7 +414,11 @@ class Harness:
         jpeg_quality) or "png": screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes; the
         upload is most of a hosted call's wait for its first token (legato-research EXP-0052: a call 1.57 s against
         3.11 s at median through OpenRouter, the next action unchanged; EXP-0053: on 27 Mac tasks a call 2.28 against
-        3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless."""
+        3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless.
+        ask_answer: a done with no text gets one more turn, with the screen its actions left and a note asking for the
+        answer in done's text (legato.run sets it for a task that asks for information; legato-research EXP-0102:
+        GPT-6.1 Terra ended 20 of 20 Safari questions with an empty done, a plan's done often before the page loaded)."""
+        key_source = "" if api_key is None else "the api_key passed to legato.Harness"
         if model is None or base_url is None or api_key is None:     # what `legato setup` saved
             from legato import config
             cfg = config.load()
@@ -320,7 +429,8 @@ class Harness:
             if not model or not base_url:
                 raise ValueError(cfg.missing() or "pass model= and base_url=, or run legato setup")
             if api_key is None:                     # the saved key goes only to the saved server
-                api_key = cfg.key if base_url.rstrip("/") == cfg.base_url.rstrip("/") else ""
+                same = base_url.rstrip("/") == cfg.base_url.rstrip("/")
+                api_key, key_source = (cfg.key, cfg.key_source) if same else ("", "")
         if image_format not in ("png", "jpeg"):
             raise ValueError("image_format must be 'png' or 'jpeg'")
         coords = coords or ("pixels" if is_claude(model) else "norm1000")
@@ -330,9 +440,10 @@ class Harness:
         self.client = PolicyClient(PolicyConfig(base_url=base_url, model=model, api_key=api_key, version=profile,
                                                 timeout_s=step_timeout_s, retries=retries, logprobs=False,
                                                 token_ids=False, extra_body=dict(extra_body or {})))
+        self.client.key_source = key_source        # named if the server refuses the key
         self.coords, self.image_max, self.fold = coords, image_max, max(1, fold)
         self.plan_mode, self.plan_max = plan, max(1, plan_max_steps)
-        self.end_fix = end_fix
+        self.end_fix, self.ask_answer = end_fix, ask_answer
         self.image_format, self.jpeg_quality = image_format, jpeg_quality
         self._jpeg: dict[str, str] = {}               # PNG b64 -> JPEG b64: each kept screenshot is encoded once
         # change_log: each turn carries the text that appeared and went on the screen (macOS Vision), so the history
@@ -819,32 +930,81 @@ class Harness:
         except Exception as e:  # noqa: BLE001 - the model sees the error and can try something else
             return f"error: {type(e).__name__}: {str(e)[:500]}"
 
-    def run(self, task: str, env: Env, max_steps: int = 30, on_step=None) -> RunResult:
-        """Run `task` on an attached desktop. on_step(turn, actions, timing) is called after each model turn."""
-        if self.planner is not None:
-            if self.planner.style == "point":
-                from legato.point import run_pointed
-                return run_pointed(self, task, env, max_steps=max_steps, on_step=on_step)
-            from legato.delegate import run_delegated
-            return run_delegated(self, task, env, max_steps=max_steps, on_step=on_step)
+    def run(self, task: str, env: Env, max_steps: int = 40, on_step: Callable | None = None, *,
+            timeout_s: float | None = None, cancel: threading.Event | None = None,
+            raise_desktop_errors: bool = True) -> RunResult:
+        """Run `task` on an attached desktop. on_step(turn, actions, timing) is called after each model turn.
+        result.status says how it ended (RunStatus).
+
+        timeout_s: a deadline for the whole run. It is checked between model turns, and each model call gets at most
+        the time left; the result's status is then "timeout". cancel: a threading.Event; once it is set (from any
+        thread) the run ends before its next model call with status "cancelled". Both keep the steps, actions and
+        usage so far. raise_desktop_errors: a desktop that fails (a screenshot or an action raises) raises out of
+        run(), as it always has; False returns it as a result with status "error" (what legato.run and `legato run`
+        do). An exception raised by on_step is always raised."""
         res, t0 = RunResult(task), time.monotonic()
+        lim = _Limits(timeout_s, cancel)
+        clients = [c for c in (self.client, getattr(self.planner, "client", None)) if isinstance(c, PolicyClient)]
+        for c in clients:
+            c.deadline = lim.deadline
+        mine: list = []                             # on_step raised: the caller's own exception, never a result
+
+        def guarded(*a):
+            try:
+                return on_step(*a)
+            except BaseException:
+                mine.append(True)
+                raise
+        step = guarded if on_step is not None and not raise_desktop_errors else on_step
+        try:
+            if lim.hit(res):                        # cancelled or out of time before it started
+                pass
+            elif self.planner is not None and self.planner.style == "point":
+                from legato.point import run_pointed
+                run_pointed(self, task, env, max_steps=max_steps, on_step=step, res=res, limits=lim)
+            elif self.planner is not None:
+                from legato.delegate import run_delegated
+                run_delegated(self, task, env, max_steps=max_steps, on_step=step, res=res, limits=lim)
+            else:
+                self._loop(task, env, max_steps, step, res, lim)
+        except Exception as e:  # noqa: BLE001 - the desktop failed: returned with what was done so far, if asked
+            if raise_desktop_errors or mine:
+                raise
+            res.status, res.error = "error", _desktop_error(e)
+        finally:
+            for c in clients:
+                c.deadline = None
+            res.wall_s = time.monotonic() - t0
+        return res
+
+    def _loop(self, task: str, env: Env, max_steps: int, on_step, res: RunResult, lim: _Limits) -> None:
+        """run() without a planner: one model turn, then its actions, until done, fail or a limit."""
+        res.status = "max_steps"                    # unless a turn ends it first
         obs = env.observe()
         ep = self.begin(task, obs.screenshot)
         seen = obs.screenshot                       # the screenshot the model plans on
         idle = 0                                    # replies in a row with no action (end_fix)
+        refusals: dict[str, int] = {}               # how often each impossible action was refused this run
         if self.plan_mode:                          # the text reader loads its model once (~10 s): during the first call
-            import threading
             threading.Thread(target=plans.warm_up, args=(obs.screenshot,), daemon=True).start()
+        asked = -1                                  # the turn that asks for the answer a done left out (ask_answer)
         for turn in range(max_steps):
+            if lim.hit(res):
+                if turn == asked:                   # it had called done: it ends done, without the answer
+                    res.status, res.error = "done", None
+                break
             try:
                 plan = self.decide(ep)
             except PolicyError as e:
-                res.error = str(e)[:300]
+                _book(res.usage, error=e)
+                if turn == asked:
+                    res.status, res.error = "done", None
+                elif not lim.hit(res):              # a call cut short by the deadline is a timeout
+                    res.status, res.error = "error", str(e)[:500]
                 break
-            u = plan.rec.get("usage") or {}
-            for k in ("prompt", "completion", "cached"):
-                res.usage[k] += u.get(k) or 0
-            res.usage["cost_usd"] += u.get("cost") or 0.0
+            if turn == asked:                       # the done counts again only if this turn ends the run
+                res.done, res.status = False, "max_steps"
+            _book(res.usage, plan.rec)
             timing = {"model_s": plan.rec["s"], "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
             pngs, results, stale, ran, note, denied = [], [], False, [], None, None
             if self.plan_mode:
@@ -853,10 +1013,14 @@ class Harness:
                 except Stopped as e:              # the person's stop, during a step
                     res.stopped, res.error = True, f"stopped by the person: {e}"
                 except Denied as e:               # the person's no to a step: the rest did not run
-                    note = _refused(e)
+                    note = _refused(e) + _again(refusals, e)
                     denied = f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}"
                     obs = env.observe()
                     pngs, results = [obs.screenshot], []
+                except Exception:                 # the desktop failed: the turn counts, then run() decides
+                    res.steps += 1
+                    res.timings.append(timing)
+                    raise
                 ran = list(plan.actions[: timing.get("plan_ran", 0)])
             for a in ([] if self.plan_mode else plan.actions):
                 if isinstance(a, ToolCall):
@@ -872,12 +1036,17 @@ class Harness:
                     res.stopped, res.error = True, f"stopped by the person: {e}"
                     break
                 except Denied as e:               # the person's no: nothing ran; the model is told and chooses again
-                    note = _refused(e)
+                    note = _refused(e) + _again(refusals, e)
                     denied = f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {a.describe()}"
                     obs = env.observe()
                     pngs.append(obs.screenshot)
                     stale = False
                     break
+                except Exception:                 # the desktop failed: the turn and what ran count, then run() decides
+                    res.steps += 1
+                    res.actions += [x.describe() if x else "screenshot" for x in ran]
+                    res.timings.append(timing)
+                    raise
                 ran.append(a)
                 pngs.append(obs.screenshot)
                 stale = False
@@ -905,16 +1074,23 @@ class Harness:
             if on_step:
                 on_step(turn, ran, timing)
             if res.stopped:
+                res.status = "stopped"
+                break
+            if note and (why := _refusals_end(refusals)):       # the same impossible action again, or many
+                res.failed, res.status, res.error = True, "failed", why
                 break
             if not note:                          # a "done" after an action that was not allowed does not count
                 res.done, res.failed = plan.done, plan.failed
                 if plan.done or plan.failed:
+                    res.status = "done" if plan.done else "failed"
                     res.answer = _answer(plan.rec, plan.actions)
-                    break
+                    if plan.failed and not res.answer and refusals:    # it gave up without saying why: the refusal
+                        res.error = f"not possible here: {list(refusals)[-1]}"
+                    if not (plan.done and not res.answer and self.ask_answer and asked < 0 and turn + 1 < max_steps):
+                        break
+                    asked, note = turn + 1, ANSWER_ASK       # one more turn to read the answer off the screen
             self.feed(ep, plan, pngs or [obs.screenshot], results, note)
             seen = (pngs or [obs.screenshot])[-1]
-        res.wall_s = time.monotonic() - t0
-        return res
 
 
 def _answer(rec: dict, actions: list) -> str:
