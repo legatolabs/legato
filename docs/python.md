@@ -44,7 +44,8 @@ names none) raises.
 
 - **`timeout_s`** is a deadline for the whole call, opening the desktop included: an app's launch, a docker desktop
   (image pull included) and E2B's create request stop at the time left, and so does each model call. Your own
-  `--sandbox` function and the first screenshot can't be cut short. **`cancel`** is a `threading.Event`: set it from
+  `--sandbox` function and the first screenshot can't be cut short. An app Legato just opened gets the rest of its
+  launch time for its first window, so a cold start isn't an error. **`cancel`** is a `threading.Event`: set it from
   another thread and the run ends before its next model call. Both return what was done so far, usage included.
 - **`confirm`** decides risky actions (keys such as Cmd+Delete or Cmd+Q, a typed `rm` or `sudo`:
   [the list](sandboxes.md#this-computer)) on this computer (`"background"`, `"screen"`); other desktops ignore it.
@@ -92,7 +93,7 @@ to get it back as a result, as `legato.run` does.
   - `actions` are strings, one per action that ran, such as `"click (29, 316)"`, `"type 'hello'"` or
     `"not allowed: key cmd+q"`, then `"done"` or `"fail"`. For `legato.Action` objects, collect them in `on_step`,
     whose `actions` are the Actions (and `ToolCall`s) each turn ran.
-  - `usage` (`legato.Usage`) counts the model calls that answered: `prompt`, `completion` and `cached` tokens, and
+  - `usage` (a dict, typed as `legato.Usage`: read it as `usage["complete"]`) counts the model calls that answered: `prompt`, `completion` and `cached` tokens, and
     `cost_usd` when the provider reports it. `complete` is `False` when a call was sent and cut off before its reply
     (a timeout, `timeout_s`) or sent twice: the provider may still bill it, and it is not in the counts.
 - **Stopping it** on your own screen: move the mouse into a corner, or hold Escape on a Mac. Risky actions wait for
@@ -114,8 +115,9 @@ to get it back as a result, as `legato.run` does.
 | `error` | a model call failed (`HTTP 401: ...`, a timeout) or the desktop did (`the desktop failed: ...`) | fix the key, model or desktop that `error` names, then retry; a refused key's error names where the key came from (`$OPENROUTER_API_KEY`, the one `legato setup` saved), never the key |
 
 Opening a desktop yourself raises instead: `legato.local(background="NoSuchApp")`, `legato.providers.docker(...)` and
-the other built-in desktops raise `legato.DesktopStartError` when they can't start, and a desktop that fails later
-raises `legato.DesktopError` out of `agent.run` (unless `raise_desktop_errors=False`). `DesktopStartError` is a
+the other built-in desktops raise `legato.DesktopStartError` when they can't start, and one that fails later raises
+`legato.DesktopError` out of `agent.run` (unless `raise_desktop_errors=False`). A desktop you attach yourself
+(`legato.attach(screenshot=..., execute=...)`) raises whatever your functions raise. `DesktopStartError` is a
 `DesktopError`, and both are `RuntimeError`s, so `except RuntimeError` still catches them.
 
 ### Write a starting point

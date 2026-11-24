@@ -1082,3 +1082,26 @@ def test_a_new_windows_own_page_is_not_taken_for_the_page_asked_for():
     assert not _is_page("", "https://example.com") and _is_page("https://example.com/", "https://example.com")
     assert _is_page("https://www.example.com/login", "http://example.com")         # where it led
     assert _is_page("about:blank", "about:blank")
+
+
+def test_a_cold_start_waits_for_its_first_window_within_the_launch_time(monkeypatch):
+    """An app Legato just opened can show its window seconds after its process: wait for it until the launch time
+    is up, instead of the 5 s an app that was already running gets, and don't call it an error."""
+    import legato.background as bg
+    t = {"now": 0.0}
+    monkeypatch.setattr(bg.time, "monotonic", lambda: t["now"])
+    monkeypatch.setattr(bg.time, "sleep", lambda s: t.__setitem__("now", t["now"] + s))
+    win = {"id": 1, "layer": 0, "x": 0, "y": 0, "w": 300, "h": 200}
+
+    class Mac:
+        window_until = 20.0                     # opened by Legato, with 20 s of launch time left
+        def windows(self):
+            return [win] if t["now"] >= 8.0 else []   # the window shows up 8 s in
+        def reopen(self):
+            pass
+        def unhide(self):
+            return False
+    env = bg.BackgroundEnv.__new__(bg.BackgroundEnv)
+    env.m, env.app, env._kinds, env._bubbles = Mac(), "Calculator", {}, set()
+    monkeypatch.setattr(env, "_is_real", lambda w: True)
+    assert env.window() == win and 8.0 <= t["now"] < 9.0

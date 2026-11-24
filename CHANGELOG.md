@@ -44,6 +44,8 @@ From the persona tests (six simulated launch users on a real Mac):
   - In Safari, `desktop_open(url)` opens the page in its own window (no Apple Events permission needed), ready to
     read and click when it returns: 2.8 s, was 15.7 s. `desktop_close` closes that window; the person's tabs are
     left alone.
+- An app Legato just opened gets the rest of its launch time to show its first window (a cold start was an error
+  after 5 s). Docs: `usage` is read as `usage["complete"]`; an attached desktop raises its own exceptions.
 - MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
   Chrome refusal says Chrome ignores background clicks on web pages.
 - `legato rl`: Python `collect()` raises `CollectError` when no rollout completed (and names the `__main__` guard);

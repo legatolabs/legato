@@ -259,6 +259,7 @@ class MacApp:
             raise DesktopStartError(f"{self.name} could not be opened: {why[-1] if why else 'is it installed?'}")
         while time.monotonic() < end:
             if pid := self._find():
+                self.window_until = end          # a cold start: its first window may come seconds after the process
                 return pid
             _pump(0.2)
         raise DesktopStartError(f"{self.name} did not open within {wait_s:g} s (is it installed?)")
@@ -489,7 +490,9 @@ class BackgroundEnv(LocalEnv):
                 unhide = getattr(self.m, "unhide", None)      # hidden with cmd+H: show it again, not in front
                 if not (unhide and unhide()):
                     self.m.reopen()
-                for _ in range(25):
+                # 5 s for an app that was running; an app Legato just opened gets the rest of its launch time
+                until = max(time.monotonic() + 5.0, getattr(self.m, "window_until", 0.0))
+                while time.monotonic() < until:
                     time.sleep(0.2)
                     if any(w["layer"] == 0 for w in self.m.windows()):
                         break
