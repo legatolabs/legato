@@ -11,9 +11,13 @@ What it adds over a plain client:
   control). Our OSWorld study measured one H100 serving Qwen3.5-9B: latency doubled at ~32 agents, throughput peaked at ~48 and
   collapsed past 64 when the KV cache filled.
 - The policy version on every record, so off-policy rollouts can be corrected by the trainer.
+- A provider's error as its status code and message only (`provider_error`): OpenRouter's error body also carries the
+  account's user_id.
 """
 from __future__ import annotations
 
+import json
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -68,6 +72,50 @@ class _Resp:
         return json.loads(self.content)
 
 
+def provider_error(status: int, body: bytes | str, most: int = 300) -> str:
+    """"HTTP <status>: <the provider's message>", and nothing else from the body (OpenRouter's carries the account's
+    user_id), at most `most` characters. Reads the usual shapes: {"error": {"message"}} (OpenAI, OpenRouter, with
+    the upstream provider's own message from error.metadata.raw), {"error": "..."}, {"message"}, {"detail"}."""
+    text = body.decode("utf-8", "replace") if isinstance(body, bytes) else str(body or "")
+    try:
+        msg = _message(json.loads(text))
+    except ValueError:                                 # not JSON: an HTML error page or plain text
+        msg = re.sub(r"<[^>]*>", " ", text)
+    msg = " ".join(msg.split())
+    out = f"HTTP {status}: {msg}" if msg else f"HTTP {status}"
+    return out if len(out) <= most else out[: most - 3] + "..."
+
+
+def _message(j: Any, depth: int = 0) -> str:
+    """The human-readable message in a JSON error body, or ""."""
+    if isinstance(j, str):
+        return j
+    if not isinstance(j, dict) or depth > 2:
+        return ""
+    err = j.get("error")
+    if isinstance(err, str):
+        return err
+    if isinstance(err, dict):
+        msg = err.get("message") if isinstance(err.get("message"), str) else ""
+        raw = err.get("metadata", {}).get("raw") if isinstance(err.get("metadata"), dict) else None
+        if isinstance(raw, str):                       # the upstream provider's own body, as text
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                pass
+        inner = _message(raw, depth + 1) if raw is not None else ""
+        if inner and inner not in msg:
+            msg = f"{msg}: {inner}" if msg else inner
+        return msg
+    for k in ("message", "detail"):
+        v = j.get(k)
+        if isinstance(v, str):
+            return v
+        if isinstance(v, list):                        # FastAPI's validation errors: [{"msg": ...}, ...]
+            return "; ".join(str(x.get("msg")) for x in v if isinstance(x, dict) and x.get("msg"))
+    return ""
+
+
 def attribution_headers(base_url: str) -> dict[str, str]:
     """OpenRouter's app attribution: names Legato (not you or your task) on OpenRouter's public app rankings.
     Sent only to openrouter.ai; set LEGATO_NO_ATTRIBUTION=1 to turn it off."""
@@ -81,6 +129,9 @@ class PolicyClient:
     def __init__(self, cfg: PolicyConfig, semaphore: Any = None):
         self.cfg = cfg
         self.sem = semaphore
+        # a time.monotonic() deadline (Harness.run's timeout_s): no attempt, retry or wait runs past it, and each
+        # attempt's timeout is at most the time left. None: no deadline (each attempt gets timeout_s).
+        self.deadline: float | None = None
         headers = {"Authorization": f"Bearer {cfg.api_key}"} if cfg.api_key else {}
         headers.update(attribution_headers(cfg.base_url))
         self.http = httpx.Client(timeout=httpx.Timeout(cfg.timeout_s, connect=min(10.0, cfg.timeout_s)),
@@ -115,51 +166,66 @@ class PolicyClient:
         attempt = failures = 0
         busy_waited = 0.0
         while True:
+            limit = self._limit()
+            if self.deadline is not None and limit <= 0:   # the run's deadline has passed: no new attempt
+                raise PolicyError("the run's time limit ran out" + (f" ({last})" if last else ""))
             attempt += 1
             wait = None                                    # set when the server asked us to come back later
             acquired = self.sem.acquire(timeout=max(600.0, 10 * self.cfg.timeout_s)) if self.sem is not None else True
             ta = time.perf_counter()
             try:
-                r = self._post(self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra), ta)
+                r = self._post(self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra), ta,
+                               limit)
                 if r.status_code == 400 and self.cfg.token_ids and "token_ids" in r.text:
                     self.cfg.token_ids = False             # server does not know return_token_ids: drop it, retry
-                    r = self._post(self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra), ta)
+                    r = self._post(self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra), ta,
+                                   limit)
                 if r.status_code in RETRY_STATUS:
-                    last = f"HTTP {r.status_code}: {r.text[:200]}"
+                    last = provider_error(r.status_code, r.content, 200)
                     if r.status_code in BUSY_STATUS and busy_waited < self.cfg.busy_wait_s:
                         ra = r.retry_after()
                         wait = min(60.0, ra if ra is not None else 2.0 * min(attempt, 5),
                                    self.cfg.busy_wait_s - busy_waited)
                 elif r.status_code != 200:
-                    raise PolicyError(f"HTTP {r.status_code}: {r.text[:300]}")
+                    raise PolicyError(provider_error(r.status_code, r.content))
                 else:
                     return self._record(r.json(), time.perf_counter() - t0, time.perf_counter() - ta, attempt)
             except (httpx.TimeoutException, _Deadline):
-                last = f"timeout after {self.cfg.timeout_s:.0f} s"
+                last = f"timeout after {limit:.0f} s"
             except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
                 last = f"{type(e).__name__}: {str(e)[:200]}"
             finally:
                 if self.sem is not None and acquired:
                     self.sem.release()
             if wait is not None:                           # busy or starting: wait it out, not counted as a failure
+                wait = min(wait, max(0.0, self._limit()))
                 time.sleep(wait)
                 busy_waited += wait
                 continue
             failures += 1
             if failures > self.cfg.retries:
                 break
-            time.sleep(min(2.0, 0.5 * failures))
+            time.sleep(min(2.0, 0.5 * failures, max(0.0, self._limit())))
         raise PolicyError(f"policy call failed after {attempt} attempts: {last}")
 
-    def _post(self, body: dict, t_start: float) -> _Resp:
-        """POST and read the response, giving up `timeout_s` after t_start. httpx's own timeouts bound each wait for
-        bytes, not the whole response: a hosted API that sends keep-alive bytes while it generates (OpenRouter does)
-        would otherwise hold a call open for as long as the generation runs (818 s for one 32,768-token reply)."""
+    def _limit(self) -> float:
+        """This attempt's timeout: timeout_s, or the time left before the deadline if that is less."""
+        if self.deadline is None:
+            return self.cfg.timeout_s
+        return min(self.cfg.timeout_s, self.deadline - time.monotonic())
+
+    def _post(self, body: dict, t_start: float, limit: float | None = None) -> _Resp:
+        """POST and read the response, giving up `limit` (default timeout_s) after t_start. httpx's own timeouts bound
+        each wait for bytes, not the whole response: a hosted API that sends keep-alive bytes while it generates
+        (OpenRouter does) would otherwise hold a call open for as long as the generation runs (818 s for one
+        32,768-token reply)."""
+        limit = self.cfg.timeout_s if limit is None else limit
+        kw = {} if limit >= self.cfg.timeout_s else {"timeout": httpx.Timeout(limit, connect=min(10.0, limit))}
         buf = bytearray()
-        with self.http.stream("POST", self.url, json=body) as r:
+        with self.http.stream("POST", self.url, json=body, **kw) as r:
             for chunk in r.iter_bytes():
                 buf += chunk
-                if time.perf_counter() - t_start > self.cfg.timeout_s:
+                if time.perf_counter() - t_start > limit:
                     raise _Deadline()
             return _Resp(r.status_code, bytes(buf), dict(r.headers))
 
