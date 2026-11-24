@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
+  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
+  starting it, and keeps the path absolute.
+
 ## 0.3.1
 
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
