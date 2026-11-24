@@ -90,8 +90,13 @@ def _within(seconds: float, fn):
     return box[0] if box else None
 
 
-def _screencapture(window_id: int, size: tuple[int, int]) -> bytes | None:
-    """PNG of one window with macOS's `screencapture`, scaled to `size` (points), or None."""
+def _screencapture(window_id: int, rect: tuple[float, float, float, float],
+                   hosts: list[tuple[float, float, float, float]] = (), scale: float | None = None) -> bytes | None:
+    """PNG of window `window_id` at `rect` (screen points) with macOS's `screencapture`, one pixel per point, or None.
+
+    For a sheet, `screencapture` takes the whole window it hangs from (seen with Chess's New Game sheet): if the image
+    is the size of one of `hosts` (the app's windows around `rect`) at the display's `scale`, rect's part is cut out
+    of it, so the image still matches the coordinates the model gets."""
     import io
     import os
     import tempfile
@@ -105,6 +110,16 @@ def _screencapture(window_id: int, size: tuple[int, int]) -> bytes | None:
         if r.returncode != 0 or not data:
             return None
         im = Image.open(io.BytesIO(data))
+        x, y, w, h = rect
+        size = (int(w), int(h))
+
+        def fits(fw: float, fh: float) -> bool:
+            return abs(im.width - fw * scale) <= 2 and abs(im.height - fh * scale) <= 2
+        if scale and not fits(w, h):
+            host = next(((hx, hy, hw, hh) for hx, hy, hw, hh in hosts if fits(hw, hh)), None)
+            if host is not None:
+                im = im.crop((round((x - host[0]) * scale), round((y - host[1]) * scale),
+                              round((x - host[0] + w) * scale), round((y - host[1] + h) * scale)))
         if size[0] > 0 and size[1] > 0 and im.size != size:
             im = im.resize(size, Image.LANCZOS)
         buf = io.BytesIO()
@@ -212,26 +227,44 @@ class MacApp:
 
     def capture(self, ids: list[int], rect: tuple[float, float, float, float]) -> bytes:
         """PNG of windows `ids` composited in `rect` (screen points), one pixel per point, other apps left out.
+        `ids` is the window first, then what is on top of it (menus, popovers), front to back.
 
         macOS's window capture can stall for 30 s and return nothing while its capture service is busy (seen with a
         screen recorder running and several captures at once), while `screencapture` still works. So the API call
-        gets API_WAIT_S, and after a stall the front window is taken with `screencapture` for API_OFF_S (its sheets
-        and menus are then left out)."""
+        gets API_WAIT_S, and after a stall the front window is taken with `screencapture` for API_OFF_S."""
         q = self.Q
         if time.monotonic() >= getattr(self, "_api_off_until", 0.0):
+            # the API draws the first window in its list on top: what covers the window goes first, or it is hidden
             img = _within(self.API_WAIT_S, lambda: q.CGWindowListCreateImageFromArray(
-                q.CGRectMake(*rect), ids, q.kCGWindowImageBoundsIgnoreFraming | q.kCGWindowImageNominalResolution))
+                q.CGRectMake(*rect), ids[1:] + ids[:1],
+                q.kCGWindowImageBoundsIgnoreFraming | q.kCGWindowImageNominalResolution))
             if img is not None:
                 from AppKit import NSBitmapImageRep, NSPNGFileType
                 rep = NSBitmapImageRep.alloc().initWithCGImage_(img)
                 return bytes(rep.representationUsingType_properties_(NSPNGFileType, None))
             self._api_off_until = time.monotonic() + self.API_OFF_S
-        png = _screencapture(ids[0], (int(rect[2]), int(rect[3])))
+        x, y, w, h = rect
+        hosts = [(v["x"], v["y"], v["w"], v["h"]) for v in self.windows()
+                 if v["layer"] == 0 and v["id"] != ids[0] and v["x"] <= x and v["y"] <= y
+                 and v["x"] + v["w"] >= x + w and v["y"] + v["h"] >= y + h]
+        png = _screencapture(ids[0], rect, hosts, self.scale_at(x + w / 2, y + h / 2) if hosts else None)
         if png is None:
             raise RuntimeError("the window could not be captured: check Screen Recording for this app in System "
                                "Settings; if it is on, macOS's screen capture is busy (quit other screen recorders) "
                                "or needs a restart")
         return png
+
+    def scale_at(self, x: float, y: float) -> float | None:
+        """Pixels per point of the display at screen point (x, y), or None."""
+        q = self.Q
+        try:
+            err, displays, n = q.CGGetDisplaysWithPoint(q.CGPointMake(x, y), 1, None, None)
+            if err or not n:
+                return None
+            mode = q.CGDisplayCopyDisplayMode(displays[0])
+            return q.CGDisplayModeGetPixelWidth(mode) / q.CGDisplayModeGetWidth(mode)
+        except Exception:  # noqa: BLE001 - then the image is taken as it comes
+            return None
 
     def front_pid(self) -> int | None:
         q = self.Q

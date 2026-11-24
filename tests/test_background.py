@@ -600,15 +600,86 @@ def test_a_stalled_window_capture_falls_back_to_screencapture(monkeypatch):
 
     app = bg.MacApp.__new__(bg.MacApp)
     app.Q = Q
+    app.windows = lambda: []
     monkeypatch.setattr(bg.MacApp, "API_WAIT_S", 0.05)
-    monkeypatch.setattr(bg, "_screencapture", lambda wid, size: calls.__setitem__("fallback", calls["fallback"] + 1)
-                        or f"png {wid} {size}".encode())
-    assert app.capture([7, 8], (10, 20, 300, 200)) == b"png 7 (300, 200)"
-    assert app.capture([7], (10, 20, 300, 200)) == b"png 7 (300, 200)"
+    monkeypatch.setattr(bg, "_screencapture", lambda wid, rect, hosts, scale: calls.__setitem__(
+        "fallback", calls["fallback"] + 1) or f"png {wid} {rect}".encode())
+    assert app.capture([7, 8], (10, 20, 300, 200)) == b"png 7 (10, 20, 300, 200)"
+    assert app.capture([7], (10, 20, 300, 200)) == b"png 7 (10, 20, 300, 200)"
     assert calls == {"api": 1, "fallback": 2}      # the API was tried once, then left alone
-    monkeypatch.setattr(bg, "_screencapture", lambda wid, size: None)
+    monkeypatch.setattr(bg, "_screencapture", lambda wid, rect, hosts, scale: None)
     with pytest.raises(RuntimeError, match="capture is busy"):
         app.capture([7], (10, 20, 300, 200))
+
+
+def test_menus_go_in_front_of_the_window_in_the_capture(monkeypatch):
+    """The window capture API draws the first window of its list on top: with the window first, an open menu or
+    popover was hidden behind it (seen with a Chess pop-up). The fallback still takes the window itself, and is told
+    which of the app's windows could hold it (a sheet's `screencapture` is its whole parent window)."""
+    import legato.background as bg
+    seen, taken = [], []
+
+    class Q:
+        kCGWindowImageBoundsIgnoreFraming = kCGWindowImageNominalResolution = 0
+
+        @staticmethod
+        def CGRectMake(*r):
+            return r
+
+        @staticmethod
+        def CGWindowListCreateImageFromArray(rect, ids, opts):
+            seen.append(list(ids))
+            return None                           # then the fallback, which shows what it was given
+
+    app = bg.MacApp.__new__(bg.MacApp)
+    app.Q = Q
+    app.windows = lambda: [
+        {"id": 9, "x": 130, "y": 70, "w": 60, "h": 40, "layer": 101},      # a menu over the sheet
+        {"id": 7, "x": 120, "y": 60, "w": 40, "h": 30, "layer": 0},        # the sheet: the front window
+        {"id": 3, "x": 100, "y": 50, "w": 100, "h": 80, "layer": 0},       # the window it hangs from
+        {"id": 4, "x": 500, "y": 50, "w": 100, "h": 80, "layer": 0}]       # another window, elsewhere
+    app.scale_at = lambda x, y: 2.0
+    monkeypatch.setattr(bg, "_screencapture", lambda *a: taken.append(a) or b"png")
+    assert app.capture([7, 9, 8], (120, 60, 40, 30)) == b"png"
+    assert seen == [[9, 8, 7]]
+    assert taken == [(7, (120, 60, 40, 30), [(100, 50, 100, 80)], 2.0)]
+
+
+def _fake_screencapture(monkeypatch, im):
+    import legato.background as bg
+
+    def run(cmd, **kw):
+        im.save(cmd[-1], "PNG")
+
+        class R:
+            returncode = 0
+        return R()
+    monkeypatch.setattr(bg.subprocess, "run", run)
+
+
+def test_a_sheet_is_cut_out_of_the_window_screencapture_takes(monkeypatch):
+    """`screencapture -l<sheet>` gives the whole window the sheet hangs from: squeezed to the sheet's size, the model's
+    coordinates were wrong. The sheet's part is cut out instead."""
+    import legato.background as bg
+    host, sheet = (100, 50, 100, 80), (120, 60, 40, 30)
+    im = Image.new("RGB", (200, 160), (255, 0, 0))                 # the host at 2 pixels per point
+    im.paste((0, 0, 255), (40, 20, 120, 80))                       # the sheet, at (20, 10) points in it
+    _fake_screencapture(monkeypatch, im)
+    out = Image.open(io.BytesIO(bg._screencapture(7, sheet, [host], 2.0))).convert("RGB")
+    assert out.size == (40, 30)
+    assert {out.getpixel(p) for p in [(0, 0), (39, 0), (0, 29), (39, 29), (20, 15)]} == {(0, 0, 255)}
+
+
+def test_a_window_screencapture_takes_is_only_scaled_to_points(monkeypatch):
+    """A window that only sits inside another of the app's windows (no sheet) comes back as itself: it is not cut."""
+    import legato.background as bg
+    im = Image.new("RGB", (80, 60), (0, 255, 0))
+    im.paste((0, 0, 255), (0, 0, 40, 60))
+    _fake_screencapture(monkeypatch, im)
+    out = Image.open(io.BytesIO(bg._screencapture(7, (120, 60, 40, 30), [(100, 50, 100, 80)], 2.0))).convert("RGB")
+    assert out.size == (40, 30) and out.getpixel((5, 15)) == (0, 0, 255) and out.getpixel((35, 15)) == (0, 255, 0)
+    out = Image.open(io.BytesIO(bg._screencapture(7, (120, 60, 40, 30)))).convert("RGB")      # no scale: as before
+    assert out.size == (40, 30)
 
 
 def test_an_app_missing_from_the_stale_list_is_found_by_bundle_id(monkeypatch):
