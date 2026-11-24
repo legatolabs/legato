@@ -629,3 +629,154 @@ def test_an_app_missing_from_the_stale_list_is_found_by_bundle_id(monkeypatch):
     assert app._find() == 4242
     app._bid = None
     assert app._find() is None
+
+
+# ------------------------------------------------------------ the title bar's buttons
+def _window_with_buttons(m):
+    """The fake window as Accessibility shows it, with its close, minimize and zoom buttons at the usual places."""
+    win = El("AXWindow", m.app, frame=(100.0, 50.0, 400.0, 300.0))
+    buttons = {}
+    for i, name in enumerate(("AXCloseButton", "AXMinimizeButton", "AXZoomButton")):
+        b = El("AXButton", win, actions=["AXPress"], frame=(108.0 + 20 * i, 56.0, 14.0, 16.0))
+        b.extra = {"AXSubrole": name}
+        buttons[name] = b
+    win.extra = dict(buttons)
+    m.app.extra = {"AXWindows": [win]}
+    return win, buttons
+
+
+def test_the_windows_close_minimize_and_zoom_buttons_are_not_pressed():
+    """A model clicked TextEdit's zoom button after finishing a task (click (59, 20)), and TextEdit stopped
+    answering. Like cmd+H and cmd+M, the title bar's buttons are refused, found through the window's own attributes."""
+    e, m = env()
+    win, buttons = _window_with_buttons(m)
+    e.observe()
+    for x, (name, shown) in zip((15, 35, 55), (("AXCloseButton", "close"), ("AXMinimizeButton", "minimize"),
+                                               ("AXZoomButton", "zoom"))):
+        m.hits = [(100, 50, 500, 350, buttons[name])]
+        with pytest.raises(safety.Unavailable, match=f"window's {shown} button"):
+            e.act(Action("click", x=x, y=14))
+    m.hits = [(100, 50, 500, 350, win)]                     # the hit test answers with the window: frames decide
+    with pytest.raises(safety.Unavailable, match="zoom button"):
+        e.act(Action("double_click", x=59, y=12))
+    assert m.performed == []
+
+
+def test_a_close_button_inside_the_window_is_still_pressed():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    tab = El("AXGroup", win)
+    close_tab = El("AXButton", tab, actions=["AXPress"], frame=(400.0, 60.0, 16.0, 16.0))
+    close_tab.extra = {"AXSubrole": "AXCloseButton"}       # a tab's close button: not the window's
+    m.hits = [(400, 60, 416, 76, close_tab)]
+    e.observe()
+    e.act(Action("click", x=305, y=15))
+    assert m.performed == [(close_tab, "AXPress")]
+
+
+# ------------------------------------------------------------ reading the window's text
+def _page(m):
+    """A browser window: its toolbar, then a page with a heading, a counter, a button, a field and a checkbox."""
+    win, _ = _window_with_buttons(m)
+    win.title = "Counter - Google Chrome"
+    bar = El("AXToolbar", win)
+    El("AXButton", bar, actions=["AXPress"], title="Back")
+    holder = El("AXGroup", win)
+    page = El("AXWebArea", holder, title="Counter")
+    page.extra = {"AXURL": "file:///tmp/app/index.html"}
+    h = El("AXHeading", page)
+    El("AXStaticText", h, value="Counter")
+    box = El("AXGroup", page)
+    El("AXStaticText", box, value="Count: 1")
+    plus = El("AXButton", page, actions=["AXPress"], title="+1")
+    El("AXStaticText", plus, value="+1")                     # the button's own text: not repeated
+    name = El("AXTextField", page, title="Name", value="Ada")
+    name.extra = {"AXFocused": True}
+    agree = El("AXCheckBox", page, title="agree", value=1)
+    off = El("AXButton", page, actions=["AXPress"], title="Send")
+    off.extra = {"AXEnabled": False}
+    El("AXStaticText", page, value="  ")                     # nothing to say
+    return win, page, (name, agree)
+
+
+def test_read_outlines_the_page_and_leaves_out_the_browser_toolbar():
+    e, m = env()
+    _page(m)
+    assert e.read() == "\n".join([
+        'page "Counter" file:///tmp/app/index.html',
+        '- heading "Counter"',
+        '- text "Count: 1"',
+        '- button "+1"',
+        '- textbox "Name": "Ada" [focused]',
+        '- checkbox "agree" [checked]',
+        '- button "Send" [disabled]'])
+
+
+def test_read_outlines_an_apps_window_and_nests_what_says_something():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    win.title = "Untitled"
+    scroll = El("AXScrollArea", win)
+    El("AXTextArea", scroll, value="passport\nphone charger")
+    rows = El("AXList", win, title="Recent")
+    row = El("AXRow", rows)
+    row.extra = {"AXSelected": True}
+    El("AXStaticText", row, value="note.txt")
+    field = El("AXTextField", win, title="Search", value="")
+    field.extra = {"AXPlaceholderValue": "Search notes"}
+    out = e.read().splitlines()
+    assert out[0] == 'window "Untitled"'
+    assert '- textarea' not in out and '- textbox: "passport\\nphone charger"' in out
+    assert '- list "Recent"' in out and '  - row "note.txt" [selected]' in out
+    assert '- textbox "Search": "" [placeholder "Search notes"]' in out
+
+
+def test_read_is_cut_at_max_chars_and_says_so():
+    e, m = env()
+    win, _ = _window_with_buttons(m)
+    for i in range(200):
+        El("AXStaticText", win, value=f"line {i}")
+    out = e.read(max_chars=300)
+    assert len(out) < 400 and out.splitlines()[-1].startswith("[cut at 300 characters")
+    assert '- text "line 0"' in out and '- text "line 199"' not in out
+
+
+def test_read_says_so_when_the_window_has_no_tree():
+    e, m = env()
+    _window_with_buttons(m)
+    assert "Accessibility tree is empty" in e.read()
+
+
+def test_mcp_desktop_read_reads_a_background_window_and_is_refused_elsewhere():
+    pytest.importorskip("mcp")
+    import asyncio
+
+    import legato
+    from legato.mcp_server import build_server
+    m = FakeMac()
+    _page(m)
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: b"", execute=lambda a: None)),
+                       background=lambda app: BackgroundEnv(app, mac=m, confirm=None))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"app": "Google Chrome"})
+        did = r.content[0].text.split("desktop_id: ")[1].split()[0]
+        r = await srv.call_tool("desktop_read", {"desktop_id": did})
+        assert r.content[0].text.splitlines()[:3] == ['page "Counter" file:///tmp/app/index.html',
+                                                      '- heading "Counter"', '- text "Count: 1"']
+        r = await srv.call_tool("desktop_read", {"desktop_id": did, "max_chars": 1})      # raised to 200
+        assert "[cut at 200 characters" not in r.content[0].text
+        with pytest.raises(Exception, match="no open desktop"):
+            await srv.call_tool("desktop_read", {"desktop_id": "nope"})
+    asyncio.run(go())
+
+    from test_mcp import png
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def elsewhere():
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        did = r.content[0].text.split()[1]
+        with pytest.raises(Exception, match="only in background mode"):
+            await srv.call_tool("desktop_read", {"desktop_id": did})
+    asyncio.run(elsewhere())

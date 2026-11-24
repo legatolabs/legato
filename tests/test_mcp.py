@@ -38,8 +38,8 @@ def test_open_act_screenshot_close():
 
     async def go():
         names = {t.name for t in await srv.list_tools()}
-        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_shell", "desktop_run_task",
-                         "desktop_close"}
+        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_read", "desktop_shell",
+                         "desktop_run_task", "desktop_close"}
         r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
         assert kinds(r) == ["text", "image"]
         did = r.content[0].text.split()[1]
