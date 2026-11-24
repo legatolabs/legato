@@ -230,10 +230,66 @@ class ComputerToolHarness:
         return "\n".join(p.reply), actions, [(payload, p.rec)]
 
 
+class PlannedHarness:
+    """legato.Harness with a planner, in the planner-and-pointer style (legato.point), on an OSWorld desktop.
+
+    HarnessConfig.options carries, beside Harness keyword arguments:
+      "planner":   Planner fields: model, base_url, style ("point"), extra_body, max_steps, ..., and "api_key_env",
+                   the name of the variable holding the planner's key (never the key itself)
+      "max_calls": model calls a rollout may make, the planner's and the pointer's together (default 50)
+
+    predict() gives the actions to run before the next look at the screen: one rollout step is a planner call and
+    what follows it, or a thing the pointer had to find and the keys after it. So a rollout's --max-steps counts
+    those, not model calls; set it well above max_calls. The policy (the rollout's model) is the pointer."""
+
+    def __init__(self, policy: PolicyClient, cfg: HarnessConfig):
+        from legato.delegate import Planner
+        from legato.harness import Harness
+        c, opts = policy.cfg, dict(cfg.options)
+        spec = dict(opts.pop("planner"))
+        self.max_calls = int(opts.pop("max_calls", 50))
+        if spec.setdefault("style", "point") != "point":
+            raise ValueError('legato.rl runs a planner in the "point" style only')
+        key_env = spec.pop("api_key_env", "")
+        spec.setdefault("api_key", os.environ.get(key_env, "") if key_env else "")
+        self.h = Harness(c.model, c.base_url, c.api_key, planner=Planner(**spec), step_timeout_s=c.timeout_s,
+                         retries=c.retries, extra_body=c.extra_body, **opts)
+        self.h.client.close()
+        self.h.client = policy                    # the scheduler's client: admission cap, retries, timing
+        self.s = None
+        self.told = 0                             # trace entries already handed to the rollout record
+
+    def reset(self) -> None:
+        self.s, self.told = None, 0
+
+    def observed(self, obs: dict) -> None:
+        if self.s is not None and self.s.running:
+            self.s.ran(obs["screenshot"])
+
+    def predict(self, instruction: str, obs: dict):
+        from legato.point import Pointing
+        if self.s is None:
+            self.s = Pointing(self.h, instruction, obs["screenshot"], max_calls=self.max_calls)
+        acts = self.s.next(obs["screenshot"])
+        actions = [to_pyautogui(a) for a in acts]
+        if not acts:      # the planner ended the task; at the call limit the rollout ends and is graded as it stands
+            actions = ["FAIL" if self.s.status == "fail" and not self.s.error else "DONE"]
+        return self.s.error or self.s.status, actions, list(self.s.calls)
+
+    def step_note(self) -> dict:
+        """What the latest predict() did, for the rollout record: the new trace entries (planner calls with their
+        actions, pointer calls, coordinates the planner gave) and the running call counts."""
+        new, self.told = self.s.trace[self.told:], len(self.s.trace)
+        return {"trace": new, "planner_calls": self.s.planner["calls"], "pointer_calls": self.s.pointer_calls,
+                "end": self.s.error or self.s.status}
+
+
 def make_harness(policy: PolicyClient, cfg: HarnessConfig, osworld_path: str):
     if cfg.name == "fake":
         from legato.rl.fake import FakeHarness
         return FakeHarness(policy, cfg)
+    if cfg.name == "legato" and cfg.options.get("planner"):
+        return PlannedHarness(policy, cfg)
     if cfg.name in ("legato", "reference"):
         return ComputerToolHarness(policy, cfg)
     return QwenHarness(policy, cfg, osworld_path)
@@ -270,6 +326,8 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
                 rec["status"], rec["error"] = "error", {"kind": "policy", "message": str(e)[:400]}
                 break
             step = {"i": i, "t": time.time(), "predict_s": time.perf_counter() - tp, "actions": []}
+            if hasattr(harness, "step_note"):
+                step["harness"] = harness.step_note()
             if calls:
                 payload, pc = calls[-1]
                 shas, n_img = store_request(payload["messages"], out)
@@ -281,6 +339,8 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
                 step["response"]["tokens"] = None if pc.get("token_ids") else ([x["t"] for x in lps] or None)
                 step["model"] = {"s": sum(c[1]["s"] for c in calls), "calls": len(calls), "attempts": pc["attempts"],
                                  **pc["usage"]}
+                if len(calls) > 1:              # several models in one step (a planner and a pointer): each call
+                    step["model"]["each"] = [{"s": c[1]["s"], **c[1]["usage"]} for c in calls]
                 if pc.get("tool_calls"):
                     step["response"]["tool_calls"] = pc["tool_calls"]
                 timing["model_s"] += step["model"]["s"]
