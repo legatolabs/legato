@@ -22,7 +22,7 @@ the task is done.
 | `--yes` | on this computer, do not ask before risky actions (a typed `rm`, Cmd+Q...) |
 
 With no flag, on a Mac it works in the background in the app the task names ("... in Notes", "... on Spotify"),
-else in your browser; elsewhere on the whole screen. `legato setup --desktop docker` (or `screen`) changes that
+else in Safari; elsewhere on the whole screen. `legato setup --desktop docker` (or `screen`) changes that
 default.
 
 ## Python

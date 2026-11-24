@@ -161,7 +161,7 @@ def _init(argv) -> int:
     ap.add_argument("--base-url")
     ap.add_argument("--api-key-env", help="the environment variable holding the model key ('' for none)")
     ap.add_argument("--desktop", choices=list(DESKTOPS))
-    ap.add_argument("--app", help="with --desktop background: the app to work in (default: your default browser)")
+    ap.add_argument("--app", help="with --desktop background: the app to work in (default: the app the task names, else Safari)")
     ap.add_argument("--out", default="agent.py")
     ap.add_argument("--force", action="store_true", help="overwrite --out if it exists")
     ap.add_argument("--yes", action="store_true", help="ask nothing: use the flags and the defaults")

@@ -68,7 +68,7 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
                  ) -> tuple[Env, Callable[[], None], str]:
     """(env, close, what) for a desktop by name ("background", "screen", "docker", "e2b", or a --sandbox spec such as
     my_desktop.py:desktop). With none given: the saved one, else background on a Mac and the screen elsewhere. In the
-    background, the app is `app`, else the saved one, else the one the task names, else the default browser."""
+    background, the app is `app`, else the saved one, else the one the task names, else Safari."""
     cfg = cfg or cfgmod.load()
     desktop = cfgmod.ALIASES.get(desktop or "", desktop) or cfg.desktop or cfgmod.default_desktop()
     if desktop == "background":

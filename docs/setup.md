@@ -53,8 +53,8 @@ You are setting Legato up on your user's computer. Run the commands yourself; as
 7. **Check it works:**
    `legato run "On Wikipedia, look up the Eiffel Tower and tell me how tall it is" --json`.
    It prints one JSON object; `done` should be `true` and `answer` should give the height. If it fails, `error` says
-   why. On a Mac it works in a Safari or Chrome window in the background (Safari when the default browser is another
-   one), so the user can watch that window.
+   why. On a Mac it works in a Safari window in the background, whatever the default browser, so the user can watch
+   that window.
 8. **Tell the user** what was set up (the model, where it works, which coding agents got it) and how to use it:
    `legato run "..."` in a terminal; in their coding agent, ask it to use its Legato desktop; in Python,
    `legato.run("...")`.

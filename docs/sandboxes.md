@@ -75,7 +75,7 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
 
 `legato.local(background="TextEdit")` works in one app's front window and leaves the rest of the Mac to you: your
 pointer, the app in front and the clipboard stay yours. It is the default on a Mac: `legato run "..."` works in the
-app the task names ("... in Notes", "... on Spotify"), else in your browser (Safari, unless your default is Chrome);
+app the task names ("... in Notes", "... on Spotify"), else in Safari;
 `--app NAME` picks one. In the MCP server: `desktop_open(app="Safari", url=...)`.
 
 ```python
@@ -102,7 +102,8 @@ agent.run("Sign up with the name Ada Lovelace", env)
   hidden with Cmd+H is shown again (behind your app); the agent's own Cmd+H and Cmd+M are not run, nor its clicks on the
   window's close, minimize and zoom buttons.
 - **One app per task.** A task that moves between apps needs the whole screen (`--screen`).
-- **Firefox** works, but slowly in the background: use Safari or Chrome.
+- **Browsers:** use Safari. Firefox works, but slowly in the background. Chrome 158 and later ignore background clicks
+  on a web page's elements (typing into a focused field still works), so a task that names Chrome may not get far.
 - Your stop signals (a corner, Escape) don't apply, since the mouse and keyboard are yours: stop it from the program
   that runs it. Risky keys and typed commands still wait for your yes.
 - **Tested** with `tests/test_background.py` (any OS) and, on a Mac, `LEGATO_TEST_BACKGROUND=1 pytest

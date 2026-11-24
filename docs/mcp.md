@@ -56,8 +56,8 @@ codex mcp add legato -- legato mcp                                   # Codex: th
 - **On your own Mac, with other apps open:** `legato mcp --local --wait-scope app` waits on the front app's windows
   only, so a chat or video animating elsewhere doesn't hold every action to the wait's cap.
 - **In the background on your Mac:** `legato mcp --background` forces it whatever was saved. It takes no app name:
-  the app is `desktop_open(app=...)`'s, else the one `legato setup --app` saved, else Safari or Chrome, whichever
-  is your default browser.
+  the app is `desktop_open(app=...)`'s, else the one `legato setup --app` saved, else Safari (Chrome 158 and later
+  ignore background clicks on web pages).
 - **`desktop_read` checks text without a screenshot.** Your agent can check that a page says `Count: 1` as it would
   with Playwright's snapshot. It reads the window that `desktop_act` works in.
 - **A fixed-sleep baseline:** `legato mcp --fixed-wait 2` sleeps after every action instead of waiting for the screen.

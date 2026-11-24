@@ -508,8 +508,8 @@ def test_mcp_background_desktop_defaults_to_the_browser_and_reports_the_window(m
 
     async def call(name, **args):
         return await srv.call_tool(name, args)
-    asyncio.run(call("desktop_open"))                       # no app: the browser
-    assert opened == ["Google Chrome"]
+    asyncio.run(call("desktop_open"))                       # no app: Safari (Chrome 158 ignores background clicks)
+    assert opened == ["Safari"]
     out = asyncio.run(call("desktop_open", app="TextEdit"))
     text = out.content[0].text
     assert "(400x300)" in text and "background" in text and out.content[1].type == "image"

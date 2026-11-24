@@ -187,7 +187,7 @@ def _main(argv) -> int:
     ap.add_argument("--api-key-env", help="read the key from this environment variable instead of saving it")
     ap.add_argument("--desktop", choices=list(C.DESKTOPS) + ["local"])
     ap.add_argument("--app", help="background mode: always work in this app (default: the app the task names, else "
-                                  "your default browser)")
+                                  "Safari)")
     ap.add_argument("--mcp", help=f"add Legato to these coding agents ({', '.join(CLIENTS)}, all found, or none); "
                                   "default: ask, or with --yes all found")
     ap.add_argument("--try", dest="try_task", nargs="?", const=FIRST_TASK, metavar="TASK",
@@ -301,7 +301,7 @@ def _main(argv) -> int:
         cfg.app = a.app
     elif asking and desktop == "background":
         cfg.app = _text("   Always work in one app? Name it, or Enter to use the app each task names "
-                        "(else your browser)", cfg.app)
+                        "(else Safari)", cfg.app)
     if desktop in ("background", "screen") and mac:
         problems = permission_lines(request=asking)
         for p in problems:

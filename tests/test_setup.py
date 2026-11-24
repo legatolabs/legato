@@ -61,7 +61,9 @@ def test_the_browser_is_used_only_where_background_mode_is_tested(monkeypatch):
     monkeypatch.setattr(config, "default_browser", lambda: "Firefox")
     assert config.pick_app("x", config.Config()) == "Safari"
     monkeypatch.setattr(config, "default_browser", lambda: "Google Chrome")
-    assert config.pick_app("x", config.Config()) == "Google Chrome"
+    assert config.pick_app("x", config.Config()) == "Safari"            # Chrome 158 ignores background clicks on pages
+    monkeypatch.setattr(config, "app_for_task", lambda task, apps=None: "Google Chrome")
+    assert config.pick_app("open chrome", config.Config()) == "Google Chrome"   # named, it is still used
     assert config.pick_app("x", config.Config(app="TextEdit")) == "TextEdit"
 
 

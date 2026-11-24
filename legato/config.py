@@ -12,7 +12,7 @@ LEGATO_BASE_URL, LEGATO_API_KEY, LEGATO_DESKTOP, LEGATO_APP.
 
 Desktops:
     background   macOS: one app's window, worked without your mouse or keyboard, so you keep using the Mac.
-                 The app is named in the task ("... in Notes") or with `app`; otherwise your default browser.
+                 The app is named in the task ("... in Notes") or with `app`; otherwise Safari.
     screen       this computer's whole screen (macOS, Windows, Linux): it moves your real mouse.
     docker       a fresh Linux desktop container on this machine: it can't touch your screen or files.
     e2b          a fresh cloud desktop on E2B (E2B_API_KEY).
@@ -219,13 +219,15 @@ def default_browser() -> str | None:
     return Path(out).stem or None
 
 
-BROWSERS_TESTED = ("Safari", "Google Chrome")    # background mode is tested on these (tests/test_background_live.py)
+# The browsers background mode picks by default. Chrome is left out: from Chrome 158 (Nov 2026), pressing a web
+# page's elements through Accessibility reports success and does nothing, so its clicks fail. A task can still name it.
+BROWSERS_TESTED = ("Safari",)
 
 
 def pick_app(task: str, cfg: Config | None = None) -> str:
     """The app background mode works in for this task: the saved one, else the one the task names, else the default
-    browser if background mode is tested on it, else Safari. (Firefox works in the background but slowly: 83 s
-    against Safari's 11 s on the first task, 24 Nov.)"""
+    browser if background mode works well in it (only Safari today), else Safari. (Firefox works in the background but
+    slowly: 83 s against Safari's 11 s on the first task, 24 Nov; Chrome 158 ignores clicks on web pages.)"""
     cfg = cfg or load()
     browser = default_browser()
     return cfg.app or app_for_task(task) or (browser if browser in BROWSERS_TESTED else "Safari")
