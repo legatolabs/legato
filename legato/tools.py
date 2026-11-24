@@ -24,6 +24,9 @@ NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")         # what OpenAI-compatible API
 BASH_HINT = ("Run a shell command on the desktop's computer and get its output (stdout and stderr) and exit code. "
              "Use it to read or write files, check results and run programs; it is often faster than the screen. "
              "Start a GUI app in the background (nohup app >/dev/null 2>&1 &), or the command waits for it to exit.")
+POWERSHELL_HINT = ("Run a PowerShell command on this Windows computer and get its output and exit code. Use it to read "
+                   "or write files, check results and run programs; it is often faster than the screen. Start a GUI "
+                   "app with Start-Process, or the command waits for it to exit.")
 
 
 @dataclass
@@ -33,6 +36,7 @@ class Tool:
     description: str
     parameters: dict
     handler: Callable[[dict], str]
+    runs: str = ""                       # for a shell tool: what runs its commands ("bash", "PowerShell")
 
     def __post_init__(self) -> None:
         if not NAME.match(self.name):
@@ -73,8 +77,13 @@ def wrap_command(cmd: str, timeout_s: float) -> str:
 def local_shell(cmd: str, timeout_s: float = 30.0) -> str:
     """Run `cmd` on this computer. On timeout the whole process group is killed, background children included."""
     unix = sys.platform != "win32"
-    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                         start_new_session=unix, executable="/bin/bash" if unix and os.path.exists("/bin/bash") else None)
+    if unix:
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                             start_new_session=True, executable="/bin/bash" if os.path.exists("/bin/bash") else None)
+    else:       # Windows: PowerShell (what its files, settings and apps are scripted in), with no console window
+        p = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     try:
         out, _ = p.communicate(timeout=timeout_s)
         code: Any = p.returncode
@@ -91,7 +100,8 @@ def local_shell(cmd: str, timeout_s: float = 30.0) -> str:
 def bash(target: Union["Env", Callable[[str], Any], None] = None, *, timeout_s: float = 30.0, max_chars: int = 4000,
          name: str = "bash") -> Tool:
     """A shell tool. `target`: an `Env` (runs in that desktop's shell: E2B, `attach(shell=...)`, `--sandbox docker`,
-    `legato.local()`), a Linux `run(cmd) -> output` function, or None for this computer."""
+    `legato.local()`), a Linux `run(cmd) -> output` function, or None for this computer (bash; PowerShell on
+    Windows)."""
     run: Callable[[str, float], str]
     if target is None:
         run = local_shell
@@ -103,6 +113,7 @@ def bash(target: Union["Env", Callable[[str], Any], None] = None, *, timeout_s: 
         run = lambda cmd, t: _stdout(user(wrap_command(cmd, t)))  # noqa: E731
     else:
         raise TypeError("bash(env), bash(run) or bash() for this computer; this desktop has no shell")
+    windows = run is local_shell and sys.platform == "win32"      # this computer, also as bash(legato.local())
 
     def handler(args: dict) -> str:
         cmd = args.get("command")
@@ -110,9 +121,10 @@ def bash(target: Union["Env", Callable[[str], Any], None] = None, *, timeout_s: 
             return "error: give a command"
         return clip(run(cmd, timeout_s), max_chars)
 
-    return Tool(name, BASH_HINT, {"type": "object", "required": ["command"],
-                                  "properties": {"command": {"type": "string", "description": "The shell command"}}},
-                handler)
+    return Tool(name, POWERSHELL_HINT if windows else BASH_HINT,
+                {"type": "object", "required": ["command"],
+                 "properties": {"command": {"type": "string", "description": "The shell command"}}},
+                handler, runs="PowerShell" if windows else "bash")
 
 
 APPLESCRIPT_HINT = ("Run AppleScript to read or change an app's data (Calendar, Reminders, Notes, Contacts, Mail, Music, "
