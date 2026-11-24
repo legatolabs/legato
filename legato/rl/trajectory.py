@@ -165,7 +165,8 @@ def export_steps(out_dir: str | Path, dest: str | Path, inline_images: bool = Fa
                     text, covered = generated_text(resp.get("content"), resp.get("tool_calls"), resp.get("tokens"),
                                                    bool(resp.get("token_ids") or resp.get("logprobs")))
                 f.write(json.dumps({
-                    "rollout_id": r["rollout_id"], "group_id": r["group_id"], "task_id": r["task_id"], "step": s["i"],
+                    "rollout_id": r["rollout_id"], "group_id": r["group_id"], "task_id": r["task_id"],
+                    "attempt": r.get("attempt"), "step": s["i"],
                     "policy_version": r["policy"]["version"], "model": r["policy"]["model"],
                     "messages": msgs,
                     "sampling": {k: s["request"].get(k) for k in ("max_tokens", "temperature", "top_p", "seed")},

@@ -182,8 +182,13 @@ class PolicyClient:
              top_p: float | None = None, tools: list | None = None, tool_choice=None, extra: dict | None = None) -> dict:
         """One policy step. `extra` is merged into this request's body. Returns a record: content (what the harness parses), reasoning, token ids and logprobs,
         usage, the sampling actually sent (temperature, top_p, seed), wall seconds, attempts. Raises PolicyError when
-        every attempt fails. A retry resends the same seed."""
+        every attempt fails. A retry resends the same seed.
+
+        attempts counts every request sent: a busy server's 429 or 503 is waited out and sent again without using up
+        `retries`, so attempts can exceed retries + 1. retry_reasons (when attempts > 1) says why each earlier one was
+        sent again."""
         last = ""
+        why: list[str] = []
         seed = self._take_seed()
         t0 = time.perf_counter()
         attempt = failures = 0
@@ -214,6 +219,8 @@ class PolicyClient:
                 else:
                     rec = self._record(r.json(), time.perf_counter() - t0, time.perf_counter() - ta, attempt)
                     rec["sampling"] = {k: body.get(k) for k in ("temperature", "top_p", "seed")}
+                    if why:
+                        rec["retry_reasons"] = why
                     return rec
             except (httpx.TimeoutException, _Deadline):
                 last = f"timeout after {limit:.0f} s"
@@ -222,6 +229,7 @@ class PolicyClient:
             finally:
                 if self.sem is not None and acquired:
                     self.sem.release()
+            why.append(last + (" (busy: waited, not counted against retries)" if wait is not None else ""))
             if wait is not None:                           # busy or starting: wait it out, not counted as a failure
                 wait = min(wait, max(0.0, self._limit()))
                 time.sleep(wait)

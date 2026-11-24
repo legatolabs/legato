@@ -2,8 +2,8 @@
 
   legato rl probe   --policy-url URL --model NAME [--api-key-env VAR]
   legato rl collect --tasks tasks.json --policy-url URL --model NAME --version v41 --out DIR
-                    [--desktops 16] [--group 8] [--oversample 0.25] [--max-steps 15] [--max-inflight 32]
-                    [--temperature T] [--seed N] [--step-timeout 60] [--rollout-timeout S]
+                    [--desktops 16] [--start-stagger S] [--group 8] [--oversample 0.25] [--max-steps 15]
+                    [--max-inflight 32] [--temperature T] [--seed N] [--step-timeout 60] [--rollout-timeout S]
                     [--backend osworld|fake] [--osworld PATH] [--fake-opts JSON]
                     [--no-ready-signal --fixed-wait 3] [--no-fast-reset]
                     [--harness qwen|legato|reference|fake] [--harness-opts JSON] [--eval-only]
@@ -11,10 +11,10 @@
   legato rl export  DIR --out train.jsonl [--inline-images]
   legato rl profile DIR
 
-tasks.json: a list of {"task_id", "domain"} (OSWorld tasks, resolved under --osworld) or {"task_id", "config": {...}}
-(an inline OSWorld task config); with --backend fake, {"task_id", "instruction", "reward"}. The API key is read from
-the environment variable named by --api-key-env (default LEGATO_POLICY_KEY), never from the command line. collect
-exits 1 when no rollout completed.
+tasks.json (legato.computer/docs/rl#tasks): a list of {"task_id", "domain"} (OSWorld tasks, resolved under --osworld)
+or {"task_id", "config": {...}} (an inline OSWorld task config); with --backend fake, {"task_id", "instruction",
+"reward"}. The API key is read from the environment variable named by --api-key-env (default LEGATO_POLICY_KEY),
+never from the command line. collect exits 1 when no rollout completed.
 """
 from __future__ import annotations
 
@@ -24,8 +24,8 @@ import os
 import sys
 
 from legato.rl import DesktopConfig, HarnessConfig, PolicyClient, PolicyConfig, collect, export_steps, read_rollouts
-from legato.rl.collect import SetupError, effective_temperature
-from legato.rl.profile import report, summarize
+from legato.rl.collect import CollectError, SetupError, effective_temperature
+from legato.rl.profile import report, summarize, wall_clock
 
 
 def _policy(a) -> PolicyConfig:
@@ -34,15 +34,6 @@ def _policy(a) -> PolicyConfig:
                         api_key=os.environ.get(a.api_key_env, ""), timeout_s=a.step_timeout, retries=a.retries,
                         logprobs=not ev, token_ids=not ev, extra_body=json.loads(getattr(a, "extra_body", "") or "{}"),
                         temperature=getattr(a, "temperature", None), seed=getattr(a, "seed", None))
-
-
-def _no_rollout(out: str, s: dict) -> str:
-    rs = read_rollouts(out)
-    if not rs:
-        return "no rollout was written: every worker stopped before its first rollout (its error is above)"
-    err = next((r["error"]["message"] for r in rs if r.get("error")), "")
-    status = ", ".join(f"{k} {v}" for k, v in s["status"].items())
-    return f"no rollout completed ({status})" + (f"; first error: {err}" if err else "")
 
 
 def main(argv=None) -> int:
@@ -56,10 +47,13 @@ def main(argv=None) -> int:
         p.add_argument("--step-timeout", type=float, default=60.0, help="seconds per model call attempt")
         p.add_argument("--retries", type=int, default=1, help="retries of a model call that failed or timed out")
     c = sub.choices["collect"]
-    c.add_argument("--tasks", required=True, help="JSON list of tasks (see `legato rl` with no arguments)")
+    c.add_argument("--tasks", required=True,
+                   help="JSON list of tasks; the format: legato.computer/docs/rl#tasks (docs/rl.md, Tasks)")
     c.add_argument("--version", required=True, help="policy version tag written on every trajectory")
     c.add_argument("--out", required=True, help="output directory")
     c.add_argument("--desktops", type=int, default=4, help="worker processes, one desktop each")
+    c.add_argument("--start-stagger", type=float, default=None,
+                   help="seconds between starting one worker and the next (default 2 for osworld, 0 for fake)")
     c.add_argument("--group", type=int, default=4, help="attempts per task: one GRPO group")
     c.add_argument("--oversample", type=float, default=0.0,
                    help="extra attempts per group, as a share of --group; the group closes once --group finish")
@@ -78,7 +72,7 @@ def main(argv=None) -> int:
                    help="an OSWorld checkout (default $OSWORLD_PATH)")
     c.add_argument("--fake-opts", default="",
                    help='JSON of fake desktop settings, e.g. \'{"reward": [1, 0]}\' (reward for tasks without one: a '
-                        "number, or a list by attempt; reset_s, act_s, fail_reset_every)")
+                        "number, or a list by attempt; size [w, h]; reset_s, act_s, fail_reset_every, fail_act_every)")
     c.add_argument("--no-ready-signal", action="store_true", help="fixed sleeps instead of waiting for the screen")
     c.add_argument("--fixed-wait", type=float, default=0.0, help="seconds slept after each action with --no-ready-signal")
     c.add_argument("--no-fast-reset", action="store_true", help="revert the VM snapshot every rollout")
@@ -119,21 +113,22 @@ def main(argv=None) -> int:
                         desktop=DesktopConfig(backend=a.backend, osworld_path=a.osworld,
                                               ready_signal=not a.no_ready_signal, fast_reset=not a.no_fast_reset,
                                               fixed_wait_s=a.fixed_wait, fake=json.loads(a.fake_opts or "{}")),
-                        harness=harness)
+                        harness=harness, start_stagger_s=a.start_stagger)
         except SetupError as err:
             print(f"legato rl collect: {err}", file=sys.stderr)
             return 2
-        print(report(s))
-        if not s["completed"]:
-            print(f"legato rl collect: {_no_rollout(a.out, s)}", file=sys.stderr)
+        except CollectError as err:
+            print(report(err.summary))
+            print(f"legato rl collect: {err}", file=sys.stderr)
             return 1
+        print(report(s))
     elif a.cmd == "export":
         print(json.dumps(export_steps(a.dir, a.out, inline_images=a.inline_images)))
     else:
         rs = read_rollouts(a.dir)
         meta = os.path.join(a.dir, "run.json")
-        group = json.loads(open(meta).read()).get("group") if os.path.exists(meta) else None
-        print(report(summarize(rs, group=group)))
+        run = json.loads(open(meta).read()) if os.path.exists(meta) else {}
+        print(report(summarize(rs, wall_s=wall_clock(rs, run.get("started")), group=run.get("group"))))
     return 0
 
 

@@ -177,6 +177,9 @@ def test_env_failure_is_retried(server, tmp_path):
     s = collect([{"task_id": "t", "reward": 1.0}], PolicyConfig(server.url, "m"), tmp_path, desktops=1, group=4,
                 env_retries=2, **fake(fail_reset_every=3))
     assert s["status"].get("retried", 0) >= 1 and s["status"]["ok"] == 4 and s["env_errors"] >= 1
+    # the re-run says why it was re-run
+    assert any("reset failed" in e for r in read_rollouts(tmp_path) if r["status"] == "ok"
+               for e in r.get("retried_after", []))
 
 
 def test_admission_cap_limits_concurrent_requests(server, tmp_path):
@@ -255,6 +258,7 @@ def test_cli_fake_backend_runs_out_of_the_box(server, tmp_path, capsys):
     lines = [json.loads(x) for x in (tmp_path / "train.jsonl").read_text().splitlines()]
     assert [round(x["advantage"], 3) for x in sorted(lines, key=lambda x: x["advantage"])] == [-1.0, 1.0]
     assert {x["sampling"]["seed"] for x in lines} == set(seeds) and all(x["tokens_cover_response"] for x in lines)
+    assert sorted(x["attempt"] for x in lines) == [0, 1]
 
 
 def test_cli_fails_fast_when_the_harness_cannot_load(server, tmp_path, capsys, monkeypatch):
@@ -278,8 +282,6 @@ def test_cli_exits_1_when_every_rollout_fails(server, tmp_path, capsys):
                                          "--fake-opts", '{"fail_reset_every": 1}'), capsys)
     assert code == 1 and "rollouts 1 (error 1)" in out
     assert "no rollout completed" in err and "reset failed" in err
-    from legato.rl.__main__ import _no_rollout
-    assert "every worker stopped" in _no_rollout(str(tmp_path / "empty"), {"status": {}})
 
 
 def test_cli_help_names_the_legato_command(capsys):
@@ -288,9 +290,9 @@ def test_cli_help_names_the_legato_command(capsys):
         main(["collect", "--help"])
     out = capsys.readouterr().out
     assert out.startswith("usage: legato rl collect") and "python -m" not in out
-    for flag in ("--temperature", "--seed", "--fake-opts", "--backend", "--group", "--max-steps"):
+    for flag in ("--temperature", "--seed", "--fake-opts", "--backend", "--group", "--max-steps", "--start-stagger"):
         assert flag in out
-    assert "GRPO group" in out and "base sampling seed" in out
+    assert "GRPO group" in out and "base sampling seed" in out and "docs/rl#tasks" in out
     assert main([]) == 2 and capsys.readouterr().out.startswith("usage: legato rl")
 
 
@@ -413,3 +415,95 @@ def test_a_deadline_caps_each_attempt_and_stops_retries(server):
     with pytest.raises(PolicyError, match="time limit"):
         c.chat([{"role": "user", "content": "x"}])
     assert time.perf_counter() - t < 1.2
+
+
+# ---------------------------------------------------------------- round two
+
+def test_collect_raises_when_no_rollout_completed(server, tmp_path):
+    from legato.rl import CollectError
+    server.reply = "DONE"
+    with pytest.raises(CollectError, match="no rollout completed .*reset failed") as e:
+        collect([{"task_id": "t"}], PolicyConfig(server.url, "m"), tmp_path, desktops=1, group=1, env_retries=0,
+                **fake(fail_reset_every=1))
+    assert e.value.summary["status"] == {"error": 1}
+    assert json.loads((tmp_path / "summary.json").read_text())["completed"] == 0
+
+
+def test_a_worker_importing_the_script_names_the_main_guard(tmp_path):
+    """With the spawn start method each worker imports the calling script again; collect() there must not start
+    workers of its own, and the parent must say to use the guard."""
+    import multiprocessing as mp
+    from types import SimpleNamespace
+
+    from legato.rl.collect import _no_rollout
+    me = mp.current_process()
+    me._inheriting = True
+    try:
+        with pytest.raises(RuntimeError, match='if __name__ == "__main__":'):
+            collect([{"task_id": "t"}], PolicyConfig("http://x/v1", "m"), tmp_path, **fake())
+    finally:
+        del me._inheriting
+    assert not (tmp_path / "run.json").exists()
+    ctx = mp.get_context("spawn")
+    died = [SimpleNamespace(exitcode=1), SimpleNamespace(exitcode=1)]
+    assert 'if __name__ == "__main__":' in _no_rollout([], {"status": {}}, died, ctx.SimpleQueue(), ctx)
+    q = ctx.SimpleQueue()
+    q.put("worker 0 could not start: ImportError: no module named x")
+    assert _no_rollout([], {"status": {}}, died, q, ctx).endswith("ImportError: no module named x")
+
+
+@pytest.mark.skipif(sys.platform.startswith("linux"), reason="fork start method: workers do not import the script")
+def test_collect_without_the_main_guard_raises_and_says_so(server, tmp_path):
+    import os
+    import subprocess
+    script = tmp_path / "loop.py"
+    script.write_text(
+        "from legato.rl import collect, PolicyConfig, DesktopConfig, HarnessConfig\n"
+        f"collect([{{'task_id': 't'}}], PolicyConfig({server.url!r}, 'm'), {str(tmp_path / 'run')!r}, desktops=1,\n"
+        "        group=1, desktop=DesktopConfig(backend='fake'), harness=HarnessConfig(name='fake'))\n")
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]))
+    p = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=120, env=env)
+    assert p.returncode == 1 and "CollectError" in p.stderr
+    assert p.stderr.strip().splitlines()[-1].count('if __name__ == "__main__":') == 1 and server.calls == 0
+
+
+def test_rollouts_per_hour_counts_real_wall_clock(server, tmp_path, capsys):
+    server.reply, server.delay_s = "DONE", 0.3       # 4 rollouts of 0.3 s on 2 desktops: at least 0.6 s of work
+    t = time.time()
+    s = collect([{"task_id": f"t{i}"} for i in range(2)], PolicyConfig(server.url, "m"), tmp_path, desktops=2,
+                group=2, desktop=DesktopConfig(backend="fake"), harness=HarnessConfig(name="fake"),
+                start_stagger_s=0.5)
+    elapsed = time.time() - t
+    assert 0.6 <= s["wall_s"] < elapsed and s["rollouts_per_hour"] == pytest.approx(4 / s["wall_s"] * 3600)
+    assert json.loads((tmp_path / "run.json").read_text())["start_stagger_s"] == 0.5
+    from legato.rl.__main__ import main
+    assert main(["profile", str(tmp_path)]) == 0
+    assert f"over {s['wall_s']:.2f} s of wall clock" in capsys.readouterr().out
+    server.delay_s = 0.0
+    collect([{"task_id": "t"}], PolicyConfig(server.url, "m"), tmp_path / "b", desktops=1, group=1, **{
+        k: v for k, v in fake().items() if k != "start_stagger_s"})
+    assert json.loads((tmp_path / "b" / "run.json").read_text())["start_stagger_s"] == 0.0     # fake: no stagger
+
+
+def test_retries_say_why(server, tmp_path):
+    server.busy_first, server.fail_first = 1, 1       # a 500 (counted against retries), then a 503 (waited out)
+    rec = PolicyClient(PolicyConfig(server.url, "m", retries=1)).chat([{"role": "user", "content": "x"}])
+    assert rec["attempts"] == 3 and len(rec["retry_reasons"]) == 2
+    assert rec["retry_reasons"][0] == "HTTP 500: boom" and "busy" in rec["retry_reasons"][1]
+    server.calls, server.busy_first, server.fail_first, server.reply = 0, 1, 0, "DONE"
+    collect([{"task_id": "t"}], PolicyConfig(server.url, "m"), tmp_path, desktops=1, group=1, **fake())
+    m = read_rollouts(tmp_path)[0]["steps"][0]["model"]
+    assert m["attempts"] == 2 and m["retry_reasons"][0].startswith("HTTP 503: starting")
+
+
+def test_fake_screen_is_readable_and_tiny_png_is_unchanged():
+    from PIL import Image
+    import io
+    from legato.rl.fake import FakeDesktop, fake_screen, tiny_png
+    d = FakeDesktop(DesktopConfig(backend="fake"))
+    d.reset({"task_id": "t", "instruction": "Open the report"})
+    a = d.observe()["screenshot"]
+    b = d.act("pyautogui.click(1, 1)")[0]["screenshot"]
+    assert Image.open(io.BytesIO(a)).size == (640, 400) and a != b
+    assert Image.open(io.BytesIO(fake_screen("x", 0, (320, 200)))).size == (320, 200)
+    assert Image.open(io.BytesIO(tiny_png(1, w=8, h=8))).size == (8, 8)

@@ -13,8 +13,7 @@ export LEGATO_POLICY_KEY=...            # the model server's key; never passed o
 # 1. Check the server: logprobs, token ids, cached-token reporting
 legato rl probe --policy-url https://your-server/v1 --model Qwen/Qwen3.5-9B
 
-# 2. Collect a batch on policy version step-41. tasks.json lists {"task_id", "domain"} (OSWorld tasks under
-#    --osworld) or {"task_id", "config": {...}} (inline OSWorld task configs)
+# 2. Collect a batch on policy version step-41 (tasks.json: see Tasks below)
 legato rl collect --tasks tasks.json --policy-url https://your-server/v1 --model Qwen/Qwen3.5-9B \
     --version step-41 --out runs/step-41 --desktops 16 --group 8 --oversample 0.25 --max-steps 15 \
     --max-inflight 32 --osworld ~/osworld
@@ -28,27 +27,47 @@ legato rl profile runs/step-41
 
 `collect` exits 1 when no rollout completed, with the first error.
 
-From Python:
+From Python, put the call under the `__main__` guard: the workers are processes that import your script again on
+macOS and Windows.
 
 ```python
-from legato.rl import collect, export_steps, PolicyConfig, DesktopConfig
-summary = collect(tasks, PolicyConfig("https://your-server/v1", "Qwen/Qwen3.5-9B", version="step-41", api_key=key),
-                  out="runs/step-41", desktops=16, group=8, oversample=0.25, max_inflight=32,
-                  desktop=DesktopConfig(osworld_path="/home/me/osworld"))
-export_steps("runs/step-41", "runs/step-41/train.jsonl")
+from legato.rl import DesktopConfig, HarnessConfig, PolicyConfig, collect, export_steps
+
+def main():
+    tasks = [{"task_id": "t1", "instruction": "Open the report", "reward": [1, 0]}]
+    policy = PolicyConfig("http://localhost:8000/v1", "Qwen/Qwen3.5-9B", version="step-0", temperature=1.0, seed=0)
+    collect(tasks, policy, out="runs/step-0", desktops=4, group=8,
+            desktop=DesktopConfig(backend="fake"),   # or DesktopConfig(osworld_path="/home/me/osworld")
+            harness=HarnessConfig(name="legato"))
+    export_steps("runs/step-0", "runs/step-0/train.jsonl")
+
+if __name__ == "__main__":
+    main()
 ```
+
+`collect` raises `SetupError` before any worker starts when the harness or desktop can't load, and `CollectError`
+(with `.summary`) when no rollout completed.
+
+## Tasks
+
+`--tasks` is a JSON list, one object per task:
+
+- OSWorld: `{"task_id": "...", "domain": "chrome"}`, read from `evaluation_examples/examples/<domain>/<task_id>.json`
+  under `--osworld`, or `{"task_id": "...", "config": {...}}`, an inline OSWorld task config.
+- Fake backend: `{"task_id": "t1", "instruction": "Open the report", "reward": [1, 0]}`; `instruction` and `reward`
+  are optional (see Backends).
 
 ## Backends
 
 - **`osworld`** (default): OSWorld's DesktopEnv (Docker/QEMU) on a Linux host with KVM; one VM (4 vCPU, 4 GB) per
   worker, kept up between rollouts. Fast reset kills the task apps, checks that none survived, restores the clean
   `/home/user` baseline and runs the task's setup. `os` and `multi_apps` tasks use a snapshot revert.
-- **`fake`** (`--backend fake`): no VMs, for tests and for wiring up a trainer. The policy still gets real requests
-  (a small screenshot and the task's instruction) from the `fake` harness, the default with this backend. A task is
-  `{"task_id": "t1", "instruction": "Open the report", "reward": [1, 0]}`; `instruction` and `reward` are optional.
-  The reward is the task's `reward`, else the one in `--fake-opts '{"reward": ...}'`, else 0. A list is read by
-  attempt, so `[1, 0]` gives a group rewards 1, 0, 1, 0 and non-zero advantages. A reply containing `DONE` ends the
-  episode. `--fake-opts` also takes `reset_s`, `act_s` and `fail_reset_every` (fail every Nth reset).
+- **`fake`** (`--backend fake`): no VMs, for tests and for wiring up a trainer. The policy still gets real requests:
+  a 640×400 screen that says it is a fake desktop and shows the task. The `fake` harness is the default with this
+  backend. The reward is the task's `reward`, else the one in `--fake-opts '{"reward": ...}'`, else 0. A list is read
+  by attempt, so `[1, 0]` gives a group rewards 1, 0, 1, 0 and non-zero advantages. A reply containing `DONE` ends
+  the episode. `--fake-opts` also takes `size` (`[w, h]`), `reset_s`, `act_s`, `fail_reset_every` and
+  `fail_act_every` (fail every Nth reset or action).
 - **Your own:** a class with `reset`, `wait_after_reset`, `observe`, `act`, `wait_before_eval`, `evaluate` and `close`
   (see `collect.OSWorldDesktop`).
 
@@ -116,7 +135,8 @@ new weights into the server, then collect again with `--version step-1`.
 | `--no-ready-signal --fixed-wait S` | off | OSWorld-style fixed sleeps, for baselines |
 | `--no-fast-reset` | off | Snapshot revert every rollout, for baselines |
 | `--image-max` | 20 | Screenshots kept in the prompt |
-| `--fake-opts` | none | Fake desktop settings: `reward`, `reset_s`, `act_s`, `fail_reset_every` |
+| `--fake-opts` | none | Fake desktop settings: `reward`, `size`, `reset_s`, `act_s`, `fail_reset_every`, `fail_act_every` |
+| `--start-stagger` | 2 s (osworld), 0 (fake) | Wait between starting one worker and the next, so VMs don't all boot at once |
 
 ## Output: `legato.rollout/v0`
 
@@ -125,7 +145,7 @@ new weights into the server, then collect again with `--version step-1`.
 - **Identity:** `rollout_id`, `task_id`, `domain`, `group_id`, `attempt`, `policy` {`model`, `version`},
   `sampling` {`seed`, `temperature`}.
 - **Outcome:** `status`, `reward` (the task's OSWorld evaluator score, run inside the desktop after the task),
-  `error`, `n_steps`. `status` is `ok` (ended by the agent or the step limit), `truncated` (time limit), `cancelled`
+  `error`, `n_steps`, and `retried_after` (the desktop errors of this attempt's earlier tries, when it was re-run). `status` is `ok` (ended by the agent or the step limit), `truncated` (time limit), `cancelled`
   (its group closed first), `skipped` (its group was full before it started), `surplus` (finished after its group
   closed), `retried` (desktop failure, re-run) or `error` (kind `policy` or `env`).
 - **Timing:** `timing`, seconds by phase: `reset_s`, `wait_after_reset_s`, `model_s`, `act_s`, `wait_s`, `obs_s`,
@@ -137,10 +157,13 @@ new weights into the server, then collect again with `--version step-1`.
   - `response`: `content`, `reasoning`, `token_ids` (when the server returns them), `logprobs` (one float per token),
     `tokens` (only without token ids), `finish_reason`, `tool_calls`, `text` (the generated text, when tool calls
     make it differ from `content`) and `tokens_cover_response`.
-  - `model`: seconds, attempts, and prompt, completion and cached tokens.
+  - `model`: seconds, attempts, and prompt, completion and cached tokens. `attempts` counts every request sent:
+    a busy server's 429 or 503 is waited out and sent again without using up `--retries`, so it can exceed
+    `--retries` + 1. `retry_reasons` says why each earlier request was sent again.
   - `actions[]`: the action, plus `act_s`, `wait_s`, `ready_s`, `obs_s`.
 
-`legato rl export` writes one line per step of every `ok` or `truncated` rollout: `messages` (image references, or
+`legato rl export` writes one line per step of every `ok` or `truncated` rollout: `rollout_id`, `group_id`, `task_id`,
+`attempt`, `step`, `messages` (image references, or
 data URLs with `--inline-images`), `sampling`, `response_text`, `response_reasoning`, `response_token_ids`,
 `response_logprobs`, `response_tokens`, `response_content`, `response_tool_calls`, `tokens_cover_response`,
 `finish_reason`, `reward`, `advantage` and `policy_version`. The advantage is (reward − group mean) / group std over
@@ -151,7 +174,9 @@ markup (vLLM returns every generated token), it is that text. Otherwise it is th
 per call, `{"name", "arguments"}`, and `tokens_cover_response` is false: the token ids and logprobs miss the call.
 `response_content` is the content alone.
 
-`DIR/summary.json` (and `profile`) reports status counts, success rate, rollouts per hour, time share by phase,
+`DIR/summary.json` (and `profile`) reports status counts, success rate, rollouts per hour (completed rollouts per
+hour of `wall_s`, the wall clock from the start of `collect` to the end of the last rollout, worker start-up
+included), time share by phase,
 model-call p50/p95/p99, retried calls, policy and env errors, prefix-cache hit rate, and the share of steps with
 logprobs, with token ids, and whose tokens cover the whole response.
 

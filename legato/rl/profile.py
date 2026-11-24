@@ -12,7 +12,16 @@ def _q(xs: list, p: float):
     return xs[min(len(xs) - 1, int(p * len(xs)))] if xs else None
 
 
+def wall_clock(rollouts: list[dict], started: float | None) -> float | None:
+    """Seconds from the start of collect (before the first worker starts) to the end of the last rollout: worker
+    start-up and the start stagger included. None without a start time or a finished rollout."""
+    ends = [r["t_end"] for r in rollouts if r.get("t_end")]
+    return max(ends) - started if started and ends else None
+
+
 def summarize(rollouts: list[dict], wall_s: float | None = None, group: int | None = None) -> dict:
+    """The batch's profile. wall_s is the batch's wall clock (wall_clock); rollouts_per_hour is completed rollouts
+    (ok or truncated) per hour of it."""
     status = Counter(r.get("status") for r in rollouts)
     done = [r for r in rollouts if r.get("status") in ("ok", "truncated")]
     tot = sum(r["timing"]["total_s"] for r in done) or 1e-9
@@ -30,7 +39,7 @@ def summarize(rollouts: list[dict], wall_s: float | None = None, group: int | No
         "mean_reward": (sum(r.get("reward") or 0 for r in done) / len(done)) if done else None,
         "rollout_s": {"mean": tot / len(done) if done else None,
                       "median": st.median(r["timing"]["total_s"] for r in done) if done else None},
-        "rollouts_per_hour": (len(done) / wall_s * 3600) if wall_s else None,
+        "wall_s": wall_s, "rollouts_per_hour": (len(done) / wall_s * 3600) if wall_s else None,
         "time_share": {p: sum(r["timing"].get(p, 0.0) for r in done) / tot for p in PHASES},
         "model_call_s": {"p50": _q(secs, .5), "p95": _q(secs, .95), "p99": _q(secs, .99), "max": max(secs) if secs else None},
         "model_retried_calls": sum(1 for c in calls if (c.get("attempts") or 1) > 1),
@@ -51,7 +60,8 @@ def report(s: dict) -> str:
              f"groups full {s['groups_full']}/{s['groups']}",
              f"success {f(s['success_rate'], True)}, mean reward {f(s['mean_reward'])}, "
              f"rollout s mean {f(s['rollout_s']['mean'])} median {f(s['rollout_s']['median'])}, "
-             f"rollouts/h {f(s['rollouts_per_hour'])}",
+             f"rollouts/h {f(s['rollouts_per_hour'])} (completed, over {f(s.get('wall_s'))} s of wall clock "
+             "from the start of collect)",
              "time share: " + ", ".join(f"{k[:-2]} {f(v, True)}" for k, v in s["time_share"].items()),
              f"model call s p50 {f(s['model_call_s']['p50'])} p95 {f(s['model_call_s']['p95'])} "
              f"p99 {f(s['model_call_s']['p99'])} max {f(s['model_call_s']['max'])}; retried {s['model_retried_calls']}, "
