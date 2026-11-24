@@ -293,7 +293,7 @@ class Pointing:
         content.append({"type": "image_url", "image_url": {"url": h._image_url(base64.b64encode(png).decode())}})
         system = PLANNER_SYSTEM.format(max_actions=p.max_steps, w=self.ep.w, h=self.ep.h)
         if self.shell:
-            system += SHELL_NOTE.format(shell=p.shell_name, osa=OSA_NOTE.format() if "applescript" in self.shell else "")
+            system += SHELL_NOTE.format(shell=p.shell_name or getattr(h.tools.get("bash"), "runs", "") or "bash", osa=OSA_NOTE.format() if "applescript" in self.shell else "")
         if p.notes:
             system += NOTES_NOTE
         msgs = [{"role": "system", "content": system + (PROGRESS_NOTE if h.progress_note else "")},

@@ -291,3 +291,32 @@ def test_statuses_in_the_pointing_style():
     res = h.run("t", legato.attach(screenshot=lambda: png, execute=broken), raise_desktop_errors=False)
     assert (res.status, res.error) == ("error", "the desktop failed: the window could not be captured")
     assert res.usage["cost_usd"] == 0.001
+
+
+def test_on_windows_the_shell_tool_is_powershell_and_the_planner_is_told_so(monkeypatch):
+    import subprocess
+    import legato.tools as tools
+    ran = {}
+
+    class Done:
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            return b"3 files\r\n", None
+    monkeypatch.setattr(tools.sys, "platform", "win32")
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: (ran.update(cmd=cmd, kw=kw), Done())[1])
+    sh = legato.tools.bash()
+    assert sh.runs == "PowerShell" and "PowerShell" in sh.description and sh.name == "bash"
+    p = Planner("big", "http://x/v1", style="point",
+                client=Scripted([act("continue", {"shell": "Get-ChildItem | Measure-Object"}), act("done")]))
+    h = legato.Harness("small", "http://x/v1", planner=p, tools=[sh])
+    h.client = Scripted([])
+    res = h.run("count", desktop([]))
+    assert res.done and ran["cmd"] == ["powershell", "-NoProfile", "-NonInteractive", "-Command", "Get-ChildItem | Measure-Object"]
+    assert "shell" not in ran["kw"] and "start_new_session" not in ran["kw"]
+    assert "runs in PowerShell on this computer" in p.client.sent[0]["messages"][0]["content"]
+    assert "-> 3 files\r\n[exit 0]" in p.client.sent[1]["messages"][1]["content"][0]["text"]
+
+
+def test_elsewhere_the_shell_tool_is_bash():
+    assert legato.tools.bash().runs == "bash" and "PowerShell" not in legato.tools.bash().description

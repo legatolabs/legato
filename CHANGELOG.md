@@ -91,6 +91,9 @@ From the persona tests (six simulated launch users on a real Mac):
 - `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
   `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
   starting it, and keeps the path absolute.
+- **On Windows the shell tool is PowerShell.** `legato.tools.bash()` and `bash(legato.local())` run commands with
+  `powershell -NoProfile -NonInteractive -Command` (it was `cmd.exe`), say so in the tool's description, and a planner
+  is told which shell it has (`Tool.runs`; `Planner(shell_name=...)` overrides it).
 
 ## 0.3.0
 
