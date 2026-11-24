@@ -185,7 +185,8 @@ def _main(argv) -> int:
     ap.add_argument("--base-url")
     ap.add_argument("--api-key", help="the model key, or - to read it from stdin (it is saved readable by you only)")
     ap.add_argument("--api-key-env", help="read the key from this environment variable instead of saving it")
-    ap.add_argument("--desktop", choices=list(C.DESKTOPS) + ["local"])
+    ap.add_argument("--desktop", help="where it works: background (macOS), screen, docker, e2b, or your own sandbox as "
+                                      "path/to/file.py:function (docs/sandboxes.md)")
     ap.add_argument("--app", help="background mode: always work in this app (default: the app the task names, else "
                                   "your default browser)")
     ap.add_argument("--mcp", help=f"add Legato to these coding agents ({', '.join(CLIENTS)}, all found, or none); "
@@ -285,11 +286,25 @@ def _main(argv) -> int:
 
     # 2. the desktop
     mac = sys.platform == "darwin"
-    choices = [d for d in C.DESKTOPS if mac or d != "background"]
-    desktop = C.ALIASES.get(a.desktop or "", a.desktop) or cfg.desktop or C.default_desktop()
+    choices = [d for d in C.DESKTOPS if mac or d != "background"] + ["own"]
+    desktop = a.desktop or cfg.desktop or C.default_desktop()
     if asking and not a.desktop:
         say("")
-        desktop = _ask("2. Where should it work?", choices, desktop, lambda d: C.DESKTOPS[d])
+        picked = _ask("2. Where should it work?", choices, "own" if C.is_own(desktop) else desktop,
+                      lambda d: C.OWN if d == "own" else C.DESKTOPS[d])
+        if picked == "own":
+            say("   A function that starts your sandbox and returns legato.attach(shell=run): "
+                "https://legato.computer/docs/sandboxes")
+            picked = _text("   The function, as path/to/file.py:function", desktop if C.is_own(desktop) else "")
+        desktop = picked
+    try:
+        desktop = C.desktop_spec(desktop)
+        if C.is_own(desktop):
+            from legato import providers
+            providers.load(desktop)                        # imports it and finds the function; does not start it
+    except Exception as e:  # noqa: BLE001 - any error in the user's file is the answer
+        print(f"legato setup: cannot use that desktop: {e}", file=sys.stderr)
+        return 2
     if desktop == "background" and not mac:
         print("legato setup: background is macOS only; use screen or docker", file=sys.stderr)
         return 2
@@ -312,6 +327,8 @@ def _main(argv) -> int:
         d = doctor._docker()
         if not d["ok"]:
             say(f"   needs: {d['fix']}")
+    elif C.is_own(desktop):
+        say(f"   your sandbox: each task calls {desktop.rpartition(':')[2]}() for a fresh desktop and closes it after")
     path = C.save(cfg)
     say(f"\nSaved to {path}.")
 

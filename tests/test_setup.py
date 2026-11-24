@@ -194,3 +194,55 @@ def test_a_thinking_model_that_answers_nothing_is_not_called_blind(no_machine, m
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     assert main(["setup", "--yes", "--desktop", "screen"]) == 0
     assert "vision model" not in capsys.readouterr().out
+
+
+# ------------------------------------------------------------ your own sandbox
+BOX = '''
+from pathlib import Path
+import legato
+
+LOG = Path(__file__).with_suffix(".log")
+
+def desktop(width, height):
+    with LOG.open("a") as f:
+        f.write(f"open {width}x{height}\\n")
+    env = legato.attach(screenshot=lambda: b"", execute=lambda action: None)
+    return (lambda: LOG.open("a").write("close\\n")), env
+'''
+
+
+def test_desktop_spec_takes_your_own_sandbox(tmp_path, monkeypatch):
+    (tmp_path / "box.py").write_text(BOX)
+    monkeypatch.chdir(tmp_path)
+    assert config.desktop_spec("local") == "screen" and config.desktop_spec("docker:me/desk") == "docker:me/desk"
+    assert config.desktop_spec("box.py:desktop") == f"{(tmp_path / 'box.py').resolve()}:desktop"   # works from anywhere
+    assert config.desktop_spec("mycompany.desktops:cloud") == "mycompany.desktops:cloud"
+    for bad in ("nowhere.py:desktop", "somewhere", "box.py:", "docker:"):
+        with pytest.raises(ValueError):
+            config.desktop_spec(bad)
+    assert config.is_own("mycompany.desktops:cloud") and not any(map(config.is_own, ["docker:x", "background", "local"]))
+
+
+def test_setup_saves_your_own_sandbox_and_every_run_uses_it(no_machine, monkeypatch, own_config, tmp_path):
+    box = tmp_path / "box.py"
+    box.write_text(BOX)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-1\n"))
+    assert main(["setup", "--yes", "--no-check", "--provider", "openrouter", "--api-key", "-",
+                 "--desktop", "box.py:desktop"]) == 0
+    spec = f"{box.resolve()}:desktop"
+    assert config.load().desktop == spec
+    monkeypatch.chdir(own_config.parent.parent)                       # somewhere else
+    from legato.agent import open_desktop
+    env, close, what = open_desktop()
+    close()
+    assert (tmp_path / "box.log").read_text() == "open 1280x800\nclose\n" and what == spec
+
+
+def test_setup_refuses_a_sandbox_function_it_cannot_find(no_machine, monkeypatch, own_config, tmp_path, capsys):
+    (tmp_path / "box.py").write_text("def other(width, height): pass\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-1\n"))
+    assert main(["setup", "--yes", "--no-check", "--provider", "openrouter", "--api-key", "-",
+                 "--desktop", "box.py:desktop"]) == 2
+    assert "cannot use that desktop" in capsys.readouterr().err and not own_config.exists()
