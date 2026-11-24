@@ -49,6 +49,17 @@ From the persona tests (six simulated launch users on a real Mac):
 - Runs are asked to finish with fail when any part of the task couldn't be done (a run ended `done` while saying
   nothing worked). The text report puts an error before its timing and shows the cost. FAQ: the apps Legato
   drives keep their own habits, e.g. TextEdit autosaving a new document to iCloud.
+- **Background mode works in a window of its own and never steers the person's windows.** Every background desktop
+  (`legato.run`, `legato run`, MCP `desktop_open`) opens a new window or document through the app's own New menu item;
+  a browser window closes when the run ends, a document stays. An app whose New item would change the person's data
+  ("New Note", "New Game") is worked in its front window, and the desktop names it. A persona test had turned three of
+  the person's Safari tabs into apple.com.
+  - Each desktop follows only its own windows (and ones its own actions open); two MCP desktops in one app no longer
+    share a window.
+  - Cmd+R, Cmd+[ and Cmd+] press Safari's toolbar buttons; system shortcuts (Cmd+Space, Cmd+Tab, Mission Control) are
+    refused.
+  - `desktop_run_task` returns structured output (`status`, `answer`, `seconds`, `steps`, `error`) and sets `isError`
+    for failed, timeout and error; `--record` keeps its inner steps.
 - MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
   Chrome refusal says Chrome ignores background clicks on web pages.
 - `legato rl`: Python `collect()` raises `CollectError` when no rollout completed (and names the `__main__` guard);
