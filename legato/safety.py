@@ -59,7 +59,18 @@ TEXT_RULES: list[tuple[re.Pattern, str]] = [(re.compile(p), why) for p, why in [
     (r"\bgit\s+reset\b.*\s--hard\b|\bgit\s+clean\b.*\s-\w*f", "discards local changes"),
     (r"(^|\s)>\s*[\w~./$\"']|\btruncate\s+\S", "overwrites a file"),
     (r"\|\s*(sudo\s+)?(ba|z|da|fi)?sh\b", "runs a downloaded script"),
+    # Windows: PowerShell and cmd (their names are not case-sensitive)
+    # at the start of a command (a line, after ; & | ( or after cmd /c and powershell -Command), so that "del" or "rd"
+    # as words in typed prose do not ask
+    (r"(?i)(^|[;&|(]|/c\s+\"?|-c(ommand)?\s+[\"']?)\s*(remove-item|ri|del|erase|rd|rmdir|remove-itemproperty|clear-content)\s+\S"
+     r"|\bclear-recyclebin\b", "deletes files"),
+    (r"(?i)\bformat(\.com)?\s+[a-z]:|\b(clear-disk|format-volume|remove-partition)\b", "erases or overwrites a disk"),
+    (r"(?i)\breg(\.exe)?\s+delete\b", "deletes registry keys"),
+    (r"(?i)\b(stop-computer|restart-computer|shutdown(\.exe)?\s+[/-][srhp])\b", "shuts down or restarts the computer"),
+    (r"(?i)\b(iwr|irm|invoke-webrequest|invoke-restmethod|curl|wget)\b.*\|\s*(iex|invoke-expression)\b|\biex\s*\(", "runs a downloaded script"),
+    (r"(?i)\bstart-process\b.*-verb\s+runas\b|\brunas(\.exe)?\s+/", "runs a command as administrator"),
 ]]
+
 
 ENTER = "enter"
 
@@ -82,6 +93,18 @@ def text_risk(text: str) -> str | None:
     return None
 
 
+def is_select_all(names: list[str]) -> bool:
+    """cmd+A or ctrl+A: everything in the window is selected."""
+    have = {_NAMES.get(n.lower(), n.lower()) for n in names}
+    return "a" in have and bool(have & {"command", "ctrl"}) and have <= {"a", "command", "ctrl"}
+
+
+def is_delete(names: list[str]) -> bool:
+    """Delete or Backspace alone (with or without Shift): removes what is selected."""
+    have = {_NAMES.get(n.lower(), n.lower()) for n in names}
+    return bool(have & {"delete", "backspace"}) and have <= {"delete", "backspace", "shift"}
+
+
 def is_enter(names: list[str]) -> bool:
     return [_NAMES.get(n.lower(), n.lower()) for n in names] == [ENTER]
 
@@ -89,11 +112,33 @@ def is_enter(names: list[str]) -> bool:
 # ------------------------------------------------------------ asking
 def ask(description: str) -> bool:
     """The default `confirm`: a yes/no question in the terminal. Anything but y or yes is a no."""
-    try:
-        print(f"\a\nlegato: the agent wants to {description}", file=sys.stderr)
-        return input("legato: allow it? [y/N] ").strip().lower() in ("y", "yes")
-    except (EOFError, OSError):
+    import threading
+    said: list[str] = []
+
+    def read() -> None:
+        try:
+            said.append(input())
+        except (EOFError, OSError):
+            said.append("")
+    # the whole question on stderr and flushed, so it shows when stdout is captured or redirected
+    print(f"\a\nlegato: the agent wants to {description}\nlegato: allow it? [y/N] ", end="", file=sys.stderr, flush=True)
+    t = threading.Thread(target=read, daemon=True)
+    t.start()
+    t.join(ASK_TIMEOUT_S)
+    if not said:                      # nobody answered: a run must not sit silent for ever on a question nobody sees
+        print(f"\nlegato: no answer in {ASK_TIMEOUT_S:g} s: not allowed (pass --yes to allow risky actions)", file=sys.stderr, flush=True)
         return False
+    return said[0].strip().lower() in ("y", "yes")
+
+
+ASK_TIMEOUT_S = 120.0
+
+
+def deny_and_say(description: str) -> bool:
+    """`deny`, with one line on stderr saying what was refused and how to allow it: for a command line with nobody
+    to ask (its output piped or run by another program)."""
+    print(f"legato: not allowed with nobody to ask: {description}. Pass --yes to allow risky actions.", file=sys.stderr, flush=True)
+    return False
 
 
 def deny(description: str) -> bool:

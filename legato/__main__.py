@@ -24,8 +24,18 @@ import os
 import sys
 
 
+def _safe_output() -> None:
+    """A character the terminal's encoding lacks (an arrow on a Windows pipe in cp1252) is replaced, not a crash."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
+    _safe_output()
     if not argv:
         from legato.start import welcome
         print(welcome())
@@ -124,7 +134,11 @@ def run_main(argv) -> int:
     import time
     t_start = time.monotonic()                           # --timeout covers opening the desktop too
     try:
-        env, close, what = open_desktop(desktop, task=a.task, app=a.app, confirm=None if a.yes else "auto", cfg=cfg,
+        from legato import safety
+        # a person at the terminal is asked before a risky action; with nobody to ask (output piped, run by a coding
+        # agent or a script) it is refused and said, never run unseen. --yes allows them all.
+        confirm = None if a.yes else safety.default_confirm(unattended=safety.deny_and_say)
+        env, close, what = open_desktop(desktop, task=a.task, app=a.app, confirm=confirm, cfg=cfg,
                                         timeout_s=a.timeout)
     except ImportError as e:
         return fail(f"cannot start {label}: a package is missing ({e}). Run: pip install -U legatolabs")
@@ -133,6 +147,8 @@ def run_main(argv) -> int:
     say = (lambda *_: None) if a.json else print
     t0 = time.monotonic()
     say(f"{cfg.model}{config.dot()}{what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
+    if "background" not in what and (desktop or cfg.desktop or "") in ("", "screen", "local"):
+        say("  it uses this computer's mouse and keyboard: Ctrl+C here stops it, and so does moving the mouse into a corner")
 
     def show(i, acts, t):
         say(f"  {time.monotonic() - t0:5.1f} s  {', '.join(x.describe() if x else 'looking' for x in acts) or 'looking'}")
