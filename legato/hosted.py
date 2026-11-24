@@ -1,4 +1,4 @@
-"""The optional hosted API (legato.computer): a stateful session per task, and `run` for the whole loop. The model runs
+"""Not live yet: the managed service comes later, and legato.computer/api does not answer today. The hosted API: a stateful session per task, and `run` for the whole loop. The model runs
 on Legato's servers and needs an `lg_` API key; the open harness (`legato.Harness`) needs neither.
 
     from legato import hosted
