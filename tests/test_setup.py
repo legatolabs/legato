@@ -469,3 +469,9 @@ def test_setup_without_a_key_does_not_say_run_is_next(no_machine, monkeypatch, o
     assert "Before a task can run: no key for" in out and "Next: legato run" not in out
     monkeypatch.setattr(sys, "platform", "linux")
     assert "export OPENROUTER_API_KEY=..." in config.load().missing()
+
+
+def test_find_local_server_asks_them_together_and_takes_the_first_in_order(monkeypatch):
+    monkeypatch.setattr(config, "list_models", lambda u, timeout_s=0: ["m"] if u.endswith(("b", "c")) else [])
+    assert config.find_local_server(("http://a", "http://b", "http://c")) == ("http://b", ["m"])
+    assert config.find_local_server(("http://a",)) is None

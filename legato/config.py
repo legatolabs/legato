@@ -498,8 +498,7 @@ NO_LOCAL_SERVER = ("no model server answered on this machine: looked for vLLM at
 
 def find_local_server(urls: tuple[str, ...] = LOCAL_SERVERS) -> tuple[str, list[str]] | None:
     """The first model server answering on this machine (vLLM :8000, Ollama :11434, LM Studio :1234) and its models."""
-    for u in urls:
-        models = list_models(u, timeout_s=1.5)
-        if models:
-            return u, models
-    return None
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1, len(urls))) as pool:      # asked together: a closed port can take
+        found = list(pool.map(lambda u: list_models(u, timeout_s=1.5), urls))   # seconds to refuse on Windows
+    return next(((u, models) for u, models in zip(urls, found) if models), None)
