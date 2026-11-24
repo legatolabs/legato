@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `legato.hosted` is no longer exported from `legato`: the managed service isn't live yet. The module stays
+  (`from legato import hosted`), and the FAQ says there is no hosted version yet.
 - **Easy start (#35):** `legato` alone prints what to do first: `legato init`, the three ways to use Legato, and a
   prompt to give a coding agent. `legato init` asks for the model (OpenRouter, a local server or any OpenAI-compatible
   URL) and the desktop (on a Mac: background mode in your default browser, or any app), writes a working `agent.py`

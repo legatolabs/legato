@@ -58,4 +58,4 @@ Compare `result.report()` from `legato.Harness` and `legato.Harness.reference` o
 (`examples/compare_with_reference.py`).
 
 **Is there a hosted version?**
-Optional: [legato.computer](https://legato.computer) runs desktops with pause, resume and fork.
+Not yet. Legato runs where you run it, with the model you bring.
