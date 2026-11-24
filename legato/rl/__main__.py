@@ -69,6 +69,10 @@ def main(argv=None) -> int:
     e.add_argument("--inline-images", action="store_true")
     r = sub.add_parser("profile")
     r.add_argument("dir")
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv:
+        ap.print_help()
+        return 2
     a = ap.parse_args(argv)
     if a.cmd == "probe":
         print(json.dumps(PolicyClient(_policy(a)).probe(), indent=1))

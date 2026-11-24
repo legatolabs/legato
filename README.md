@@ -91,6 +91,6 @@ Same model, same desktops, 24 office tasks per run. [Method and raw data](https:
 - Migrate: [from cua-agent](https://legato.computer/docs/migrate/from-cua-agent) · [from Bytebot](https://legato.computer/docs/migrate/from-bytebot)
 - For coding agents: [llms.txt](https://legato.computer/llms.txt) · [AGENTS.md](https://github.com/legatolabs/legato/blob/main/AGENTS.md)
 
-Apache-2.0. Hosted desktops and models: [legato.computer](https://legato.computer).
+Apache-2.0. Docs: [legato.computer](https://legato.computer).
 
 <!-- mcp-name: io.github.legatolabs/legato -->

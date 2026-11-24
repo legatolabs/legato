@@ -61,9 +61,12 @@ class MacApp:
     Coordinates here are screen points, origin at the top left of the main display. Elements are AXUIElements."""
 
     def __init__(self, app: str, launch_s: float = 15.0):
-        import ApplicationServices as AS
-        import Quartz
-        from AppKit import NSWorkspace
+        try:
+            import ApplicationServices as AS
+            import Quartz
+            from AppKit import NSWorkspace
+        except ImportError as e:
+            raise ImportError('background mode needs the Mac extras: pip install "legatolabs[local]"') from e
         self.AS, self.Q, self.ws = AS, Quartz, NSWorkspace.sharedWorkspace()
         self.name = app
         self.flag = "-b" if re.fullmatch(r"[\w-]+(\.[\w-]+)+", app) else "-a"     # a bundle id, or a name
