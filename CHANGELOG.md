@@ -33,6 +33,9 @@
   back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
   the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
   (`shell_name` says which shell that is).
+- **The Mac app starts from `legato setup`'s model.** With no model chosen in the app yet, it reads the provider,
+  model and base URL from `~/.config/legato/config.json` (and a key pasted into `legato setup`, if the Keychain has
+  none for that provider). Choosing a model in the app makes that the app's own.
 
 ## 0.3.0
 

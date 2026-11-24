@@ -50,6 +50,34 @@ struct ProviderPreset: Identifiable, Hashable {
     }
 }
 
+/// The model `legato setup` saved for the command line, the MCP server and Python (legato/config.py):
+/// ~/.config/legato/config.json, or $LEGATO_CONFIG, or $XDG_CONFIG_HOME/legato/config.json. The app starts from it
+/// until a model is chosen in the app, so a person who ran `legato setup` does not set the model twice.
+struct SharedSetup {
+    let provider: String        // an id of ProviderPreset.all ("custom" for a local server or a provider the app lacks)
+    let model: String
+    let baseURL: String
+    let apiKey: String          // a key pasted into `legato setup`, if one was ("" otherwise)
+
+    static var path: URL {
+        let env = ProcessInfo.processInfo.environment
+        if let p = env["LEGATO_CONFIG"], !p.isEmpty { return URL(fileURLWithPath: (p as NSString).expandingTildeInPath) }
+        if let x = env["XDG_CONFIG_HOME"], !x.isEmpty { return URL(fileURLWithPath: x).appendingPathComponent("legato/config.json") }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/legato/config.json")
+    }
+
+    static func load(from url: URL = path) -> SharedSetup? {
+        guard let data = try? Data(contentsOf: url),
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let model = (j["model"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        let url = (j["base_url"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        guard !model.isEmpty, !url.isEmpty else { return nil }
+        let id = j["provider"] as? String ?? ""
+        let known = ProviderPreset.all.contains { $0.id == id && $0.id != "custom" }
+        return SharedSetup(provider: known ? id : "custom", model: model, baseURL: url, apiKey: j["api_key"] as? String ?? "")
+    }
+}
+
 /// A finished task and its answer: what a follow-up builds on.
 struct PriorResult {
     let task: String
@@ -95,13 +123,23 @@ final class AppSettings: ObservableObject {
     @Published var enginePython: String { didSet { d.set(enginePython, forKey: "enginePython") } }
     @Published var onboarded: Bool { didSet { d.set(onboarded, forKey: "onboarded") } }
 
+    /// What `legato setup` saved, when the app has no model of its own yet (nothing chosen in the app).
+    private var shared: SharedSetup?
+
     init() {
+        let own = d.object(forKey: "model") != nil || d.object(forKey: "providerID") != nil
         d.register(defaults: ["providerID": ProviderPreset.start.id, "baseURL": ProviderPreset.start.baseURL,
                               "model": ProviderPreset.start.models[0], "maxSteps": 40, "maxCost": 1.0, "imageMax": 4, "guardClicks": true, "allowShell": true,
                               "ghostCursor": true, "fnKey": true, "holdToTalk": true, "repeats": true, "enginePython": "", "onboarded": false])
         providerID = d.string(forKey: "providerID") ?? "openrouter"
         baseURL = d.string(forKey: "baseURL") ?? ""
         model = d.string(forKey: "model") ?? ""
+        if !own, let s = SharedSetup.load() {       // not saved here: the app follows the shared setup until it has its own
+            shared = s
+            providerID = s.provider
+            baseURL = s.baseURL
+            model = s.model
+        }
         maxSteps = d.integer(forKey: "maxSteps")
         maxCost = d.double(forKey: "maxCost")
         imageMax = d.integer(forKey: "imageMax")
@@ -141,14 +179,19 @@ final class AppSettings: ObservableObject {
     var current: ModelChoice { ModelChoice(provider: providerID, model: model) }
 
     var apiKey: String {
-        get { Keychain.read(account: providerID) ?? "" }
+        get { key(for: providerID) }
         set {
             objectWillChange.send()
             if newValue.isEmpty { Keychain.delete(account: providerID) } else { Keychain.write(newValue, account: providerID) }
         }
     }
 
-    func key(for provider: String) -> String { Keychain.read(account: provider) ?? "" }
+    /// The provider's key from the Keychain; without one, the key `legato setup` saved for that provider.
+    func key(for provider: String) -> String {
+        if let k = Keychain.read(account: provider), !k.isEmpty { return k }
+        if let s = shared, s.provider == provider { return s.apiKey }
+        return ""
+    }
 
     func baseURL(for provider: String) -> String {
         if provider == providerID { return baseURL }
