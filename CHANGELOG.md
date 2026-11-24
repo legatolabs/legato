@@ -150,6 +150,12 @@ From the persona tests (six simulated launch users on a real Mac):
 - **Exported samples keep tool calls:** `response_text` includes the action. New fields: `response_content`,
   `response_tool_calls`, `tokens_cover_response`, `finish_reason`, `sampling`.
 - The fake desktop's reward can be set with `--fake-opts`, and help text says `legato rl`.
+- **Safer on your own screen, on Windows too.** Typed `Remove-Item`, `del`, `rd`, `format`, `reg delete`, a shutdown and
+  a downloaded script piped to `iex` wait for a yes, as `rm` and `sudo` do; so does Delete right after selecting
+  everything. With nobody to ask (`legato run` with its output piped, or run by a coding agent) a risky action is
+  refused and said on stderr, not run unseen; `--yes` allows them. A question nobody answers in two minutes is a no.
+  `legato run` says how to stop it, and no longer crashes when its output is piped on Windows (an arrow the console's
+  encoding lacks).
 
 ## 0.3.0
 

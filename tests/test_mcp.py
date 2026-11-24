@@ -110,7 +110,8 @@ def test_launch_command():
     assert launch_command("darwin", url="https://a.b/c d") == "open 'https://a.b/c d'"
     assert launch_command("linux", app="xterm") == "nohup xterm >/dev/null 2>&1 &"
     assert launch_command("linux", url="http://h:3000").startswith("(xdg-open http://h:3000 || firefox-esr")
-    assert launch_command("win32", url="https://a.b") == 'start "" "https://a.b"'
+    assert launch_command("win32", url="https://a.b") == "Start-Process 'https://a.b'"
+    assert launch_command("win32", app="notepad") == "Start-Process notepad"
 
 
 def test_open_with_app_waits_for_its_window():
@@ -137,7 +138,7 @@ def test_open_with_app_waits_for_its_window():
         assert sent == ["nohup xterm >/dev/null 2>&1 &"]
         assert "started xterm" in r.content[0].text and r.content[0].text.split()[2] == "(64x42)"
         r = await build_server(failing).call_tool("desktop_open", {"width": 64, "height": 40, "app": "xcalc"})
-        assert "starting it failed" in r.content[0].text and "not found" in r.content[0].text
+        assert "NOT started" in r.content[0].text and "not found" in r.content[0].text
         r = await build_server(lambda res: (None, legato.attach(screenshot=lambda: png(64, 40),
                                                                 execute=lambda a: None))).call_tool(
             "desktop_open", {"width": 64, "height": 40, "url": "https://a.b"})
