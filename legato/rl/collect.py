@@ -1,4 +1,4 @@
-"""Collect graded rollouts on desktops: the scheduler behind `python -m legato.rl collect`.
+"""Collect graded rollouts on desktops: the scheduler behind `legato rl collect`.
 
     from legato.rl import collect, PolicyConfig
     summary = collect(tasks, PolicyConfig(base_url, model, version="step-41"), out="runs/step-41",
@@ -8,9 +8,16 @@ Each task gets `group` attempts (GRPO-style groups). With `oversample`, extra at
 as soon as `group` of them finish; attempts still running are cancelled at their next step, so a few slow desktops
 or slow model calls do not hold up the batch. One worker process per desktop; each keeps its desktop up between
 rollouts (fast reset) and calls the policy through legato.rl.policy (logprobs, timeouts, admission cap).
+
+Sampling: a temperature in PolicyConfig.temperature, in PolicyConfig.extra_body or in HarnessConfig.options applies to
+every policy request (in that order); otherwise each harness keeps its own. With PolicyConfig.seed, each rollout gets
+its own seed derived from it, the task and the attempt, and its requests carry that seed, then one more per request.
 """
 from __future__ import annotations
 
+import dataclasses
+import hashlib
+import importlib.util
 import json
 import math
 import multiprocessing as mp
@@ -24,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
-from legato.rl.trajectory import SCHEMA, store_request
+from legato.rl.trajectory import SCHEMA, generated_text, store_request
 
 PHASE_WAIT = {"after_reset": 60.0, "before_eval": 20.0}   # OSWorld's fixed waits; the ready signal ends them early
 
@@ -37,7 +44,7 @@ class DesktopConfig:
     fast_reset: bool = True           # keep the VM up and restore task state, instead of a snapshot revert
     fixed_wait_s: float = 0.0         # per-action sleep when ready_signal is off (OSWorld scripts use 0, 3 or 5)
     screen: tuple = (1920, 1080)
-    fake: dict = field(default_factory=dict)
+    fake: dict = field(default_factory=dict)   # fake backend: reward, reset_s, act_s, fail_reset_every (legato.rl.fake)
 
 
 @dataclass
@@ -47,6 +54,58 @@ class HarnessConfig:
     image_max: int = 20               # screenshots kept in the prompt (keep-all held the prefix cache in our OSWorld study)
     fold_size: int = 10
     options: dict = field(default_factory=dict)   # extra legato.Harness keyword arguments (max_batch, coords, ...)
+
+
+HARNESS_TEMPERATURE = {"legato": 0.0, "reference": 0.0, "fake": 1.0}   # each harness's own (qwen: OSWorld's QwenAgent)
+
+
+class SetupError(RuntimeError):
+    """collect() cannot start: the harness or desktop does not load here. Raised before any worker starts."""
+
+
+def given_temperature(policy: PolicyConfig, harness: HarnessConfig) -> float | None:
+    """The temperature given for every request: PolicyConfig.temperature, else one in extra_body, else one in the
+    harness options. None: each harness keeps its own."""
+    for v in (policy.temperature, (policy.extra_body or {}).get("temperature"), harness.options.get("temperature")):
+        if v is not None:
+            return float(v)
+    return None
+
+
+def effective_temperature(policy: PolicyConfig, harness: HarnessConfig) -> float | None:
+    """The temperature the policy's requests will carry (None: the harness or server decides)."""
+    t = given_temperature(policy, harness)
+    return t if t is not None else HARNESS_TEMPERATURE.get(harness.name)
+
+
+def rollout_seed(seed: int, task_id: str, attempt: int) -> int:
+    """A rollout's own seed: the same base seed, task and attempt give the same one, whatever the order or worker."""
+    return int.from_bytes(hashlib.sha256(f"{seed}:{task_id}:{attempt}".encode()).digest()[:4], "big") & 0x3FFFFFFF
+
+
+def _importable(name: str, path: str) -> bool:
+    added = bool(path) and path not in sys.path
+    if added:
+        sys.path.insert(0, path)
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+    finally:
+        if added:
+            sys.path.remove(path)
+
+
+def preflight(desktop: DesktopConfig, harness: HarnessConfig) -> None:
+    """Raise SetupError when the harness or the desktop cannot load on this machine, naming the fix."""
+    if harness.name == "qwen" and not _importable("mm_agents", desktop.osworld_path):
+        fix = ("--harness fake (the fake desktop's own) or --harness legato" if desktop.backend == "fake"
+               else "--osworld PATH (an OSWorld checkout), or --harness legato")
+        raise SetupError(f"the qwen harness is OSWorld's QwenAgent, and OSWorld's mm_agents is not importable here; "
+                         f"pass {fix}")
+    if desktop.backend == "osworld" and not _importable("desktop_env", desktop.osworld_path):
+        raise SetupError("the osworld backend needs OSWorld's desktop_env, which is not importable here; pass --osworld "
+                         "PATH (an OSWorld checkout), or --backend fake to run without VMs")
 
 
 # ---------------------------------------------------------------- desktops
@@ -300,7 +359,8 @@ def make_harness(policy: PolicyClient, cfg: HarnessConfig, osworld_path: str):
 def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> dict:
     rec = {"schema": SCHEMA, **{k: job[k] for k in ("rollout_id", "task_id", "domain", "group_id", "attempt")},
            "policy": {"model": opts["model"], "version": opts["version"]}, "status": "ok", "error": None,
-           "reward": None, "steps": [], "t_start": time.time()}
+           "reward": None, "steps": [], "t_start": time.time(),
+           "sampling": {"seed": job.get("seed"), "temperature": None}}
     t0 = time.perf_counter()
     timing = {"reset_s": 0.0, "wait_after_reset_s": 0.0, "model_s": 0.0, "act_s": 0.0, "wait_s": 0.0, "obs_s": 0.0,
               "wait_before_eval_s": 0.0, "eval_s": 0.0}
@@ -331,8 +391,10 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
             if calls:
                 payload, pc = calls[-1]
                 shas, n_img = store_request(payload["messages"], out)
+                sent = pc.get("sampling") or {k: payload.get(k) for k in ("temperature", "top_p")}   # what went out
                 step["request"] = {"messages": shas, "n_images": n_img, "max_tokens": payload.get("max_tokens"),
-                                   "temperature": payload.get("temperature"), "top_p": payload.get("top_p")}
+                                   "temperature": sent.get("temperature"), "top_p": sent.get("top_p"),
+                                   "seed": sent.get("seed")}
                 lps = pc.get("logprobs") or []
                 step["response"] = {k: pc.get(k) for k in ("content", "reasoning", "token_ids", "finish_reason")}
                 step["response"]["logprobs"] = [round(x["lp"], 5) if x["lp"] is not None else None for x in lps] or None
@@ -343,6 +405,11 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
                     step["model"]["each"] = [{"s": c[1]["s"], **c[1]["usage"]} for c in calls]
                 if pc.get("tool_calls"):
                     step["response"]["tool_calls"] = pc["tool_calls"]
+                text, covered = generated_text(pc.get("content"), pc.get("tool_calls"), [x["t"] for x in lps],
+                                               bool(pc.get("token_ids") or lps))
+                if text != (pc.get("content") or ""):
+                    step["response"]["text"] = text        # the generated text, tool calls included
+                step["response"]["tokens_cover_response"] = covered
                 timing["model_s"] += step["model"]["s"]
             for a in actions:
                 ta = time.perf_counter()
@@ -373,19 +440,22 @@ def run_rollout(desk, harness, job: dict, opts: dict, out: Path, cancelled) -> d
                                                 "trace": traceback.format_exc()[-1200:]}
     timing["total_s"] = time.perf_counter() - t0
     rec["timing"], rec["n_steps"], rec["t_end"] = timing, len(rec["steps"]), time.time()
+    temps = sorted({s["request"]["temperature"] for s in rec["steps"] if s.get("request")}, key=str)
+    rec["sampling"]["temperature"] = temps[0] if len(temps) == 1 else (temps or None)
     return rec
 
 
 # ---------------------------------------------------------------- scheduler
 
-def plan_jobs(tasks: list[dict], group: int, oversample: float, version: str) -> list[dict]:
+def plan_jobs(tasks: list[dict], group: int, oversample: float, version: str, seed: int | None = None) -> list[dict]:
     n = group + int(math.ceil(group * oversample))
     jobs = []
     for gi, t in enumerate(tasks):
         tid = str(t["task_id"])
         for k in range(n):
             jobs.append({"rollout_id": f"{tid}.{version}.{k}", "task_id": tid, "domain": t.get("domain", ""),
-                         "group_id": f"{tid}@{version}", "gidx": gi, "attempt": k, "task": t})
+                         "group_id": f"{tid}@{version}", "gidx": gi, "attempt": k, "task": t,
+                         "seed": None if seed is None else rollout_seed(seed, tid, k)})
     # attempts of one task go to different desktops at the same time: round-robin by attempt, then task
     jobs.sort(key=lambda j: (j["attempt"], j["gidx"]))
     return jobs
@@ -408,6 +478,8 @@ def _worker(idx, jobs, results_path, lock, done_counts, group, sem, pcfg, dcfg, 
                 rec = {"schema": SCHEMA, **{k: job[k] for k in ("rollout_id", "task_id", "domain", "group_id", "attempt")},
                        "policy": {"model": pcfg["model"], "version": pcfg["version"]}, "status": "skipped", "steps": []}
             else:
+                if job.get("seed") is not None:
+                    policy.reseed(job["seed"])
                 rec = run_rollout(desk, harness, job, opts, out, cancelled=lambda: done_counts[g] >= group)
                 if rec["status"] == "error" and rec["error"]["kind"] == "env" and job.get("retry", 0) < opts["env_retries"]:
                     jobs.put({**job, "retry": job.get("retry", 0) + 1})   # infrastructure failure: run it again
@@ -436,12 +508,17 @@ def collect(tasks: list[dict], policy: PolicyConfig, out: str | Path, desktops: 
             rollout_timeout_s: float | None = None, env_retries: int = 1, desktop: DesktopConfig | None = None,
             harness: HarnessConfig | None = None, start_stagger_s: float = 2.0) -> dict:
     """Run every task `group` times (plus oversampled attempts) across `desktops` workers; write rollouts.jsonl,
-    images/, progress.json and summary.json to `out`; return the summary."""
+    images/, progress.json and summary.json to `out`; return the summary. Raises SetupError, before any worker
+    starts, when the harness or desktop cannot load here."""
     from legato.rl.profile import summarize
+    desktop, harness = desktop or DesktopConfig(), harness or HarnessConfig()
+    preflight(desktop, harness)
+    t = given_temperature(policy, harness)
+    if t is not None and policy.temperature is None:          # given in extra_body or the harness options
+        policy = dataclasses.replace(policy, temperature=t)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    desktop, harness = desktop or DesktopConfig(), harness or HarnessConfig()
-    jobs = plan_jobs(tasks, group, oversample, policy.version)
+    jobs = plan_jobs(tasks, group, oversample, policy.version, seed=policy.seed)
     ctx = mp.get_context("fork" if sys.platform.startswith("linux") else "spawn")
     q, lock = ctx.Queue(), ctx.Lock()
     done_counts = ctx.Array("i", len(tasks), lock=False)
@@ -472,6 +549,7 @@ def collect(tasks: list[dict], policy: PolicyConfig, out: str | Path, desktops: 
         time.sleep(5)
     for p in procs:
         p.join()
+    q.cancel_join_thread()                  # jobs left by workers that failed: do not wait to flush them at exit
     from legato.rl.trajectory import read_rollouts
     summary = summarize(read_rollouts(out), wall_s=time.time() - t0, group=group)
     (out / "summary.json").write_text(json.dumps(summary, indent=1))

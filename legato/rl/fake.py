@@ -1,7 +1,9 @@
 """A fake desktop and a minimal harness: run the whole collect -> export loop with no VMs (tests, trainer wiring).
 
-FakeDesktop settings (DesktopConfig.fake): reset_s, act_s, fail_reset_every (raise on every Nth reset, to exercise
-infrastructure retries). A task's reward comes from task["reward"] (a number, or a list indexed by the attempt number).
+FakeDesktop settings (DesktopConfig.fake, `--fake-opts`): reward (for tasks without their own), reset_s, act_s,
+fail_reset_every (raise on every Nth reset, to exercise infrastructure retries). A task's reward comes from
+task["reward"], else the reward setting, else 0: a number, or a list indexed by the attempt number (e.g. [1, 0] gives
+a group rewards 1, 0, 1, 0, so its advantages are not 0). An action "DONE" or "FAIL" ends the episode.
 FakeHarness sends one small multimodal request per step and acts on the reply: a reply containing "DONE" ends the
 episode.
 """
@@ -48,14 +50,14 @@ class FakeDesktop:
     def act(self, action):
         self.n_act += 1
         time.sleep(self.f.get("act_s", 0.0))
-        done = str(action) == "DONE"
+        done = str(action) in ("DONE", "FAIL")
         return self.observe(), done, {"act_s": self.f.get("act_s", 0.0), "obs_s": 0.0, "wait": {"wait_s": 0.0, "ready_s": 0.0}}
 
     def wait_before_eval(self) -> dict:
         return {"wait_s": 0.0}
 
     def evaluate(self) -> float:
-        r = self.task.get("reward", 0.0)
+        r = self.task.get("reward", self.f.get("reward", 0.0))
         if isinstance(r, list):
             r = r[self.task.get("_attempt", self.n_reset - 1) % len(r)]
         return float(r)

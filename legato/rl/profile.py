@@ -22,6 +22,8 @@ def summarize(rollouts: list[dict], wall_s: float | None = None, group: int | No
     cached = sum(c.get("cached") or 0 for c in calls)
     steps = [s for r in done for s in r.get("steps", [])]
     groups = Counter(r["group_id"] for r in done)
+    covers = [s["response"]["tokens_cover_response"] for s in steps
+              if "tokens_cover_response" in (s.get("response") or {})]
     return {
         "rollouts": len(rollouts), "status": dict(status), "completed": len(done),
         "success_rate": (sum(1 for r in done if (r.get("reward") or 0) >= 1) / len(done)) if done else None,
@@ -37,6 +39,7 @@ def summarize(rollouts: list[dict], wall_s: float | None = None, group: int | No
         "prefix_cache_hit": cached / prompt if prompt else None,
         "logprob_coverage": (sum(1 for s in steps if (s.get("response") or {}).get("logprobs")) / len(steps)) if steps else None,
         "token_id_coverage": (sum(1 for s in steps if (s.get("response") or {}).get("token_ids")) / len(steps)) if steps else None,
+        "full_response_coverage": sum(1 for c in covers if c) / len(covers) if covers else None,   # tool calls included
         "groups_full": sum(1 for n in groups.values() if group and n >= group) if group else None,
         "groups": len({r["group_id"] for r in rollouts}),
     }
@@ -54,5 +57,6 @@ def report(s: dict) -> str:
              f"p99 {f(s['model_call_s']['p99'])} max {f(s['model_call_s']['max'])}; retried {s['model_retried_calls']}, "
              f"policy errors {s['policy_errors']}, env errors {s['env_errors']}",
              f"prefix cache hit {f(s['prefix_cache_hit'], True)}; steps with logprobs {f(s['logprob_coverage'], True)}, "
-             f"with token ids {f(s['token_id_coverage'], True)}"]
+             f"with token ids {f(s['token_id_coverage'], True)}, "
+             f"whose tokens cover the whole response {f(s.get('full_response_coverage'), True)}"]
     return "\n".join(lines)

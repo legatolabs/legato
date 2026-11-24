@@ -92,6 +92,33 @@ def read_rollouts(out_dir: str | Path) -> list[dict]:
     return [json.loads(x) for x in p.read_text().splitlines() if x.strip()] if p.exists() else []
 
 
+def generated_text(content: str | None, tool_calls: list | None, tokens: list | None,
+                   has_tokens: bool) -> tuple[str, bool]:
+    """The text the model generated in one step, and whether the step's token ids or logprobs cover all of it.
+
+    Without tool calls it is the content. With tool calls it is the server's tokens joined, when they hold the calls
+    (vLLM returns every generated token, the call markup included); otherwise the content followed by one JSON object
+    per call ({"name", "arguments"}), which no token or logprob covers. `tokens` are the logprob tokens as text."""
+    content = content or ""
+    if not tool_calls:
+        return content, has_tokens
+    joined = "".join(t for t in tokens or [] if isinstance(t, str))
+    rest = joined.replace(content, "", 1) if content and content in joined else joined
+    names = [str((c.get("function") or {}).get("name") or "") for c in tool_calls]
+    if rest.strip() and all(n and n in rest for n in names):
+        return joined, True
+    lines = []
+    for c in tool_calls:
+        fn = c.get("function") or {}
+        args = fn.get("arguments")
+        try:
+            args = json.loads(args) if isinstance(args, str) else args
+        except ValueError:
+            pass
+        lines.append(json.dumps({"name": fn.get("name"), "arguments": args}, ensure_ascii=False))
+    return "\n".join(([content] if content else []) + lines), False
+
+
 def group_advantages(rollouts: Iterable[dict], eps: float = 1e-6) -> dict:
     """GRPO-style advantage per rollout: (reward - group mean) / (group std + eps), over the completed rollouts of
     each group. Groups with one rollout, or with identical rewards, get 0 (no learning signal)."""
@@ -112,7 +139,12 @@ def group_advantages(rollouts: Iterable[dict], eps: float = 1e-6) -> dict:
 def export_steps(out_dir: str | Path, dest: str | Path, inline_images: bool = False) -> dict:
     """One training sample per policy step: the exact request (messages), the sampled response (text, token ids,
     logprobs), the rollout's reward and group advantage, and the policy version that produced it. Cancelled,
-    skipped and failed rollouts are left out. Returns counts."""
+    skipped and failed rollouts are left out. Returns counts.
+
+    response_text is what the model generated, tool calls included (see generated_text); response_content is the
+    content alone. tokens_cover_response is False when the token ids and logprobs do not cover all of
+    response_text (a tool call the server returned without its tokens, or no logprobs at all): train on those
+    samples by re-tokenizing, or skip them."""
     out_dir = Path(out_dir)
     rs = read_rollouts(out_dir)
     adv = group_advantages(rs)
@@ -127,13 +159,21 @@ def export_steps(out_dir: str | Path, dest: str | Path, inline_images: bool = Fa
                 if not s.get("request"):
                     continue
                 msgs = load_request(s["request"]["messages"], out_dir, inline_images=inline_images)
+                if "tokens_cover_response" in resp:
+                    text, covered = resp.get("text", resp.get("content") or ""), resp["tokens_cover_response"]
+                else:                                         # a record from before these fields
+                    text, covered = generated_text(resp.get("content"), resp.get("tool_calls"), resp.get("tokens"),
+                                                   bool(resp.get("token_ids") or resp.get("logprobs")))
                 f.write(json.dumps({
                     "rollout_id": r["rollout_id"], "group_id": r["group_id"], "task_id": r["task_id"], "step": s["i"],
                     "policy_version": r["policy"]["version"], "model": r["policy"]["model"],
-                    "messages": msgs, "sampling": {k: s["request"].get(k) for k in ("max_tokens", "temperature", "top_p")},
-                    "response_text": resp.get("content"), "response_reasoning": resp.get("reasoning"),
+                    "messages": msgs,
+                    "sampling": {k: s["request"].get(k) for k in ("max_tokens", "temperature", "top_p", "seed")},
+                    "response_text": text, "response_reasoning": resp.get("reasoning"),
                     "response_token_ids": resp.get("token_ids"), "response_logprobs": resp.get("logprobs"),
                     "response_tokens": resp.get("tokens"),
+                    "response_content": resp.get("content"), "response_tool_calls": resp.get("tool_calls"),
+                    "tokens_cover_response": covered, "finish_reason": resp.get("finish_reason"),
                     "reward": r.get("reward"), "advantage": adv[r["rollout_id"]],
                 }) + "\n")
                 n_steps += 1

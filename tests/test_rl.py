@@ -18,7 +18,8 @@ from legato.rl import (DesktopConfig, HarnessConfig, PolicyClient, PolicyConfig,
 
 class Stub:
     """Behaviour knobs, set per test: delay_s, fail_first (HTTP 500 count), busy_first (HTTP 503 with Retry-After),
-    reject_token_ids, reply."""
+    reject_token_ids, reply (text, or a function of the body returning text or a message: content, tool_calls and
+    tokens, the logprob tokens)."""
 
     def __init__(self):
         self.delay_s, self.fail_first, self.reject_token_ids, self.reply = 0.0, 0, False, "click it"
@@ -53,9 +54,11 @@ def server():
                 if stub.reject_token_ids and body.get("return_token_ids"):
                     return self._send(400, {"error": "unknown field return_token_ids"})
                 reply = stub.reply(body) if callable(stub.reply) else stub.reply
-                toks = reply.split()
-                out = {"choices": [{"message": {"content": reply, "reasoning_content": "think"},
-                                    "finish_reason": "stop",
+                msg = reply if isinstance(reply, dict) else {"content": reply}
+                toks = msg.get("tokens", (msg.get("content") or "").split())
+                calls = {"tool_calls": msg["tool_calls"]} if msg.get("tool_calls") else {}
+                out = {"choices": [{"message": {"content": msg.get("content"), "reasoning_content": "think", **calls},
+                                    "finish_reason": "tool_calls" if calls else "stop",
                                     "logprobs": {"content": [{"token": t, "logprob": -0.5} for t in toks]},
                                     **({"token_ids": list(range(len(toks)))} if body.get("return_token_ids") else {})}],
                        "usage": {"prompt_tokens": 100, "completion_tokens": len(toks),
@@ -213,3 +216,163 @@ def test_timeout_is_a_wall_clock_deadline_even_with_keep_alive_bytes():
     with pytest.raises(PolicyError, match="timeout"):
         cli.chat([{"role": "user", "content": "x"}])
     assert _t.perf_counter() - t < 1.5
+
+
+# ---------------------------------------------------------------- the RL researcher's first run
+
+def run_cli(argv: list, capsys) -> tuple[int, str, str]:
+    from legato.rl.__main__ import main
+    code = main(argv)
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
+def cli_collect(server, tmp_path, *extra) -> list:
+    tasks = tmp_path / "tasks.json"
+    if not tasks.exists():
+        tasks.write_text(json.dumps([{"task_id": "fake-1"}]))
+    return ["collect", "--tasks", str(tasks), "--policy-url", server.url, "--model", "m", "--version", "v0",
+            "--out", str(tmp_path / "run"), "--backend", "fake", "--desktops", "1", *extra]
+
+
+def test_cli_fake_backend_runs_out_of_the_box(server, tmp_path, capsys):
+    """--backend fake alone (no --harness, no OSWorld) collects; --temperature, --seed and the fake reward take effect
+    and are recorded."""
+    server.reply = "DONE"
+    code, out, err = run_cli(cli_collect(server, tmp_path, "--group", "2", "--temperature", "0.7", "--seed", "3",
+                                         "--fake-opts", '{"reward": [1, 0]}'), capsys)
+    assert code == 0 and "rollouts 2 (ok 2)" in out and "warning" not in err
+    rs = sorted(read_rollouts(tmp_path / "run"), key=lambda r: r["attempt"])
+    assert [r["reward"] for r in rs] == [1.0, 0.0]
+    assert all(r["sampling"]["temperature"] == 0.7 for r in rs) and all(b["temperature"] == 0.7 for b in server.bodies)
+    seeds = [r["sampling"]["seed"] for r in rs]
+    assert len(set(seeds)) == 2 and sorted(b["seed"] for b in server.bodies) == sorted(seeds)
+    assert [r["steps"][0]["request"]["seed"] for r in rs] == seeds
+    run = json.loads((tmp_path / "run" / "run.json").read_text())
+    assert run["harness"]["name"] == "fake" and run["policy"]["temperature"] == 0.7 and run["policy"]["seed"] == 3
+    export_steps(tmp_path / "run", tmp_path / "train.jsonl")
+    lines = [json.loads(x) for x in (tmp_path / "train.jsonl").read_text().splitlines()]
+    assert [round(x["advantage"], 3) for x in sorted(lines, key=lambda x: x["advantage"])] == [-1.0, 1.0]
+    assert {x["sampling"]["seed"] for x in lines} == set(seeds) and all(x["tokens_cover_response"] for x in lines)
+
+
+def test_cli_fails_fast_when_the_harness_cannot_load(server, tmp_path, capsys, monkeypatch):
+    """The qwen harness needs OSWorld's mm_agents: say so before any worker starts. Also: the warning for a group
+    sampled at temperature 0, and none with --eval-only."""
+    from legato.rl.collect import SetupError, preflight
+    monkeypatch.delenv("OSWORLD_PATH", raising=False)
+    code, _, err = run_cli(cli_collect(server, tmp_path, "--harness", "qwen", "--temperature", "0"), capsys)
+    assert code == 2 and "mm_agents" in err and "--harness fake" in err
+    assert "near-identical" in err and "--temperature 1.0" in err and len(err.strip().splitlines()) == 2
+    assert not (tmp_path / "run" / "rollouts.jsonl").exists() and server.calls == 0
+    code, _, err = run_cli(cli_collect(server, tmp_path, "--harness", "qwen", "--eval-only"), capsys)
+    assert code == 2 and "near-identical" not in err
+    with pytest.raises(SetupError, match="--osworld PATH"):
+        preflight(DesktopConfig(backend="osworld"), HarnessConfig(name="legato"))
+
+
+def test_cli_exits_1_when_every_rollout_fails(server, tmp_path, capsys):
+    server.reply = "DONE"
+    code, out, err = run_cli(cli_collect(server, tmp_path, "--group", "1", "--env-retries", "0",
+                                         "--fake-opts", '{"fail_reset_every": 1}'), capsys)
+    assert code == 1 and "rollouts 1 (error 1)" in out
+    assert "no rollout completed" in err and "reset failed" in err
+    from legato.rl.__main__ import _no_rollout
+    assert "every worker stopped" in _no_rollout(str(tmp_path / "empty"), {"status": {}})
+
+
+def test_cli_help_names_the_legato_command(capsys):
+    from legato.rl.__main__ import main
+    with pytest.raises(SystemExit):
+        main(["collect", "--help"])
+    out = capsys.readouterr().out
+    assert out.startswith("usage: legato rl collect") and "python -m" not in out
+    for flag in ("--temperature", "--seed", "--fake-opts", "--backend", "--group", "--max-steps"):
+        assert flag in out
+    assert "GRPO group" in out and "base sampling seed" in out
+    assert main([]) == 2 and capsys.readouterr().out.startswith("usage: legato rl")
+
+
+def test_temperature_given_any_way_applies_to_every_request(server, tmp_path):
+    from legato.rl.collect import effective_temperature, given_temperature
+    pc = PolicyConfig(server.url, "m")
+    assert given_temperature(pc, HarnessConfig(name="legato")) is None
+    assert effective_temperature(pc, HarnessConfig(name="legato")) == 0.0
+    assert effective_temperature(pc, HarnessConfig(name="qwen")) is None             # QwenAgent decides
+    assert given_temperature(pc, HarnessConfig(name="legato", options={"temperature": 0.4})) == 0.4
+    assert given_temperature(PolicyConfig(server.url, "m", extra_body={"temperature": 0.3}),
+                             HarnessConfig(options={"temperature": 0.4})) == 0.3
+    assert given_temperature(PolicyConfig(server.url, "m", temperature=0.2, extra_body={"temperature": 0.3}),
+                             HarnessConfig()) == 0.2
+    # PolicyConfig.temperature beats the harness's own; the record says what was sent
+    rec = PolicyClient(PolicyConfig(server.url, "m", temperature=0.9)).chat([{"role": "user", "content": "x"}],
+                                                                            temperature=0.0)
+    assert server.bodies[-1]["temperature"] == 0.9 and rec["sampling"]["temperature"] == 0.9
+    # through collect: a temperature in extra_body is no longer overridden by the harness (the fake one asks for 1.0)
+    server.reply, server.bodies = "DONE", []
+    collect([{"task_id": "t"}], PolicyConfig(server.url, "m", extra_body={"temperature": 0.3}), tmp_path, desktops=1,
+            group=1, **fake())
+    r = read_rollouts(tmp_path)[0]
+    assert [b["temperature"] for b in server.bodies] == [0.3] and r["sampling"] == {"seed": None, "temperature": 0.3}
+    assert r["steps"][0]["request"]["temperature"] == 0.3 and "seed" not in server.bodies[0]
+
+
+def test_seeds_are_per_rollout_and_reproducible(server):
+    from legato.rl.collect import rollout_seed
+    jobs = plan_jobs([{"task_id": "a"}, {"task_id": "b"}], group=2, oversample=0.0, version="v1", seed=5)
+    assert len({j["seed"] for j in jobs}) == 4
+    assert [j["seed"] for j in jobs] == [j["seed"] for j in plan_jobs([{"task_id": "a"}, {"task_id": "b"}], 2, 0.0,
+                                                                        "v2", seed=5)]
+    assert rollout_seed(5, "a", 0) != rollout_seed(6, "a", 0)
+    assert all(j["seed"] is None for j in plan_jobs([{"task_id": "a"}], 2, 0.0, "v1"))
+    server.fail_first = 1                          # a retried request resends its seed; the next request takes seed + 1
+    c = PolicyClient(PolicyConfig(server.url, "m", seed=10, retries=1))
+    a = c.chat([{"role": "user", "content": "x"}])
+    b = c.chat([{"role": "user", "content": "y"}])
+    assert [x["seed"] for x in server.bodies] == [10, 10, 11]
+    assert (a["sampling"]["seed"], b["sampling"]["seed"]) == (10, 11)
+    c.reseed(None)
+    c.chat([{"role": "user", "content": "z"}])
+    assert "seed" not in server.bodies[-1]
+
+
+def test_generated_text_keeps_the_tool_call():
+    from legato.rl.trajectory import generated_text
+    call = [{"type": "function", "id": "c1", "function": {"name": "computer", "arguments": '{"action": "done"}'}}]
+    assert generated_text("click it", None, ["click", " it"], True) == ("click it", True)
+    assert generated_text("click it", None, None, False) == ("click it", False)
+    # tool call only, no tokens for it (OpenRouter): the call as JSON, not covered
+    assert generated_text("", call, None, False) == ('{"name": "computer", "arguments": {"action": "done"}}', False)
+    # text plus a call whose tokens cover only the text: the text, then the call
+    text, covered = generated_text("I am done.", call, ["I", " am", " done", "."], True)
+    assert text == 'I am done.\n{"name": "computer", "arguments": {"action": "done"}}' and covered is False
+    # the server's tokens hold the call markup (vLLM): exactly those tokens, covered
+    toks = ["I am done.", "\n<tool_call>", '\n{"name": "computer", "arguments": {"action": "done"}}', "\n</tool_call>"]
+    assert generated_text("I am done.", call, toks, True) == ("".join(toks), True)
+
+
+def test_export_keeps_tool_calls_and_marks_uncovered_steps(server, tmp_path):
+    call = {"type": "function", "id": "c1", "function": {"name": "computer", "arguments": '{"action": "done"}'}}
+    markup = ["<tool_call>", '\n{"name": "computer", "arguments": {"action": "done"}}', "\n</tool_call>"]
+    replies = iter([{"content": "", "tool_calls": [call], "tokens": []},          # OpenRouter: no tokens for the call
+                    {"content": "", "tool_calls": [call], "tokens": markup}])     # vLLM: the markup among the tokens
+    server.reply = lambda body: next(replies)
+    s = collect([{"task_id": "t"}], PolicyConfig(server.url, "m", token_ids=False), tmp_path, desktops=1, group=2,
+                max_steps=1, **fake())
+    assert s["full_response_coverage"] == 0.5
+    export_steps(tmp_path, tmp_path / "train.jsonl")
+    a, b = sorted((json.loads(x) for x in (tmp_path / "train.jsonl").read_text().splitlines()),
+                  key=lambda x: x["rollout_id"])
+    assert a["response_text"] == '{"name": "computer", "arguments": {"action": "done"}}'
+    assert a["tokens_cover_response"] is False and a["response_tool_calls"] == [call] and a["response_content"] == ""
+    assert b["response_text"] == "".join(markup) and b["tokens_cover_response"] is True
+    assert b["response_tokens"] == markup and b["finish_reason"] == "tool_calls"
+
+
+def test_fake_desktop_ends_on_fail_and_takes_a_default_reward():
+    from legato.rl.fake import FakeDesktop
+    d = FakeDesktop(DesktopConfig(backend="fake", fake={"reward": [0.0, 1.0]}))
+    d.reset({"task_id": "t", "_attempt": 1})
+    assert d.act("FAIL")[1] is True and d.evaluate() == 1.0
+    d.reset({"task_id": "t", "_attempt": 1, "reward": 0.5})
+    assert d.evaluate() == 0.5

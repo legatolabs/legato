@@ -14,6 +14,7 @@ What it adds over a plain client:
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -36,6 +37,8 @@ class PolicyConfig:
     logprobs: bool = True
     token_ids: bool = True             # vLLM extra; turned off automatically if the server refuses it
     extra_body: dict = field(default_factory=dict)
+    temperature: float | None = None   # when set, every request samples at this temperature, whatever the harness asks
+    seed: int | None = None            # when set, requests carry a seed: this one, then one more per request
 
 
 class PolicyError(RuntimeError):
@@ -86,10 +89,26 @@ class PolicyClient:
         self.http = httpx.Client(timeout=httpx.Timeout(cfg.timeout_s, connect=min(10.0, cfg.timeout_s)),
                                  headers=headers)
         self.url = cfg.base_url.rstrip("/") + "/chat/completions"
+        self.seed = cfg.seed               # the next request's seed (None: the server picks)
+        self._seed_lock = threading.Lock()
+
+    def reseed(self, seed: int | None) -> None:
+        """Seed the next request with `seed`, and each one after it with one more (None: send no seed)."""
+        with self._seed_lock:
+            self.seed = seed
+
+    def _take_seed(self) -> int | None:
+        with self._seed_lock:
+            s = self.seed
+            if s is not None:
+                self.seed = s + 1
+            return s
 
     def _body(self, messages: list, max_tokens: int | None, temperature: float | None, top_p: float | None,
-              tools: list | None = None, tool_choice=None, extra: dict | None = None) -> dict:
+              tools: list | None = None, tool_choice=None, extra: dict | None = None, seed: int | None = None) -> dict:
         b: dict = {"model": self.cfg.model, "messages": messages, **self.cfg.extra_body, **(extra or {})}
+        if self.cfg.temperature is not None:
+            temperature = self.cfg.temperature
         if tools:
             b["tools"] = tools
             if tool_choice is not None:
@@ -100,6 +119,8 @@ class PolicyClient:
             b["temperature"] = temperature
         if top_p is not None:
             b["top_p"] = top_p
+        if seed is not None:
+            b["seed"] = seed
         if self.cfg.logprobs:
             b["logprobs"] = True
         if self.cfg.token_ids:
@@ -109,8 +130,10 @@ class PolicyClient:
     def chat(self, messages: list, max_tokens: int | None = None, temperature: float | None = None,
              top_p: float | None = None, tools: list | None = None, tool_choice=None, extra: dict | None = None) -> dict:
         """One policy step. `extra` is merged into this request's body. Returns a record: content (what the harness parses), reasoning, token ids and logprobs,
-        usage, wall seconds, attempts. Raises PolicyError when every attempt fails."""
+        usage, the sampling actually sent (temperature, top_p, seed), wall seconds, attempts. Raises PolicyError when
+        every attempt fails. A retry resends the same seed."""
         last = ""
+        seed = self._take_seed()
         t0 = time.perf_counter()
         attempt = failures = 0
         busy_waited = 0.0
@@ -120,10 +143,12 @@ class PolicyClient:
             acquired = self.sem.acquire(timeout=max(600.0, 10 * self.cfg.timeout_s)) if self.sem is not None else True
             ta = time.perf_counter()
             try:
-                r = self._post(self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra), ta)
+                body = self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra, seed)
+                r = self._post(body, ta)
                 if r.status_code == 400 and self.cfg.token_ids and "token_ids" in r.text:
                     self.cfg.token_ids = False             # server does not know return_token_ids: drop it, retry
-                    r = self._post(self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra), ta)
+                    body = self._body(messages, max_tokens, temperature, top_p, tools, tool_choice, extra, seed)
+                    r = self._post(body, ta)
                 if r.status_code in RETRY_STATUS:
                     last = f"HTTP {r.status_code}: {r.text[:200]}"
                     if r.status_code in BUSY_STATUS and busy_waited < self.cfg.busy_wait_s:
@@ -133,7 +158,9 @@ class PolicyClient:
                 elif r.status_code != 200:
                     raise PolicyError(f"HTTP {r.status_code}: {r.text[:300]}")
                 else:
-                    return self._record(r.json(), time.perf_counter() - t0, time.perf_counter() - ta, attempt)
+                    rec = self._record(r.json(), time.perf_counter() - t0, time.perf_counter() - ta, attempt)
+                    rec["sampling"] = {k: body.get(k) for k in ("temperature", "top_p", "seed")}
+                    return rec
             except (httpx.TimeoutException, _Deadline):
                 last = f"timeout after {self.cfg.timeout_s:.0f} s"
             except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError) as e:
