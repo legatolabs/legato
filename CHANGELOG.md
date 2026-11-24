@@ -1,11 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
-  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
-  starting it, and keeps the path absolute.
-
 ## 0.3.1
 
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
@@ -33,6 +27,9 @@
   back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
   the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
   (`shell_name` says which shell that is).
+- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
+  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
+  starting it, and keeps the path absolute.
 
 ## 0.3.0
 
