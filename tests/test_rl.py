@@ -240,12 +240,13 @@ def cli_collect(server, tmp_path, *extra) -> list:
 
 
 def test_cli_fake_backend_runs_out_of_the_box(server, tmp_path, capsys):
-    """--backend fake alone (no --harness, no OSWorld) collects; --temperature, --seed and the fake reward take effect
-    and are recorded."""
+    """--backend fake with the wiring-only harness collects (and says what that harness is); --temperature, --seed
+    and the fake reward take effect and are recorded."""
     server.reply = "DONE"
     code, out, err = run_cli(cli_collect(server, tmp_path, "--group", "2", "--temperature", "0.7", "--seed", "3",
-                                         "--fake-opts", '{"reward": [1, 0]}'), capsys)
+                                         "--harness", "fake", "--fake-opts", '{"reward": [1, 0]}'), capsys)
     assert code == 0 and "rollouts 2 (ok 2)" in out and "warning" not in err
+    assert "--harness fake tests the wiring only" in err and "rewards are FAKE" in out
     rs = sorted(read_rollouts(tmp_path / "run"), key=lambda r: r["attempt"])
     assert [r["reward"] for r in rs] == [1.0, 0.0]
     assert all(r["sampling"]["temperature"] == 0.7 for r in rs) and all(b["temperature"] == 0.7 for b in server.bodies)
@@ -267,13 +268,15 @@ def test_cli_fails_fast_when_the_harness_cannot_load(server, tmp_path, capsys, m
     from legato.rl.collect import SetupError, preflight
     monkeypatch.delenv("OSWORLD_PATH", raising=False)
     code, _, err = run_cli(cli_collect(server, tmp_path, "--harness", "qwen", "--temperature", "0"), capsys)
-    assert code == 2 and "mm_agents" in err and "--harness fake" in err
+    assert code == 2 and "mm_agents" in err and "--harness legato" in err and "--backend fake" not in err
     assert "near-identical" in err and "--temperature 1.0" in err and len(err.strip().splitlines()) == 2
     assert not (tmp_path / "run" / "rollouts.jsonl").exists() and server.calls == 0
     code, _, err = run_cli(cli_collect(server, tmp_path, "--harness", "qwen", "--eval-only"), capsys)
     assert code == 2 and "near-identical" not in err
-    with pytest.raises(SetupError, match="--osworld PATH"):
+    with pytest.raises(SetupError, match="--osworld PATH.*Linux host with KVM.*--backend fake"):
         preflight(DesktopConfig(backend="osworld"), HarnessConfig(name="legato"))
+    with pytest.raises(SetupError, match="desktop_env.*Linux host with KVM"):       # the default: say Linux first
+        preflight(DesktopConfig(backend="osworld"), HarnessConfig(name="qwen"))
 
 
 def test_cli_exits_1_when_every_rollout_fails(server, tmp_path, capsys):
@@ -516,3 +519,231 @@ def test_cut_off_attempts_are_counted_on_the_error_and_the_record(server):
     assert e.value.cut == 2                          # both were sent and may be billed
     server.delay_s = 0.0
     assert PolicyClient(PolicyConfig(server.url, "m")).chat([{"role": "user", "content": "x"}])["cut"] == 0
+
+
+# ---------------------------------------------------------------- the first try on a machine without VMs
+
+def tool(action: str, **kw) -> dict:
+    args = json.dumps({"action": action, **kw})
+    return {"content": "", "tool_calls": [{"type": "function", "id": "c1",
+                                           "function": {"name": "computer", "arguments": args}}], "tokens": []}
+
+
+def click_then_done(body: dict) -> dict:
+    """A policy that clicks once, then finishes."""
+    seen = sum(1 for m in body["messages"] if m["role"] == "assistant")
+    return tool("left_click", coordinate=[100, 50]) if not seen else tool("done")
+
+
+def test_the_fake_backend_runs_the_models_own_actions_and_labels_the_reward(server, tmp_path, capsys):
+    """--backend fake alone uses legato.Harness: the actions are what the model called, the export carries them
+    parsed, and the reward says it is fake in the record, the export and the report."""
+    server.reply = click_then_done
+    code, out, err = run_cli(cli_collect(server, tmp_path, "--group", "1", "--fake-opts", '{"reward": 1}'), capsys)
+    assert code == 0 and "--harness fake" not in err
+    assert "rewards are FAKE" in out and "legato rl export" in out and "rollouts.jsonl" in out
+    assert "0% of steps came back with logprobs" in err and "vLLM" in err
+    (r,) = read_rollouts(tmp_path / "run")
+    assert json.loads((tmp_path / "run" / "run.json").read_text())["harness"]["name"] == "legato"
+    assert r["reward"] == 1.0 and r["reward_source"] == "fake"
+    first = r["steps"][0]["actions"][0]
+    assert first["action"] == "pyautogui.click(64, 20)" and first["parsed"] == {"type": "click", "x": 64, "y": 20}
+    export_steps(tmp_path / "run", tmp_path / "train.jsonl")
+    a, b = [json.loads(x) for x in (tmp_path / "train.jsonl").read_text().splitlines()]
+    assert a["actions"] == [{"action": "pyautogui.click(64, 20)", "parsed": {"type": "click", "x": 64, "y": 20}}]
+    assert b["actions"][0]["parsed"] == {"type": "done"} and a["reward_source"] == b["reward_source"] == "fake"
+    assert a["response_tool_calls"]                       # the fields from before are still there
+
+
+def test_json_options_take_a_file_and_a_bad_one_is_one_line(server, tmp_path, capsys):
+    """PowerShell strips the quotes inside an argument: @file.json works everywhere, and what PowerShell passes
+    ({reward: [1, 0, 1]}) is answered in one line that shows the way."""
+    server.reply = "DONE"
+    opts = tmp_path / "opts.json"
+    opts.write_text('\ufeff{"reward": [1, 0, 1]}', encoding="utf-8")       # PowerShell 5's Set-Content writes a BOM
+    code, out, _ = run_cli(cli_collect(server, tmp_path, "--group", "3", "--harness", "fake", "--fake-opts", f"@{opts}",
+                                       "--extra-body", f"@{opts}"), capsys)
+    assert code == 0 and sorted(r["reward"] for r in read_rollouts(tmp_path / "run")) == [0.0, 1.0, 1.0]
+    assert all(b["reward"] == [1, 0, 1] for b in server.bodies)
+    (tmp_path / "tasks.json").write_text('[{"task_id": "t"}]', encoding="utf-16")      # PowerShell 5's `>` redirect
+    assert run_cli(cli_collect(server, tmp_path, "--group", "1", "--harness", "fake"), capsys)[0] == 0
+    for flag in ("--fake-opts", "--harness-opts", "--extra-body", "--backend-opts"):
+        code, _, err = run_cli(cli_collect(server, tmp_path, flag, "{reward: [1, 0, 1]}"), capsys)
+        assert code == 2 and len(err.strip().splitlines()) == 1 and "Traceback" not in err
+        assert err.startswith(f"legato rl collect: {flag}: not valid JSON") and f"{flag} @file.json" in err
+    code, _, err = run_cli(cli_collect(server, tmp_path, "--fake-opts", "@nope.json"), capsys)
+    assert code == 2 and "cannot read nope.json" in err and len(err.strip().splitlines()) == 1
+    with pytest.raises(SystemExit):                       # double-quoted in PowerShell: the JSON arrives in pieces
+        run_cli(cli_collect(server, tmp_path, "--fake-opts", "{reward:", "[1,", "0]}"), capsys)
+    assert "unrecognized arguments" in (err := capsys.readouterr().err) and "--fake-opts @opts.json" in err
+    code, _, err = run_cli(["collect", "--tasks", str(tmp_path / "none.json"), "--policy-url", server.url, "--model",
+                            "m", "--version", "v", "--out", str(tmp_path / "o")], capsys)
+    assert code == 2 and "cannot read it" in err and len(err.strip().splitlines()) == 1
+
+
+def probing(stub, vision=True, tools=True, logprobs=True):
+    """Make the stub a server with or without image input, tool calls and logprobs."""
+    def reply(body):
+        last = body["messages"][-1]["content"]
+        if isinstance(last, list) and not vision:
+            raise LookupError("No endpoints found that support image input")
+        if body.get("tools") and tools:
+            return {"content": "", "tool_calls": [{"type": "function", "id": "c", "function": {
+                "name": body["tools"][0]["function"]["name"], "arguments": '{"x": 10, "y": 20}'}}]}
+        return {"content": "ok"} if logprobs else {"content": "ok", "tokens": []}
+    stub.reply = reply
+
+
+def test_probe_sends_an_image_and_a_tool_call_and_says_what_the_server_is_good_for(server, capsys):
+    probing(server)
+    code, out, err = run_cli(["probe", "--policy-url", server.url, "--model", "m"], capsys)
+    p = json.loads(out)
+    assert code == 0 and p["logprobs"] and p["vision"] and p["tool_calls"] and p["cached_on_repeat"] == 80
+    assert any(isinstance(b["messages"][-1]["content"], list) for b in server.bodies)
+    assert any(b.get("tools") for b in server.bodies)
+    assert "evaluation and data collection: yes" in err and "policy-gradient training (GRPO): yes" in err
+    probing(server, tools=False, logprobs=False)          # a hosted API: no logprobs; a model that calls no tools
+    code, out, err = run_cli(["probe", "--policy-url", server.url, "--model", "m"], capsys)
+    p = json.loads(out)
+    assert code == 0 and not p["logprobs"] and p["vision"] and not p["tool_calls"]
+    assert "policy-gradient training (GRPO): no, it returns no logprobs; use vLLM" in err
+    assert "tool calls: no" in err and "native_tools" in err
+
+
+def test_probe_fails_a_text_only_model_and_a_wrong_model_in_one_line(capsys):
+    """A model without image input passes the text checks; collect would then fail on its first screenshot."""
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if body["model"] == "nope":
+                code, out = 400, {"error": {"message": "nope is not a valid model ID"}}
+            elif isinstance(body["messages"][-1]["content"], list):
+                code, out = 404, {"error": {"message": "No endpoints found that support image input"}}
+            else:
+                code, out = 200, {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+            b = json.dumps(out).encode()
+            self.send_response(code)
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/v1"
+    try:
+        code, out, err = run_cli(["probe", "--policy-url", url, "--model", "text-only"], capsys)
+        assert code == 1 and json.loads(out)["vision"] is False
+        assert "evaluation and data collection: no" in err and "support image input" in err
+        code, out, err = run_cli(["probe", "--policy-url", url, "--model", "nope"], capsys)
+        assert code == 1 and not out
+        assert err.strip() == "legato rl probe: HTTP 400: nope is not a valid model ID"
+    finally:
+        srv.shutdown()
+
+
+def test_require_logprobs_stops_before_any_rollout(server, tmp_path, capsys):
+    probing(server, logprobs=False)
+    code, out, err = run_cli(cli_collect(server, tmp_path, "--require-logprobs", "--harness", "fake"), capsys)
+    assert code == 1 and server.calls == 1 and not (tmp_path / "run").exists()
+    assert "returned no logprobs" in err and "Nothing was collected" in err and "vLLM" in err
+    probing(server)
+    code, out, err = run_cli(cli_collect(server, tmp_path, "--require-logprobs", "--harness", "fake", "--group", "1",
+                                         "--max-steps", "1"), capsys)
+    assert code == 0 and "came back with logprobs" not in err
+    code, _, err = run_cli(cli_collect(server, tmp_path, "--require-logprobs", "--eval-only"), capsys)
+    assert code == 2 and "contradict" in err
+
+
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "rl_custom_backend.py"
+
+
+def test_your_own_backend_by_path_runs_in_the_workers(server, tmp_path, capsys, monkeypatch):
+    """--backend file.py:Class: each worker (a spawned process on macOS and Windows) imports the file by its path,
+    from whatever directory; --backend-opts are the class's keyword arguments."""
+    server.reply = click_then_done
+    monkeypatch.chdir(EXAMPLE.parent)
+    code, out, err = run_cli([*cli_collect(server, tmp_path, "--group", "2", "--desktops", "2", "--backend-opts",
+                                           '{"size": [320, 200]}'),
+                              "--backend", "rl_custom_backend.py:ButtonDesktop"], capsys)
+    assert code == 0 and "rollouts 2 (ok 2)" in out and "FAKE" not in out, err
+    rs = read_rollouts(tmp_path / "run")
+    assert all(r["reward_source"].startswith("ButtonDesktop") and r["reward"] in (0.0, 1.0) for r in rs)
+    assert all(r["steps"][0]["actions"][0]["parsed"]["type"] == "click" for r in rs)
+    run = json.loads((tmp_path / "run" / "run.json").read_text())
+    assert run["desktop"]["backend"] == f"{EXAMPLE}:ButtonDesktop" and run["harness"]["name"] == "legato"
+    assert len(list((tmp_path / "run" / "images").glob("*.png"))) >= 2          # 320x200 screens the class drew
+
+
+def test_the_example_backend_rewards_a_click_on_its_button():
+    from legato.actions import Action
+    from legato.rl.collect import load_backend, to_pyautogui
+    d = load_backend(f"{EXAMPLE}:ButtonDesktop")()
+    d.reset({"task_id": "t"})
+    x, y = d.box[0] + 5, d.box[1] + 5
+    assert d.act(to_pyautogui(Action("click", x=0, y=0)))[1] is False and d.evaluate() == 0.0
+    assert d.act(to_pyautogui(Action("click", x=x, y=y)))[1] is False and d.evaluate() == 1.0
+    assert d.act(to_pyautogui(Action("done")))[1] is True and d.observe()["screenshot"][:4] == b"\x89PNG"
+
+
+def test_a_backend_that_cannot_load_is_one_line(server, tmp_path, capsys):
+    bad = tmp_path / "mine.py"
+    bad.write_text("class Half:\n    def reset(self, task): ...\nimport nothing_like_this\n")
+    for spec, why in ((f"{tmp_path / 'gone.py'}:X", "no file"), (f"{bad}:Half", "cannot import"), ("nonsense", "use osworld"),
+                      ("json:Missing", "has no Missing"), ("json:JSONDecoder", "has no reset, observe, act, evaluate"),
+                      ("local", "--backend local needs --backend-opts")):
+        code, _, err = run_cli([*cli_collect(server, tmp_path), "--backend", spec], capsys)
+        assert code == 2 and why in err and len(err.strip().splitlines()) <= 2 and "Traceback" not in err, err
+    assert server.calls == 0
+
+
+def test_the_local_backend_runs_your_reset_and_your_grading(tmp_path):
+    """--backend local: legato's own screen driver, with the reset and the reward from the user's hooks file."""
+    from legato import safety
+    from legato.actions import Action
+    from legato.env import Obs
+    from legato.rl.collect import SetupError, to_pyautogui
+    from legato.rl.local import LocalDesktop, check
+    hooks = tmp_path / "hooks.py"
+    hooks.write_text("log = []\ndef reset(task): log.append(('reset', task['task_id']))\n"
+                     "def evaluate(task): return 0.5\n")
+
+    class Screen:
+        ran: list = []
+
+        def observe(self):
+            return Obs(b"png", 1, 1)
+
+        def act(self, a):
+            if a.type == "key":
+                raise safety.Denied("cmd+q")
+            if a.type == "wait":
+                raise safety.Stopped("the mouse was moved into a corner")
+            self.ran.append(a)
+            return Obs(b"after", 1, 1)
+
+    d = LocalDesktop(str(hooks), env=Screen())
+    d.reset({"task_id": "t1", "instruction": "Save the file"})
+    assert d.instruction == "Save the file" and d.hooks.log == [("reset", "t1")] and d.observe() == {"screenshot": b"png"}
+    obs, done, _ = d.act(to_pyautogui(Action("click", x=3, y=4)))
+    assert obs == {"screenshot": b"after"} and not done and Screen.ran[0].x == 3
+    assert d.act(to_pyautogui(Action("key", keys="cmd+q")))[:2] == ({"screenshot": b"png"}, False)   # refused, not run
+    assert d.act(to_pyautogui(Action("done")))[1] is True
+    assert d.evaluate() == 0.5 and d.reward_source == "hooks.py:evaluate"
+    with pytest.raises(SystemExit, match="stopped by the person"):
+        d.act(to_pyautogui(Action("wait")))
+    with pytest.raises(SetupError, match="--harness legato"):
+        check(DesktopConfig(backend="local", options={"hooks": str(hooks)}), HarnessConfig(name="qwen"))
+    with pytest.raises(SetupError, match="--desktops 1"):
+        collect([{"task_id": "t"}], PolicyConfig("http://127.0.0.1:1/v1", "m"), tmp_path / "o", desktops=2,
+                desktop=DesktopConfig(backend="local", options={"hooks": str(hooks)}), harness=HarnessConfig(name="legato"))
+
+
+def test_bench_help_lists_its_commands(capsys):
+    from legato.__main__ import main
+    assert main(["bench", "--help"]) == 0
+    out = capsys.readouterr().out
+    assert "legato bench office" in out and "legato bench h2h" in out and "docs/benchmarks.md" in out
+    assert main(["bench", "nope"]) == 2 and "legato bench office" in capsys.readouterr().err

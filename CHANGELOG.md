@@ -17,6 +17,23 @@
   server names the three it looked for and how to start one, at once. Key hints use PowerShell's form on Windows.
   `legato doctor`, `legato run` and `report()` print " - " in place of the middle dot where stdout is not UTF-8
   (a Windows pipe showed it as another character).
+- **Python API: answers, cost limits, traces and honest planner totals.**
+  - A task that asks for information ("what", "tell me", a question mark) gets its answer in `result.answer` from
+    `Harness.run` too, not only `legato.run`: the task is sent with a line asking for it, and a done without it gets
+    one more turn (`ask_answer` now defaults to deciding from the task's words; `False` turns it off). GPT-6.1 Terra
+    and Claude Sonnet 5.5 returned `answer: ''` before. A planner (`legato.Planner`) now gives the answer as well.
+  - `Harness(plan=True)` offers only the steps that can run: no shell steps without a `bash` tool, no label steps
+    without a text reader (Windows and Linux), PowerShell named where the shell is PowerShell, and a step that
+    can't run is said to the model. On Windows with no tools it ran "out of steps ... 20 model turns, 0 actions".
+  - `max_cost_usd=` on `legato.run` and `Harness.run` ends a run with the new status `max_cost` once the cost the
+    provider reports reaches it. `on_step`'s `timing` carries `usage` (the run's tokens and cost so far).
+  - `record_dir=` saves the screen after each turn, and every run has `result.trace` (what the model said, what ran,
+    seconds, the screenshot's path), not only planner runs.
+  - Planner runs count the planner: `steps`, `usage`, `timings` and `report()` include its calls, tokens, cost and
+    seconds (they showed "0 model turns" and 0 tokens), `on_step` gets the actions each batch ran, and the planner's
+    notes are in `result.planner["notes"]` and at each planner call in the trace.
+  - `result.error` says why for every status but `done`: `failed` carries the model's reason (still in `answer`) and
+    `max_steps` says so; both were `None`.
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
   updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
   a first `legato run` with Safari closed failed with "Safari did not start (is it installed?)". The wait now runs
@@ -148,6 +165,17 @@ From the persona tests (six simulated launch users on a real Mac):
 - **Exported samples keep tool calls:** `response_text` includes the action. New fields: `response_content`,
   `response_tool_calls`, `tokens_cover_response`, `finish_reason`, `sampling`.
 - The fake desktop's reward can be set with `--fake-opts`, and help text says `legato rl`.
+- **`legato rl` works on a first try without VMs, and says what needs what.** docs/rl.md opens with "Try it in two
+  minutes, without VMs". `--backend fake` now runs `legato.Harness`, so the recorded actions are the model's own (the
+  old default clicked (10, 10) whatever the model said), and its reward is labelled fake in the records, the export
+  and the report. `legato rl probe` also sends an image and a tool call, says in words what the server is good for
+  (evaluation, policy-gradient training) and exits 1 for a model without image input; `collect --require-logprobs`
+  stops before any rollout when the server returns none. Every JSON option takes `@file.json` (PowerShell drops the
+  quotes inside an argument), and a bad one, a wrong model or URL, or a missing tasks file is one line, not a
+  traceback. `--backend path/to/file.py:Class` runs your own environment (`legato.rl.Desktop`,
+  `examples/rl_custom_backend.py`), and `--backend local` runs this computer's screen with your reset and grading.
+  The export gains `actions` (with the parsed action) and `reward_source`. OSWorld's errors say it needs Linux with
+  KVM. `legato bench --help` lists its commands.
 - **Safer on your own screen, on Windows too.** Typed `Remove-Item`, `del`, `rd`, `format`, `reg delete`, a shutdown and
   a downloaded script piped to `iex` wait for a yes, as `rm` and `sudo` do; so does Delete right after selecting
   everything. With nobody to ask (`legato run` with its output piped, or run by a coding agent) a risky action is

@@ -144,7 +144,9 @@ def export_steps(out_dir: str | Path, dest: str | Path, inline_images: bool = Fa
     response_text is what the model generated, tool calls included (see generated_text); response_content is the
     content alone. tokens_cover_response is False when the token ids and logprobs do not cover all of
     response_text (a tool call the server returned without its tokens, or no logprobs at all): train on those
-    samples by re-tokenizing, or skip them."""
+    samples by re-tokenizing, or skip them. actions is what the harness ran for the step: each one's code as the
+    desktop got it and, from legato.Harness, the parsed action ({"type": "click", "x", "y"}...). reward_source says
+    where the reward came from ("fake": not measured)."""
     out_dir = Path(out_dir)
     rs = read_rollouts(out_dir)
     adv = group_advantages(rs)
@@ -175,7 +177,9 @@ def export_steps(out_dir: str | Path, dest: str | Path, inline_images: bool = Fa
                     "response_tokens": resp.get("tokens"),
                     "response_content": resp.get("content"), "response_tool_calls": resp.get("tool_calls"),
                     "tokens_cover_response": covered, "finish_reason": resp.get("finish_reason"),
-                    "reward": r.get("reward"), "advantage": adv[r["rollout_id"]],
+                    "actions": [{"action": x.get("action"), "parsed": x.get("parsed")} for x in s.get("actions", [])],
+                    "reward": r.get("reward"), "reward_source": r.get("reward_source"),
+                    "advantage": adv[r["rollout_id"]],
                 }) + "\n")
                 n_steps += 1
     return {"rollouts": n_roll, "steps": n_steps, "dest": str(dest)}
