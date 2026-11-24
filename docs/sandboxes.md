@@ -99,7 +99,8 @@ agent.run("Sign up with the name Ada Lovelace", env)
 - **Don't use the same app yourself** while it works: its keys go to whatever has the focus in that app. Give it its own
   app, or its own browser (Chrome while you use Safari).
 - The window must stay on screen: not minimized, and on the current Space. Locking the Mac or sleep stops it. An app
-  hidden with Cmd+H is shown again (behind your app); the agent's own Cmd+H and Cmd+M are not run.
+  hidden with Cmd+H is shown again (behind your app); the agent's own Cmd+H and Cmd+M are not run, nor its clicks on the
+  window's close, minimize and zoom buttons.
 - **One app per task.** A task that moves between apps needs the whole screen (`--screen`).
 - **Firefox** works, but slowly in the background: use Safari or Chrome.
 - Your stop signals (a corner, Escape) don't apply, since the mouse and keyboard are yours: stop it from the program

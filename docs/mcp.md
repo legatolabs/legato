@@ -44,6 +44,7 @@ codex mcp add legato -- legato mcp                                   # Codex: th
 | `desktop_open(width=1280, height=800, url=None, app=None)` | opens a desktop (your screen with `--local`, else a fresh sandbox); returns its id and first screenshot. With `url` or `app` it starts that first and returns once the window has drawn (`app` is an app name on macOS, a command on Linux) |
 | `desktop_act(desktop_id, action, x, y, text, keys, direction, amount, end_x, end_y)` | click, double_click, triple_click, right_click, type, key, scroll, drag or wait, in pixels of the latest screenshot; returns the settled screenshot and how long the screen took |
 | `desktop_screenshot(desktop_id)` | the current screen |
+| `desktop_read(desktop_id, max_chars=8000)` | in the background on a Mac only: the window's text from its Accessibility tree, as an outline (`- heading "Counter"`, `- text "Count: 1"`, `- button "+1"`); in a browser, the page with its title and address. Other desktops answer with an error |
 | `desktop_shell(desktop_id, command, timeout_s=30)` | runs a shell command on the desktop's computer (the container, the sandbox, or yours with `--local` or `--background`, where it is not sandboxed); returns its output and exit code |
 | `desktop_run_task(desktop_id, task, model, base_url, api_key_env, max_steps)` | hands a whole task to Legato's own agent on a desktop from `desktop_open`, with the model `legato setup` saved unless you name one; returns the answer, the run report and the final screen |
 | `desktop_close(desktop_id)` | stops the desktop (a container or sandbox is deleted; in the background, the app and its window stay open) |
@@ -54,10 +55,19 @@ codex mcp add legato -- legato mcp                                   # Codex: th
   `legato mcp --image-format png` sends lossless PNG.
 - **On your own Mac, with other apps open:** `legato mcp --local --wait-scope app` waits on the front app's windows
   only, so a chat or video animating elsewhere doesn't hold every action to the wait's cap.
-- **In the background on your Mac:** `legato mcp --background` forces it whatever was saved.
+- **In the background on your Mac:** `legato mcp --background` forces it whatever was saved. It takes no app name:
+  the app is `desktop_open(app=...)`'s, else the one `legato setup --app` saved, else Safari or Chrome, whichever
+  is your default browser.
+- **`desktop_read` checks text without a screenshot.** Your agent can check that a page says `Count: 1` as it would
+  with Playwright's snapshot. It reads the window that `desktop_act` works in.
 - **A fixed-sleep baseline:** `legato mcp --fixed-wait 2` sleeps after every action instead of waiting for the screen.
 - **See what the agent did:** `legato mcp --record DIR` saves every screenshot the agent got, with a `log.jsonl` of its
   actions, under `DIR/<desktop_id>/`.
 - **`desktop_shell` skips the screen** for what a command does faster: starting apps, reading files, checking results.
 - **`desktop_run_task` delegates.** Use it to offload a whole GUI task to a cheaper open model while your agent keeps
   working.
+
+If something fails, `legato doctor` (or `legato doctor --json`) says what is installed and set up, with the fix for
+each. On a Mac it also takes one real window capture, as background mode does, and reports whether it works, stalled
+(macOS's capture service is busy: Legato falls back to the slower `screencapture`) or failed. With a model on your
+machine (`localhost`), it checks that the server answers.

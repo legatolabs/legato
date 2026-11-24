@@ -14,6 +14,8 @@ Tools:
 - desktop_act: click, type, press keys, scroll or drag. The tool returns once the screen has stopped changing, with
   the new screenshot. Coordinates are pixels of the last screenshot.
 - desktop_screenshot: the current screen.
+- desktop_read: in the background on a Mac, the window's text from its Accessibility tree, to check what it says
+  without a screenshot.
 - desktop_shell: run a shell command on the desktop's computer and get its output and exit code.
 - desktop_run_task: hand a whole task to Legato's own agent (your saved model, or one you name) and get back its
   report and the final screen.
@@ -252,6 +254,25 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         img = shot(get(desktop_id))
         keep(desktop_id, "screenshot", desks[desktop_id]["png"])
         return img
+
+    @srv.tool()
+    @_said
+    def desktop_read(desktop_id: str, max_chars: int = 8000) -> str:
+        """The text of a background desktop's window (legato mcp --background, macOS), read from its Accessibility
+        tree: an outline with one line per element, such as `- heading "Counter"`, `- text "Count: 1"` or
+        `- textbox "Name": "Ada" [focused]`. In a browser it is the page, with its title and address first. Use it to
+        check what an app or page says (a count, a message, a field's value) without a screenshot. max_chars: where
+        the outline is cut (default 8000). Other desktops have no such tree: use desktop_screenshot."""
+        from legato.background import BackgroundEnv
+        d = get(desktop_id)
+        if not isinstance(d["env"], BackgroundEnv):
+            raise ToolError("desktop_read works only in background mode on a Mac (legato mcp --background), where it "
+                            "reads the window's Accessibility tree; on this desktop use desktop_screenshot, or "
+                            "desktop_shell to check files and output")
+        t = time.monotonic()
+        text = d["env"].read(max_chars=min(max(int(max_chars), 200), 200_000))
+        keep(desktop_id, "read", None, chars=len(text), seconds=round(time.monotonic() - t, 3))
+        return text
 
     @srv.tool()
     @_said

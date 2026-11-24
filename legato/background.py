@@ -13,11 +13,14 @@ clipboard:
   focused (text fields), selected (rows, cells), or, in text, the insertion point is placed at that character.
   Double and triple clicks in text select the word and the line.
 - **Scrolling** moves the scroll bar of the area under the point.
+- **Reading** (`read()`, the MCP server's `desktop_read`): the window's text from its Accessibility tree, as a short
+  outline, so a program can check what it says without a screenshot.
 
 What has no Accessibility equivalent is not run, and the model is told why (`legato.safety.Unavailable`): drags, a
 click on something that can't be pressed, focused or selected (a canvas, an empty area), and anything outside the
-app (the Dock, the menu bar, Spotlight, other apps). The person should not use the same app while the agent does:
-its keys go to whatever has focus in that app.
+app (the Dock, the menu bar, Spotlight, other apps). Hiding the app, and the window's close, minimize and zoom
+buttons, are refused too: the agent needs the window as it is. The person should not use the same app while the
+agent does: its keys go to whatever has focus in that app.
 
 Needs Accessibility and Screen Recording permission for the app that runs Python, and
 pyobjc-framework-ApplicationServices (in the `local` extra on macOS).
@@ -54,6 +57,27 @@ TEXT_ROLES = {"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField", "AXSec
 STOP_ROLES = {"AXWindow", "AXApplication", "AXWebArea", "AXScrollArea", "AXSheet", "AXDialog"}
 PRESS = ("AXPress", "AXPick", "AXConfirm")
 HIDES = re.compile(r"(cmd|command|super|meta)(\+(alt|option))?\+[hm]")   # hide the app, minimize the window
+# the title bar's buttons (the window's attribute and the button's subrole have the same name)
+WINDOW_BUTTONS = {"AXCloseButton": "close", "AXMinimizeButton": "minimize", "AXZoomButton": "zoom",
+                  "AXFullScreenButton": "full screen"}
+# read(): the attributes of each element, short role names, and containers that get no line of their own
+READ_ATTRS = ["AXRole", "AXTitle", "AXValue", "AXDescription", "AXPlaceholderValue", "AXEnabled", "AXFocused",
+              "AXSelected", "AXChildren"]
+ROLE_NAMES = {"AXStaticText": "text", "AXTextField": "textbox", "AXTextArea": "textbox",
+              "AXSecureTextField": "password", "AXWebArea": "page", "AXPopUpButton": "popup", "AXCheckBox": "checkbox",
+              "AXRadioButton": "radio", "AXMenuButton": "menubutton", "AXComboBox": "combobox"}
+QUIET_ROLES = {"AXGroup", "AXGenericElement", "AXSplitGroup", "AXScrollArea", "AXLayoutArea", "AXLayoutItem",
+               "AXUnknown", "AXMatte", "AXRuler", "AXGrowArea", "AXSplitter", "AXScrollBar", "AXValueIndicator"}
+
+
+def _str(v: Any) -> str:
+    """A text attribute, trimmed ("" for anything that is not text)."""
+    return str(v).strip() if isinstance(v, str) else ""
+
+
+def _quote(s: str, cap: int = 2000) -> str:
+    import json
+    return json.dumps(s if len(s) <= cap else s[:cap] + "…", ensure_ascii=False)
 
 
 def _within(seconds: float, fn):
@@ -253,6 +277,15 @@ class MacApp:
         err, v = self.AS.AXUIElementCopyAttributeValue(el, name, None)
         return v if err == 0 else None
 
+    def attrs(self, el: Any, names: list[str]) -> dict:
+        """Several attributes in one round trip (a walk over a web page is mostly these). Missing ones are left out."""
+        AS = self.AS
+        err, vals = AS.AXUIElementCopyMultipleAttributeValues(el, names, 0, None)
+        if err != 0 or vals is None:
+            return {}
+        return {n: v for n, v in zip(names, vals) if v is not None
+                and not (isinstance(v, AS.AXValueRef) and AS.AXValueGetType(v) == AS.kAXValueAXErrorType)}
+
     def settable(self, el: Any, name: str) -> bool:
         err, ok = self.AS.AXUIElementIsAttributeSettable(el, name, None)
         return err == 0 and bool(ok)
@@ -368,6 +401,109 @@ class BackgroundEnv(LocalEnv):
         h = hashlib.blake2b(png, digest_size=16)
         h.update(repr((w["id"], w["x"], w["y"], w["w"], w["h"])).encode())
         return h.hexdigest()
+
+    def read(self, max_chars: int = 8000) -> str:
+        """The window's text from its Accessibility tree: one line per element that says something, indented under
+        what holds it, such as `- button "+1"` or `- text "Count: 1"`, with states in brackets ([focused],
+        [disabled], [checked], [selected]). In a browser, the page only (its title and address first, the browser's
+        own toolbar left out). Cut at about `max_chars` characters."""
+        self.window()
+        win = self._ax_window()
+        if win is None:
+            raise RuntimeError(f"{self.app}'s window has no Accessibility tree to read")
+        page = self._find_role(win, "AXWebArea")
+        root = page if page is not None else win
+        a = self._attrs(root, ["AXTitle", "AXURL"])
+        title = _str(a.get("AXTitle")) or _str(self.m.attr(win, "AXTitle")) or self.app
+        head = f"{'page' if page is not None else 'window'} {_quote(title)}"
+        if page is not None and (url := a.get("AXURL")) is not None:
+            head += f" {url.absoluteString() if hasattr(url, 'absoluteString') else url}"
+        return self._outline(root, head, max(200, int(max_chars)))
+
+    def _attrs(self, el: Any, names: list[str]) -> dict:
+        if hasattr(self.m, "attrs"):
+            return self.m.attrs(el, names)
+        return {n: v for n in names if (v := self.m.attr(el, n)) is not None}
+
+    def _find_role(self, root: Any, role: str, limit: int = 3000) -> Any:
+        """The first element with `role` under `root`, breadth first (a browser's page is near the top)."""
+        todo, seen = [root], 0
+        while todo and seen < limit:
+            node = todo.pop(0)
+            seen += 1
+            a = self._attrs(node, ["AXRole", "AXChildren"])
+            if a.get("AXRole") == role:
+                return node
+            todo.extend(a.get("AXChildren") or [])
+        return None
+
+    def _outline(self, root: Any, head: str, max_chars: int, max_nodes: int = 6000, max_s: float = 8.0) -> str:
+        lines, size, seen, cut = [head], len(head), 0, ""
+        end = time.monotonic() + max_s
+        a = self._attrs(root, ["AXChildren"])
+        todo = [(k, 0, "") for k in reversed(list(a.get("AXChildren") or []))]
+        while todo:
+            if seen >= max_nodes or time.monotonic() > end:
+                cut = f"[stopped after {seen} elements]"
+                break
+            node, depth, above = todo.pop()
+            seen += 1
+            a = self._attrs(node, READ_ATTRS)
+            role = str(a.get("AXRole") or "")
+            kids = list(a.get("AXChildren") or [])
+            label = _str(a.get("AXTitle")) or _str(a.get("AXDescription"))
+            value = a.get("AXValue")
+            if role == "AXStaticText":
+                label, value = _str(value) or label, None
+                if not label or label == above:
+                    continue                      # empty, or the text of the line above it
+            elif not label and kids and role not in QUIET_ROLES and len(kids) <= 8:
+                texts = [self._attrs(k, ["AXRole", "AXValue"]) for k in kids]
+                if all(t.get("AXRole") == "AXStaticText" for t in texts):       # a heading or link: its text
+                    label, kids = " ".join(s for t in texts if (s := _str(t.get("AXValue")))), []
+            line = self._line(role, label, value, a, bool(kids))
+            if line is None:                      # an element that says nothing: its children take its place
+                todo.extend((k, depth, above) for k in reversed(kids))
+                continue
+            line = "  " * depth + line
+            if size + len(line) + 1 > max_chars:
+                cut = f"[cut at {max_chars} characters: ask for more with max_chars]"
+                break
+            lines.append(line)
+            size += len(line) + 1
+            todo.extend((k, depth + 1, label) for k in reversed(kids))
+        if len(lines) == 1:
+            lines.append("(no text: the window's Accessibility tree is empty; use a screenshot)")
+        return "\n".join(lines + ([cut] if cut else []))
+
+    @staticmethod
+    def _line(role: str, label: str, value: Any, a: dict, kids: bool) -> str | None:
+        """One element as `- role "label": value [states]`, or None when it says nothing: a container without a
+        label, or an element with no label, value, state or children (an icon)."""
+        if role in QUIET_ROLES and not label:
+            return None
+        name = ROLE_NAMES.get(role) or (role[2:].lower() if role.startswith("AX") else role.lower()) or "element"
+        out = f"- {name}" + (f" {_quote(label)}" if label else "")
+        states = []
+        if role in TEXT_ROLES:
+            out += f": {_quote(_str(value))}"
+            if not _str(value) and _str(a.get("AXPlaceholderValue")):
+                states.append(f"placeholder {_quote(_str(a.get('AXPlaceholderValue')))}")
+        elif role in ("AXCheckBox", "AXRadioButton", "AXSwitch") and isinstance(value, (bool, int, float)):
+            states.append("checked" if value else "not checked")
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            out += f": {value:g}"
+        elif _str(value) and _str(value) != label:
+            out += f": {_quote(_str(value))}"
+        if a.get("AXFocused") is True:
+            states.append("focused")
+        if a.get("AXEnabled") is False:
+            states.append("disabled")
+        if a.get("AXSelected") is True:
+            states.append("selected")
+        if not kids and not states and out == f"- {name}":
+            return None
+        return out + (f" [{', '.join(states)}]" if states else "")
 
     def stop_requested(self) -> str | None:
         return None
@@ -545,11 +681,43 @@ class BackgroundEnv(LocalEnv):
             el, depth = self.m.attr(el, "AXParent"), depth + 1
         return "none", hit
 
+    def _ax_window(self) -> Any:
+        """The Accessibility element of the window the screenshots show: the app's window with the same frame, else
+        its main window."""
+        w = self.win or self.window()
+        wins = list(self.m.attr(self.m.app, "AXWindows") or [])
+        for el in wins:
+            f = self.m.frame(el)
+            if f is not None and all(abs(a - b) <= 2 for a, b in zip(f, (w["x"], w["y"], w["w"], w["h"]))):
+                return el
+        return self.m.attr(self.m.app, "AXMainWindow") or (wins[0] if wins else None)
+
+    def _window_button(self, x: float, y: float, el: Any = None) -> str | None:
+        """"close", "minimize", "zoom" or "full screen" when screen point (x, y), or the element `el` hit there, is
+        that button of the window's title bar. The buttons come from the window's own attributes, so they are found
+        wherever the app draws them."""
+        if el is not None and (sub := self.m.attr(el, "AXSubrole")) in WINDOW_BUTTONS:
+            parent = self.m.attr(el, "AXParent")
+            if parent is not None and self.m.attr(parent, "AXRole") == "AXWindow":    # not a tab's close button
+                return WINDOW_BUTTONS[sub]
+        win = self._ax_window()
+        for name, what in WINDOW_BUTTONS.items():
+            b = self.m.attr(win, name) if win is not None else None
+            f = self.m.frame(b) if b is not None else None
+            if f is not None and f[0] - 2 <= x < f[0] + f[2] + 2 and f[1] - 2 <= y < f[1] + f[3] + 2:
+                return what
+        return None
+
     def _click(self, t: str, x: float, y: float, a: Action) -> None:
+        what = a.describe()
         kind, el = self._target(x, y)
+        if button := self._window_button(x, y, el):
+            # pressing them from the back left TextEdit not answering; and the agent needs the window as it is
+            raise safety.Unavailable(f"{what}: that is the window's {button} button, which background mode doesn't "
+                                     f"press: {self.app}'s window has to stay as it is. When the task is done, say so "
+                                     "instead")
         self.target = (kind, None if el is None else f"{self.m.attr(el, 'AXRole')} {self.m.attr(el, 'AXTitle') or ''}"
                        f" {self.m.frame(el) if hasattr(self.m, 'frame') else ''}".strip())
-        what = a.describe()
         if t == "right_click":
             node = el
             for _ in range(8):
@@ -565,9 +733,9 @@ class BackgroundEnv(LocalEnv):
             return
         if kind == "none":
             role = self.m.attr(el, "AXRole") if el is not None else None
-            raise safety.Unavailable(f"{what}: {'nothing' if role is None else role} at that point can be pressed, "
-                                     "focused or selected in background mode; click a button, link, field or row, "
-                                     "or use the keyboard")
+            there = "nothing at that point can" if role is None else f"the {role} at that point can't"
+            raise safety.Unavailable(f"{what}: {there} be pressed, focused or selected in background mode; click a "
+                                     "button, link, field or row, or use the keyboard")
         if a.keys:
             raise safety.Unavailable(f"{what}: a click with keys held isn't possible in background mode")
         if t == "triple_click":

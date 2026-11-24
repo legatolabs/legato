@@ -49,6 +49,10 @@
       "description": "The current screen"
     },
     {
+      "name": "desktop_read",
+      "description": "In the background on a Mac: the window's text from its Accessibility tree, as an outline"
+    },
+    {
       "name": "desktop_shell",
       "description": "Run a shell command on the desktop's computer; returns its output and exit code"
     },
