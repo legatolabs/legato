@@ -13,6 +13,14 @@
   every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
   stall the window is taken with `screencapture` for the next five minutes (its sheets and menus are left out then).
   A run that fails mid-way prints one line, not a traceback.
+- **MCP on Windows reads text and waits.** `desktop_read` works on a Windows screen: the foreground window's text
+  (an Edge or Chrome page, Notepad, a dialog, Settings) through the UI Automation that PowerShell ships with, with
+  nothing to install. New `desktop_wait` waits until given text is in the window, or until the screen has changed and
+  holds still. `desktop_open` gives `{desktop_id, width, height, started, start_error}` as structured content, the
+  real screen size, and marks a url or app that did not start as an error; the server reports its version.
+  `desktop_run_task` takes no `desktop_id` (it opens a desktop for the run and closes it), adds `cost_usd` to its
+  structured result, and says when the model key is missing from the server's environment. The MCP docs say what the
+  one-click buttons need (uv and Docker) and show the path that works everywhere.
 - **The MCP server passes a desktop's failure to the client with its reason** (the MCP library otherwise shows only
   "Error executing tool"). The MCP docs say what `desktop_close` and `desktop_shell` do in the background.
 - **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on
