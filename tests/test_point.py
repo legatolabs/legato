@@ -227,3 +227,44 @@ def test_a_pointer_without_tool_calls_answers_in_text():
     assert _point_args(rec(content="click(start_box='(412,96)')")) == {"found": True, "coordinate": [412.0, 96.0]}
     assert _point_args(rec(content="<point>412 96</point>"))["coordinate"] == [412.0, 96.0]
     assert _point_args(rec(content="It is not on the screen.")) == {"found": False} and _point_args(rec(content="?")) == {}
+
+
+def test_a_planner_whose_harness_has_a_shell_names_commands_and_reads_their_output():
+    ran = []
+    sh = legato.tools.Tool("bash", "a shell", {"type": "object", "properties": {"command": {"type": "string"}}},
+                           lambda a: (ran.append(a["command"]), "3 files\n[exit 0]")[1])
+    p = Planner("big", "http://x/v1", style="point",
+                client=Scripted([act("continue", {"shell": "ls | wc -l"}, {"key": "ctrl+s"}), act("done")]))
+    h = legato.Harness("small", "http://x/v1", planner=p, tools=[sh])
+    h.client = Scripted([])
+    log = []
+    res = h.run("count", desktop(log))
+    assert res.done and ran == ["ls | wc -l"] and res.steps == 0 and res.planner["calls"] == 2
+    assert [a.keys for a in log if a.type == "key"] == ["ctrl+s"]
+    first, again = p.client.sent[0], p.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert '{"shell": "<command>"}' in first["messages"][0]["content"] and "applescript" not in first["messages"][0]["content"]
+    assert "shell" in first["tools"][0]["function"]["parameters"]["properties"]["actions"]["items"]["properties"]
+    assert "1. shell: ls | wc -l\n   -> 3 files\n[exit 0]" in again and "2. key ctrl+s" in again
+
+
+def test_a_planner_without_a_shell_is_not_told_of_one():
+    h, p = harness([act("done")], [])
+    h.run("x", desktop([]))
+    assert "shell" not in p.client.sent[0]["messages"][0]["content"].lower().replace("shift", "")
+    assert "shell" not in json.dumps(p.client.sent[0]["tools"])
+
+
+def test_notes_come_back_at_every_call():
+    def noted(status, notes, *actions):
+        return rec([call("act", {"status": status, "actions": list(actions), "notes": notes})])
+    p = Planner("big", "http://x/v1", style="point", notes=True,
+                client=Scripted([noted("continue", "rows 1-3 read: A=1 B=2", {"key": "down"}),
+                                 act("continue", {"key": "down"}), act("done")]))
+    h = legato.Harness("small", "http://x/v1", planner=p)
+    h.client = Scripted([])
+    res = h.run("compare", desktop([]))
+    assert res.done and res.planner["calls"] == 3
+    assert "notes" in p.client.sent[0]["tools"][0]["function"]["parameters"]["properties"]
+    assert "Your notes" not in p.client.sent[0]["messages"][1]["content"][0]["text"]
+    for later in p.client.sent[1:]:                       # a call without new notes keeps the earlier ones
+        assert "Your notes:\nrows 1-3 read: A=1 B=2" in later["messages"][1]["content"][0]["text"]

@@ -1,9 +1,13 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0
 
 One agent, four ways in, and one command to set it up.
 
+- **Planner notes and shell:** `Planner(..., style="point", notes=True)` lets the planner keep notes that are given
+  back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
+  the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
+  (`shell_name` says which shell that is).
 - **`legato setup`:** choose the model (checked with one call) and where it works, add Legato to the coding agents it
   finds (Claude Code, Codex, Cursor, Claude Desktop), and watch a first task. `--yes` and `--json` for coding agents;
   a key can come on stdin (`--api-key -`). Saved to `~/.config/legato/config.json`, readable by you only.
@@ -25,10 +29,9 @@ One agent, four ways in, and one command to set it up.
 - macOS: a sum ("1269*5693=") is typed key by key like a number, since Calculator ignores a pasted sum (legato-research
   EXP-0085: the Calculator task 0.375x the time). The harness reads an action a model left open before its own
   closing tags (Qwen3.8-27B).
+- **Two models, one plans and one points (#42):** `legato.Planner(..., style="point")`: a strong model names each
+  action and a small one finds it on the screen, the setup of the Windows runs (GPT-6.1 Terra with UI-TARS-1.5-7B).
 - Docs: a shorter README; Set up, Mac app, and Terminal and Python pages; the sidebar from 21 links to 12.
-
-## Unreleased
-
 - `legato.hosted` is no longer exported from `legato`: the managed service isn't live yet. The module stays
   (`from legato import hosted`), and the FAQ says there is no hosted version yet.
 - **Easy start (#35):** `legato` alone prints what to do first: `legato init`, the three ways to use Legato, and a

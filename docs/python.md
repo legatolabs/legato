@@ -60,6 +60,10 @@ result = agent.run("Open example.com and check the page title", desk, max_steps=
 - **`legato.Harness()` with no model** uses the saved one. `legato.agent_for(desk)` returns a Harness set up the way
   the Mac app and the CLI run on that desktop: on a Mac's whole screen, one plan per turn with a shell and checked
   AppleScript beside the screen.
+- **Two models:** a strong model plans each action and a small one finds it on the screen. It is how our Windows
+  runs work (GPT-6.1 Terra with UI-TARS-1.5-7B):
+  `legato.Harness("bytedance/ui-tars-1.5-7b", url, key, coords="pixels", native_tools=False,
+  planner=legato.Planner("openai/gpt-6.1-terra", url, key, style="point"))`.
 - **Tools beside the screen:** `legato.Harness(..., tools=[legato.tools.bash(env)])` gives the model a shell in that
   desktop; `legato.Tool(name, description, json_schema, handler)` wraps your own function, whose text result goes
   back to the model.
