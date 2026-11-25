@@ -1,7 +1,7 @@
 # Set up Legato
 
-Legato is a fast, open-source computer-use agent: it uses a computer (clicks, types, reads the screen) with the model
-you choose. Setup takes about two minutes.
+Legato is a fast, open-source computer-use runtime: its agent uses a computer (clicks, types, reads the screen) with
+the model you choose. Setup takes about two minutes.
 
 **Before you start:** you need a model key (OpenRouter, Anthropic, OpenAI, another provider, or a model server of
 your own with no key), and on a Mac, Accessibility and Screen Recording for the app that runs Legato (your terminal,

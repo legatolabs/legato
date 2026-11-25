@@ -1,6 +1,6 @@
 # Legato FAQ
 
-Legato is a fast, open-source (Apache-2.0) computer-use agent: it sends screenshots to the vision model you choose,
+Legato is a fast, open-source (Apache-2.0) computer-use runtime: it sends screenshots to the vision model you choose,
 runs the actions it picks on a desktop, and decides when the screen is ready for the next screenshot.
 
 **How do I start?**

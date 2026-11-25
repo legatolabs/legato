@@ -1,4 +1,4 @@
-"""legato: a fast computer-use agent for any OpenAI-compatible model. https://legato.computer
+"""legato: a fast computer-use runtime for any OpenAI-compatible model. https://legato.computer
 
     result = legato.run("Find the weather in Tokyo tomorrow")       # the model and desktop `legato setup` saved
     print(result.answer, result.report())

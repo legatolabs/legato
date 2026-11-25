@@ -40,7 +40,7 @@ def welcome() -> str:
         now = f"Set up: {cfg.model}{config.dot()}{desk}" + (f" ({cfg.app})" if cfg.app else "") + "   (legato setup to change)"
     else:
         now = "Not set up yet: start with legato setup."
-    return f"""legato {__version__}: a fast computer-use agent for any model.
+    return f"""legato {__version__}: a fast computer-use runtime for any model.
 
   legato setup        choose your model and where it works, then watch a first task (about two minutes)
   legato run "..."    do a task, e.g. legato run "Find the next train from SF to San Jose on caltrain.com"

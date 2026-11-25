@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Legato is a fast computer-use agent for any model, with four ways in that share one agent: the Mac app
+Legato is a fast computer-use runtime for any model, with four ways in that share one agent: the Mac app
 (`app/macos`), `legato run` (terminal), `legato mcp` (MCP server for coding agents) and the Python package
 (`legato.run`, `legato.Harness`, `legato.attach`). `legato setup` saves the model and desktop the last three use.
 `legato rl` runs RL rollouts. PyPI name `legatolabs`, import name `legato`.
