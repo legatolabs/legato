@@ -19,7 +19,7 @@ const TODAY = new Date().toISOString().slice(0, 10);   // sitemap lastmod: the d
 const NAV = [
   ["Start", [["README.md", "Overview"], ["docs/setup.md", "Set up"]]],
   ["Ways in", [["docs/mac.md", "Mac app"], ["docs/mcp.md", "Coding agents (MCP)"], ["docs/python.md", "Terminal and Python"]]],
-  ["Reference", [["docs/sandboxes.md", "Desktops"], ["docs/models.md", "Models"], ["docs/rl.md", "RL rollouts"],
+  ["Reference", [["docs/sandboxes.md", "Desktops"], ["docs/models.md", "Models"], 
                  ["docs/benchmarks.md", "Benchmarks"], ["docs/faq.md", "FAQ"]]],
   ["More", [["docs/guides.md", "Guides"], ["docs/compare.md", "Comparisons"]]],
 ];

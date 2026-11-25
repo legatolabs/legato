@@ -190,7 +190,7 @@ the other built-in desktops raise `legato.DesktopStartError` when they can't sta
 own code: `python agent.py "Open example.com and tell me the page's heading"`. It prints each turn, the answer and
 the report.
 
-## RL rollouts and benchmarks
+## Benchmarks
 
-`legato rl collect` runs graded rollouts with token logprobs and GRPO groups ([RL rollouts](rl.md)); `legato bench`
-runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)).
+`legato bench` runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)). RL rollouts at
+scale are part of Legato Cloud, in beta ([rl.md](rl.md)).

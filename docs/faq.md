@@ -72,7 +72,8 @@ Windows and macOS cloud desktops are planned for Legato Cloud. For browser-only 
 fits better.
 
 **RL training?**
-`legato rl collect` runs graded rollouts with token logprobs and GRPO groups ([rl.md](rl.md)).
+RL rollouts at scale are part of Legato Cloud, in beta: the model's state and the desktop forked together, so rollouts
+branch mid-task. Join the waitlist on [legato.computer](https://legato.computer) ([more](rl.md)).
 
 **How do I check it on my own tasks?**
 Compare `result.report()` from `legato.Harness` and `legato.Harness.reference` on them
