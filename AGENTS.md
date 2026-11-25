@@ -23,8 +23,10 @@ Legato is a fast computer-use runtime for any model, with four ways in that shar
     `release.sh` for a notarized `.dmg` (the `mac-app` workflow runs it on each `v*` tag).
   - `legato/rl/`: rollouts and benchmarks.
   - `docker/desktop/`: the desktop image for `--sandbox docker`.
-  - `.claude-plugin/`, `plugin.json`, `mcp.json`, `gemini-extension.json`, `mcpb/`, `server.json`: how editors and
-    registries install the MCP server. Keep their versions in step with `pyproject.toml` (`tests/test_versions.py`).
+  - `plugins/legato/` (the Claude Code plugin, listed by `.claude-plugin/marketplace.json`; its skills and LICENSE
+    are copies of the root ones), `.cursor-plugin/`, `plugin.json`, `mcp.json`, `gemini-extension.json`, `mcpb/`,
+    `server.json`: how editors and registries install the MCP server. Keep their versions, and the plugin's pinned
+    package, in step with `pyproject.toml` (`tests/test_versions.py`).
   - `docs/`: user docs. `docs/setup.md` is what "Set up Legato for me: https://legato.computer/setup" reads; keep
     its steps runnable by a coding agent.
   - `personas/`: who uses the harness, the MCP and the Mac app, most likely first.

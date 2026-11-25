@@ -1,0 +1,11 @@
+{
+  "name": "legato",
+  "displayName": "Legato",
+  "version": "0.3.2",
+  "description": "Give Claude Code a computer: an MCP server that opens a Linux desktop in a Docker container, clicks and types in it, and returns the settled screenshot after each action. With two skills, on using the desktop well and on running whole tasks with any model.",
+  "author": { "name": "Legato Labs", "url": "https://legato.computer" },
+  "homepage": "https://legato.computer/docs/guides/coding-agent-computer",
+  "repository": "https://github.com/legatolabs/legato",
+  "license": "Apache-2.0",
+  "keywords": ["computer-use", "mcp", "desktop", "gui", "docker", "testing"]
+}
