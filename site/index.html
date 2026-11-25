@@ -48,7 +48,7 @@
     <a class="brand" href="/" aria-label="Legato home"><img src="/brand/wordmark.svg" alt="Legato" width="92" height="19"></a>
     <nav class="nav" aria-label="Main">
       <a href="/docs/benchmarks">research</a>
-      <a href="/mac">try it</a>
+      <a href="/setup">try it</a>
       <a href="/docs" class="hide-xs">docs</a>
       <a href="https://github.com/legatolabs/legato" rel="noopener" class="hide-sm">github</a>
       <span class="est hide-sm">est. 2026</span>
@@ -63,9 +63,16 @@
     <div>
       <h1>The runtime for<br><em>agents that act.</em></h1>
       <p class="lead">Inference got fast. Sandboxes got fast. The loop between them didn't. We're building the runtime for computer-use agents and the RL that trains them.</p>
-      <div class="cta">
-        <a class="btn" href="#partners">work with us</a>
-        <a class="link" href="/mac">try it on your computer →</a>
+      <div class="start">
+        <span class="start-label">Try it: paste this into Claude Code, Codex or Cursor</span>
+        <button class="install agent" type="button" data-copy="Set up Legato for me: https://legato.computer/setup"><span class="p">&gt;</span><code>Set up Legato for me: https://legato.computer/setup</code><span class="copied">copy</span></button>
+        <p class="start-note">Your agent installs Legato, sets it up with the model you use, and runs a first task. <a href="/setup">What it does</a></p>
+        <div class="cta">
+          <button class="install" type="button" data-copy="pip install legatolabs &amp;&amp; legato setup"><span class="p">$</span>pip install legatolabs &amp;&amp; legato setup<span class="copied">copy</span></button>
+          <a class="link dim" href="https://github.com/legatolabs/legato" rel="noopener">GitHub</a>
+          <a class="link dim" href="/mac">Mac app</a>
+          <a class="link" href="#partners">work with us →</a>
+        </div>
       </div>
     </div>
     <figure class="loopfig" aria-label="The agent loop: observe, decide, act, wait. Legato runs it.">
