@@ -334,13 +334,18 @@ class Pointing:
         status = str(a.get("status") or "").lower()
         acts = [x for x in _actions(a) if
                 any(k in x for k in ("click", "key", "type", "scroll", "drag", "wait") + self.shell)][: p.max_steps]
+        noted = isinstance(a.get("notes"), str) and bool(a["notes"].strip())
         if status not in ("continue", "done", "fail"):
-            status = "continue" if acts else "fail"
+            status = "continue" if acts or noted else "fail"
+        elif status == "fail" and noted and not str(a.get("answer") or "").strip():
+            status = "continue"                     # a fail with no reason beside notes on what to do next (Qwen): ask again
         empty = status == "continue" and not acts   # a turn spent on notes or thinking, with nothing to run (Qwen does
         #                                              this on its first call): ask again, twice at most, then it fails
         self.empty = self.empty + 1 if empty else 0
         if empty and self.empty > 2:
-            status, a = "fail", {**a, "answer": a.get("answer") or "the planner gave no actions to run, three calls in a row"}
+            notes = a.get("notes").strip()[:300] if isinstance(a.get("notes"), str) else ""
+            status, a = "fail", {**a, "answer": a.get("answer") or "the planner gave no actions to run, three calls in a row"
+                                 + (f" (its notes: {notes})" if notes else "")}
         if p.notes and isinstance(a.get("notes"), str) and a["notes"].strip():
             self.notes = a["notes"].strip()[:NOTES_MAX]
         progress = " ".join(str(a.get("progress") or "").split())[:400]

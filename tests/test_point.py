@@ -383,6 +383,20 @@ def test_a_planner_turn_with_notes_and_no_actions_is_asked_again_not_taken_as_fa
     assert (res.status, res.planner["calls"]) == ("failed", 3) and "no actions" in res.error
 
 
+def test_a_fail_with_no_reason_or_no_status_is_asked_again():
+    """Seen from Qwen3.8-27B as the planner on Windows: "fail" with nothing but notes naming the next step, or no status."""
+    for first in ({"status": "fail", "notes": "clear the file name, then type greek.txt"}, {"notes": "open notepad next"}):
+        h, p = harness([rec([call("act", first)]), act("continue", {"key": "ctrl+s"}), act("done")], [])
+        res = h.run("t", desktop([]))
+        assert (res.status, res.planner["calls"], res.actions) == ("done", 3, ["key ctrl+s", "done"]), first
+    h, _ = harness([rec([call("act", {"status": "fail", "answer": "the app is not installed"})])], [])
+    res = h.run("t", desktop([]))                                               # a fail that says why still ends the run
+    assert (res.status, res.error) == ("failed", "the app is not installed")
+    h, _ = harness([rec([call("act", {"status": "fail", "notes": "stuck on the save box"})])] * 3, [])
+    res = h.run("t", desktop([]))
+    assert res.status == "failed" and "stuck on the save box" in res.error      # three in a row: its notes say where
+
+
 def test_loosely_written_actions_are_still_read():
     """Seen from Qwen3.8-27B through OpenRouter: "actions.1" holding one object, or "actions" as an object."""
     for args in ({"status": "continue", "actions.1": {"key": "ctrl+s"}}, {"status": "continue", "actions": {"key": "ctrl+s"}},
