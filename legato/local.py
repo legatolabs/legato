@@ -41,7 +41,7 @@ KEYS = {"Return": "enter", "Escape": "esc", "Tab": "tab", "BackSpace": "backspac
 
 
 # On macOS: text typed key by key instead of pasted. A number, a letter or two, and a sum (digits with arithmetic signs;
-# not "--", which macOS turns into a dash): Calculator ignores a pasted sum that ends in "=" (legato-research EXP-0085).
+# not "--", which macOS turns into a dash): Calculator ignores a pasted sum that ends in "=".
 KEYED = re.compile(r"[0-9:./]{1,10}|[A-Za-z]{1,2}|(?=.*[0-9])(?!.*--)[0-9.,:/*+\-=%()^]{1,32}")
 
 

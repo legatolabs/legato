@@ -83,7 +83,7 @@ class Planner:
     client: Any = None                   # anything with .chat(messages, ...) -> record; built from the fields if None
     style: str = "steps"                 # "steps": the executor does each step (this module); "point": legato/point.py
     notes: bool = True                   # point: the planner keeps notes that are given back to it at every call
-    #                                      (on by default: it does not slow short tasks, legato-research EXP-0098)
+    #                                      (on by default: it does not slow short tasks)
     shell_name: str = ""                 # point: what the harness's shell tool runs, as the planner is told ("":
     #                                      what the tool says it runs: bash, or PowerShell on Windows)
 

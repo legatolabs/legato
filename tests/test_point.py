@@ -369,7 +369,7 @@ def test_max_cost_usd_ends_a_planner_run():
 
 
 def test_a_planner_turn_with_notes_and_no_actions_is_asked_again_not_taken_as_fail():
-    """Qwen3.8-27B spends its first call writing notes (legato-research EXP-0109): status continue, no actions."""
+    """Qwen3.8-27B spends its first call writing notes: status continue, no actions."""
     def noted(text: str) -> dict:
         return rec([call("act", {"status": "continue", "notes": text})])
     log: list = []

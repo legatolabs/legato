@@ -192,7 +192,7 @@ def deny_and_say(description: str) -> bool:
     """For a command line with nobody to ask (its output piped, or run by another program): the risky action is not
     run and the run ENDS there, with one line on stderr saying what it was and how to allow it. Carrying on would
     let the model reach the same end another way that no rule sees (a Delete item in a right-click menu), which is
-    what happened when this only refused (legato-research EXP-0107)."""
+    what happened when this only refused."""
     print(f"legato: stopped with nobody to ask: the agent wanted to {description}. --yes allows risky actions: an "
           "agent should ask its user first.", file=sys.stderr, flush=True)
     raise NeedsYes(f"stopped before a risky action, with nobody to ask for a yes: {description}")

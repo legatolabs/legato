@@ -222,7 +222,7 @@ From the persona tests (six simulated launch users on a real Mac):
 - **A question gets its answer.** When a task asks for information ("what", "tell me", "how many", a question mark)
   and the model calls done without the answer, it gets one more turn with the screen and is asked for it
   (`Harness(ask_answer=True)`, which `legato.run`, `legato run` and `desktop_run_task` set). GPT-6.1 Terra ended
-  20 of 20 Safari questions with an empty done (legato-research EXP-0102), often in the same plan as the
+  20 of 20 Safari questions with an empty done, often in the same plan as the
   navigation, before the page had loaded.
 - MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
   Chrome refusal says Chrome ignores background clicks on web pages.
@@ -282,8 +282,8 @@ One agent, four ways in, and one command to set it up.
   in `pip install legatolabs`. `[local]` and `[mcp]` still work and add nothing.
 - **Background mode:** an app hidden with Cmd+H is shown again (not brought to the front); the agent's Cmd+H and
   Cmd+M are not run.
-- macOS: a sum ("1269*5693=") is typed key by key like a number, since Calculator ignores a pasted sum (legato-research
-  EXP-0085: the Calculator task 0.375x the time). The harness reads an action a model left open before its own
+- macOS: a sum ("1269*5693=") is typed key by key like a number, since Calculator ignores a pasted sum (the Calculator
+  task 0.375x the time). The harness reads an action a model left open before its own
   closing tags (Qwen3.8-27B).
 - **Two models, one plans and one points (#42):** `legato.Planner(..., style="point")`: a strong model names each
   action and a small one finds it on the screen, the setup of the Windows runs (GPT-6.1 Terra with UI-TARS-1.5-7B).
@@ -325,8 +325,8 @@ One agent, four ways in, and one command to set it up.
   a `check` script; an error returns the app's real terms.
 - `Harness(image_format="jpeg")`: screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes.
   The upload is most of a hosted call's wait for its first token on a home uplink; on replayed Mac turns through
-  OpenRouter it halved a call with the next action unchanged (legato-research EXP-0052), and on 27 live Mac tasks it
-  cut a median task from 23.7 to 18.5 s with passes held (EXP-0053). JPEG is the default; `image_format="png"` sends
+  OpenRouter it halved a call with the next action unchanged, and on 27 live Mac tasks it
+  cut a median task from 23.7 to 18.5 s with passes held. JPEG is the default; `image_format="png"` sends
   the screenshots lossless.
 - `legato.local()` is safe to run on your own Mac: move the mouse into a corner or hold Escape to stop it, and risky
   keys and typed shell commands (`legato/safety.py`) wait for a yes (`confirm=`, `legato run --yes`). `legato doctor`

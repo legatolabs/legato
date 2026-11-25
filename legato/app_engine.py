@@ -332,7 +332,7 @@ def shell_tool(ask, timeout_s: float = 30.0, max_chars: int = 4000, focus=None) 
                 handler)
 
 
-# Where a script has worked for Qwen3.8-27B (legato-research EXP-0037 to EXP-0044, 164 scripts): creating or changing
+# Where a script has worked for Qwen3.8-27B (164 scripts): creating or changing
 # named items in Calendar and Reminders (calendar-week 6 of 8 passed scripted, 2 of 10 on the screen), named notes,
 # Finder's Trash and System Events settings. Contacts failed first try in 13 of 16 episodes (`phone numbers` for
 # `phones`), and on a real Mac the app's runs spent their time reading through Notes and every Messages chat to work
@@ -390,7 +390,7 @@ def applescript_tool(ask, timeout_s: float = 30.0, apps: tuple = SCRIPT_APPS) ->
     """The checked `applescript` tool (legato.tools.applescript: compiled first, the app's dictionary with any error, a
     read-back, two failures per app then the screen) behind the same guard as the shell: a script that deletes,
     sends, quits an app or presses keys in other apps waits for the person's yes (command_risk reads it as osascript).
-    Only for `apps`, and not for reading through the person's data (see SCRIPT_APPS). legato-research EXP-0043:
+    Only for `apps`, and not for reading through the person's data (see SCRIPT_APPS). Measured:
     app-data tasks 164 -> 89 s, passes held."""
     inner = applescript(timeout_s=timeout_s)
     allowed = {a.lower() for a in apps}
@@ -652,12 +652,12 @@ class Run:
             env = self.env_factory(self)
             tools = ([shell_tool(env._confirm, focus=getattr(env, "_focus", None)), applescript_tool(env._confirm)]
                      if m.get("shell") else [])
-            use_plans = m.get("plan", True) is not False      # one call carries several steps (legato-research EXP-0044)
+            use_plans = m.get("plan", True) is not False      # one call carries several steps
             h = self.harness or Harness(model=m["model"], base_url=m["base_url"], api_key=m.get("api_key") or "",
                                         image_max=image_max, tools=tools, plan=use_plans,
                                         system=_app_plan_system() if use_plans else None,
-                                        end_fix=m.get("end_fix", True) is not False,  # legato-research EXP-0044 arm C
-                                        image_format=m.get("image_format") or "jpeg")  # legato-research EXP-0052
+                                        end_fix=m.get("end_fix", True) is not False,
+                                        image_format=m.get("image_format") or "jpeg")
             idle = 0                                          # replies in a row with no action (the ending fix)
             plan_mode = bool(getattr(h, "plan_mode", False))
             obs = env.observe()

@@ -424,7 +424,7 @@ def test_collect_with_a_planner_and_a_pointer(server, tmp_path, monkeypatch):
 
 
 def test_an_action_left_open_before_the_models_closing_tags_is_read():
-    """Qwen3.8-27B sometimes writes the call as text and closes its tags, not the object (legato-research EXP-0075)."""
+    """Qwen3.8-27B sometimes writes the call as text and closes its tags, not the object."""
     from legato.harness import _text_calls
     said = 'Click the Save button. {"action": "left_click", "coordinate": [806, 155] </parameter> </function> </tool_call>'
     assert _text_calls(said) == [("computer", {"action": "left_click", "coordinate": [806, 155]})]
@@ -543,7 +543,7 @@ def test_a_desktop_error_mid_run_is_returned_with_the_usage_so_far(server):
 
 
 def test_a_desktop_error_still_raises_out_of_harness_run_by_default(server):
-    """legato-research and other callers of Harness.run catch the exception to mark a run as crashed."""
+    """Callers of Harness.run catch the exception to mark a run as crashed."""
     server["script"] = [CLICK, CLICK]
     with pytest.raises(RuntimeError, match="could not be captured"):
         legato.Harness("m", server["url"]).run("t", flaky_env([], 2))
@@ -738,7 +738,7 @@ def test_unattended_legato_run_refuses_risky_actions_unless_told(monkeypatch):
 
 def test_a_done_without_the_answer_gets_one_more_turn(server):
     """GPT-6.1 Terra ended 20 of 20 Safari questions with done and no text, a plan's done often before the page had
-    loaded (legato-research EXP-0102). With ask_answer, that done gets one more turn with the screen and a note; the
+    loaded. With ask_answer, that done gets one more turn with the screen and a note; the
     answer then given is the result's. A second empty done ends the run done, and a run without ask_answer is as before."""
     from legato.agent import asks_for_information
     server["script"] = [{"tool_calls": [tc({"action": "left_click", "coordinate": [500, 500]}), tc({"action": "done"})]},

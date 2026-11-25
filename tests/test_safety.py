@@ -323,7 +323,7 @@ def test_with_nobody_to_ask_the_command_line_refuses_and_says_so(capsys):
 
 
 def test_a_risky_line_is_still_asked_about_after_a_click():
-    """type a delete command, click, press Return: the Return is asked about (EXP-0107: it was not)."""
+    """type a delete command, click, press Return: the Return is asked about (it was not)."""
     import legato
     from legato.actions import Action
     asked = []

@@ -389,7 +389,7 @@ def test_the_applescript_tool_asks_before_a_script_that_cannot_be_undone_and_run
 
 def test_applescript_is_kept_to_the_apps_and_steps_where_it_has_worked(monkeypatch):
     # the app's runs on a real Mac: Notes searched for a "favorite song", every Messages chat read to find a person,
-    # a Contacts script escaped twice; across EXP-0037 to EXP-0044, Contacts scripts failed first try in 13 of 16
+    # a Contacts script escaped twice; in our tests, Contacts scripts failed first try in 13 of 16
     from legato import app_engine as ae
     ran = []
 
@@ -490,7 +490,7 @@ def test_the_app_runs_plans_one_call_carries_the_steps(tmp_path, monkeypatch, se
 
 
 def test_the_app_ends_a_task_the_model_twice_calls_complete_without_an_action(tmp_path, monkeypatch, server):
-    # the ending fix (legato-research EXP-0044 arm C): "It's done." with no action gets a note; said again, it is done
+    # the ending fix: "It's done." with no action gets a note; said again, it is done
     import legato.app_engine as eng
     from legato import plan as plans
     from legato.harness import END_NOTE, Harness
