@@ -366,3 +366,31 @@ def test_max_cost_usd_ends_a_planner_run():
     h, p = harness([act("continue", {"key": "a"}), act("continue", {"key": "b"}), act("continue", {"key": "c"})], [])
     res = h.run("press keys", desktop([]), max_cost_usd=0.002)
     assert (res.status, res.actions, res.planner["calls"]) == ("max_cost", ["key a", "key b"], 2)
+
+
+def test_a_planner_turn_with_notes_and_no_actions_is_asked_again_not_taken_as_fail():
+    """Qwen3.8-27B spends its first call writing notes (legato-research EXP-0109): status continue, no actions."""
+    def noted(text: str) -> dict:
+        return rec([call("act", {"status": "continue", "notes": text})])
+    log: list = []
+    h, p = harness([noted("three invoices: a, b, c"), act("continue", {"key": "ctrl+s"}), act("done")], [])
+    res = h.run("t", desktop(log))
+    assert (res.status, res.planner["calls"], res.actions) == ("done", 3, ["key ctrl+s", "done"])
+    again = p.client.sent[1]["messages"][1]["content"][0]["text"]
+    assert "had no actions" in again and "three invoices: a, b, c" in again      # told why, and its notes are kept
+    h, _ = harness([noted("n")] * 3, [])                                         # three in a row: it ends, and says why
+    res = h.run("t", desktop([]))
+    assert (res.status, res.planner["calls"]) == ("failed", 3) and "no actions" in res.error
+
+
+def test_loosely_written_actions_are_still_read():
+    """Seen from Qwen3.8-27B through OpenRouter: "actions.1" holding one object, or "actions" as an object."""
+    for args in ({"status": "continue", "actions.1": {"key": "ctrl+s"}}, {"status": "continue", "actions": {"key": "ctrl+s"}},
+                 {"status": "continue", "action": [{"key": "ctrl+s"}]}):
+        h, _ = harness([rec([call("act", args)]), act("done")], [])
+        res = h.run("t", desktop([]))
+        assert (res.status, res.actions) == ("done", ["key ctrl+s", "done"]), args
+    from legato.point import ACT_TOOL, act_tool
+    par = ACT_TOOL["function"]["parameters"]
+    assert list(par["properties"])[:2] == ["status", "actions"] and par["required"] == ["status", "actions"]
+    assert act_tool(progress=True)["function"]["parameters"]["required"] == ["status", "actions", "progress"]
