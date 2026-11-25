@@ -449,3 +449,46 @@ def test_run_task_opens_its_own_desktop_reports_cost_and_names_a_missing_key(mon
     out = getattr(r, "structuredContent", None) or getattr(r, "structured_content", None)
     if out is not None:
         assert out["cost_usd"] == 0.0123 and out["answer"] == "42"
+
+
+def test_desktop_shell_on_this_computer_refuses_risky_commands_unless_started_with_yes():
+    """desktop_shell ran rm -rf, sudo or `bash -c "..."` unasked under `legato mcp`, while the README says risky
+    commands are refused when nobody can answer. Now they are, with the reason; a sandbox's shell still runs them."""
+    import asyncio
+
+    from legato import mcp_server, safety
+    from legato.local import LocalEnv
+    ran = []
+
+    class Here(LocalEnv):
+        def __init__(self, confirm):
+            self.confirm, self.mac, self.mac_cmd = confirm, False, False
+            self.last = {}
+
+        def shell(self, cmd, timeout_s=30.0):
+            ran.append(cmd)
+            return "ok\n[exit 0]"
+
+        def observe(self):
+            return legato.attach(screenshot=lambda: png(), execute=lambda a: None).observe()
+
+    for confirm, runs in ((safety.deny, False), (None, True)):
+        ran.clear()
+        srv = mcp_server.build_server(lambda res, c=confirm: (None, Here(c)))
+
+        async def go():
+            r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+            did = r.content[0].text.split("desktop_id: ")[1].split()[0]
+            await srv.call_tool("desktop_shell", {"desktop_id": did, "command": "ls ~/Desktop"})
+            try:
+                await srv.call_tool("desktop_shell", {"desktop_id": did, "command": 'bash -c "rm -rf ~/Documents"'})
+                return None
+            except Exception as e:  # noqa: BLE001
+                return str(e)
+        err = asyncio.run(go())
+        assert ran[0].endswith("ls ~/Desktop") or "ls ~/Desktop" in ran[0]
+        if runs:
+            assert err is None and len(ran) == 2
+        else:
+            assert "deletes files" in err and "legato mcp --yes" in err and len(ran) == 1
+    assert mcp_server.launch_command("win32", url="https://a.b/’;x") == "Start-Process 'https://a.b/’’;x'"

@@ -222,7 +222,11 @@ def save(cfg: Config) -> Path:
     data = {k: v for k, v in asdict(cfg).items() if k not in ("extra", "default_from") and v}
     data.update(cfg.extra)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    if tmp.exists():
+        tmp.unlink()
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IWUSR)   # owner-only from the start
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps(data, indent=2) + "\n")
     os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
     tmp.replace(p)
     if sys.platform == "win32":       # chmod does not limit who reads a file on Windows: its access list does

@@ -475,3 +475,19 @@ def test_find_local_server_asks_them_together_and_takes_the_first_in_order(monke
     monkeypatch.setattr(config, "list_models", lambda u, timeout_s=0: ["m"] if u.endswith(("b", "c")) else [])
     assert config.find_local_server(("http://a", "http://b", "http://c")) == ("http://b", ["m"])
     assert config.find_local_server(("http://a",)) is None
+
+
+def test_a_saved_key_is_not_sent_to_a_new_base_url(monkeypatch):
+    """The security review: `legato setup --base-url <another server>` reused the key saved for the provider's own
+    server and sent it there in the model check. A saved key now goes only to the server it was saved for."""
+    from legato import config
+    from legato.setup import main
+    config.save(config.Config(provider="openrouter", model="qwen/qwen3.8-27b",
+                              base_url="https://openrouter.ai/api/v1", api_key="sk-or-saved"))
+    seen = {}
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: seen.update(u=u, k=k) or
+                        {"ok": True, "seconds": 0.5, "sees_images": True})
+    main(["--yes", "--mcp", "none", "--provider", "openrouter", "--base-url", "https://elsewhere.example/v1"])
+    assert seen.get("k") != "sk-or-saved"                  # not sent to the new server (with no key, not checked)
+    saved = config.load(use_env=False)
+    assert not (saved.base_url == "https://elsewhere.example/v1" and saved.api_key == "sk-or-saved")

@@ -6,6 +6,19 @@
   the setup page, the FAQ and llms.txt.
 - The benchmarks page's Windows section shows Legato's own runs, with the rule each task had.
 
+From a security review of the whole repo and its history before launch (no keys or private data found):
+
+- **An AppleScript can no longer run shell commands through the file it's written to.** Scripts went to the shell in
+  a heredoc, so a script with the closing word on a line of its own ran the lines after it; they go as base64 now.
+- **The shell guard looks inside commands:** `bash -c "..."`, backticks and `$(...)` are checked like the command
+  itself; an inline `python3 -c` or `node -e` program that deletes, writes, runs commands or uses the network asks;
+  printing a key (`printenv`, `$OPENROUTER_API_KEY`, the whole environment) asks, since the output goes to the model.
+- **`desktop_shell` and `desktop_open(app=...)` on this computer** refuse risky commands under `legato mcp` unless it
+  was started with `--yes`, as the README said; a sandbox's shell is unchanged. PowerShell's curly single quotes in a
+  URL are escaped too.
+- `legato setup --base-url` no longer reuses the key saved for another server, and the config file is created
+  readable by its owner only (it was chmodded just after writing).
+
 ## 0.3.1
 
 - **Bring any model, checked the way a run uses it.** `legato setup` now tries the model with the agent's own prompt,

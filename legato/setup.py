@@ -258,8 +258,9 @@ def _main(argv) -> int:
         key = sys.stdin.readline().strip()
     elif a.api_key:
         key = a.api_key
-    elif a.api_key_env is None and provider == cfg.provider and cfg.api_key:
-        key = cfg.api_key
+    elif a.api_key_env is None and provider == cfg.provider and cfg.api_key and \
+            (base_url or "").rstrip("/") == (cfg.base_url or base_url or "").rstrip("/"):
+        key = cfg.api_key                       # the saved key, only for the server it was saved for
     in_env = bool(key_env and os.environ.get(key_env))
     needs_key = not C.is_local_url(base_url) and (provider != "custom" or asking)
     if not key and needs_key and not in_env:

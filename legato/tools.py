@@ -7,6 +7,7 @@ A tool's result goes back to the model as text in the next turn, ahead of the sc
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -190,7 +191,10 @@ def applescript(target: Union["Env", Callable[[str], Any], None] = None, *, time
     def write(script: str, tag: str) -> str:
         n[0] += 1
         path = f"/tmp/legato-as-{os.getpid()}-{n[0]}-{tag}.applescript"
-        return path, f"cat > {shlex.quote(path)} <<'LEGATO_AS_EOF'\n{script}\nLEGATO_AS_EOF\n"
+        # as base64, which no shell reads anything into: in a heredoc, a script with the closing word on a line of
+        # its own ended the heredoc there and ran the lines after it as shell commands
+        data = base64.b64encode(script.encode("utf-8")).decode("ascii")
+        return path, f"printf %s {shlex.quote(data)} | base64 --decode > {shlex.quote(path)} && "
 
     def summary(app: str) -> str:
         if app not in summaries:
