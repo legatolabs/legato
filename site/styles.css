@@ -75,6 +75,16 @@ header, main, footer { position: relative; z-index: 1; }
 .install .p { color: var(--fg-4); }
 .install .copied { color: var(--fg-3); font-size: 11px; letter-spacing: .04em; margin-left: 6px; }
 .cta .link { font-size: 14px; color: var(--fg); text-decoration-color: var(--fg-3); }
+/* the hero's start: the prompt for a coding agent first, then pip and the other ways in */
+.start { display: grid; gap: 14px; max-width: 600px; justify-items: start; }
+.start-label { font: 500 11px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); }
+.install.agent { height: auto; min-height: 52px; padding: 12px 18px; font-size: 15px; border-color: var(--fg-3);
+  max-width: 100%; text-align: left; }
+.install.agent code { font: inherit; overflow-wrap: anywhere; min-width: 0; }
+.install.agent:hover { border-color: var(--fg); }
+.start-note { margin: 0; color: var(--fg-2); font-size: 14px; line-height: 1.55; max-width: 460px; }
+.start-note a { color: var(--fg); text-decoration-color: var(--fg-3); }
+.start .cta { margin-top: 10px; }
 .cta .link.dim { color: var(--fg-2); text-decoration-color: var(--line-2); }
 
 /* metrics strip */
