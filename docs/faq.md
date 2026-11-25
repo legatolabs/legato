@@ -87,6 +87,13 @@ to go back to the variable. `LEGATO_MODEL`, `LEGATO_BASE_URL` and `LEGATO_API_KE
 shell; a flag on the command wins over both. A saved key is only ever sent to the server it was saved for: with
 `LEGATO_BASE_URL` pointing somewhere else, set `LEGATO_API_KEY` for that server.
 
+**Can I use Claude, GPT and open models side by side?**
+Yes. Save a key for each provider (`legato setup --add-key anthropic`, `--add-key openai`) or export its usual
+variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`). Then name the model: `legato run --model claude-sonnet-5-5 "..."`,
+`legato.run(..., model="gpt-6.2-sol")`, or `desktop_run_task(model=...)` over MCP. The name says where it runs
+(`claude-...` on Anthropic's API, `gpt-...` on OpenAI's, `vendor/model` on OpenRouter), and each key goes only to its
+own provider. `legato doctor --model claude-sonnet-5-5` tries one before a run.
+
 **Is there a hosted version?**
 Not publicly. Legato runs where you run it, with the model you bring. Legato Cloud, which also runs the model and the
 desktop, is in a private beta: its measured parts are on the [benchmarks page](benchmarks.md), and the waitlist is on

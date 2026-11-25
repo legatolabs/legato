@@ -42,7 +42,19 @@
       "environmentVariables": [
         {
           "name": "OPENROUTER_API_KEY",
-          "description": "Only for desktop_run_task with its default model",
+          "description": "Optional, for desktop_run_task with an OpenRouter model (vendor/model, such as qwen/qwen3.8-27b)",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Optional, for desktop_run_task with a Claude model by Anthropic's name (claude-sonnet-5-5)",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "Optional, for desktop_run_task with a GPT model by OpenAI's name",
           "isRequired": false,
           "isSecret": true
         }

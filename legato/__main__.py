@@ -125,7 +125,10 @@ def run_main(argv) -> int:
     where.add_argument("--screen", action="store_true", help="use this whole screen (moves your real mouse)")
     where.add_argument("--sandbox", help="docker (a desktop container), e2b (a cloud desktop), local (= --screen), or "
                                          "your own: path/to/file.py:function or module:function (docs/sandboxes.md)")
-    ap.add_argument("--model", help="default: the one legato setup saved")
+    ap.add_argument("--model", help="default: the one legato setup saved. Its name says where it runs: claude-... on "
+                                     "Anthropic's API, gpt-... on OpenAI's, vendor/model on OpenRouter, each with "
+                                     "that provider's key (legato setup --add-key PROVIDER, or its usual variable)")
+    ap.add_argument("--provider", choices=list(config.PROVIDERS), help="run the model at this provider")
     ap.add_argument("--base-url", help="OpenAI-compatible root, e.g. https://openrouter.ai/api/v1")
     ap.add_argument("--api-key-env", help="the environment variable holding the key for --base-url")
     ap.add_argument("--max-steps", type=int, default=40)
@@ -141,17 +144,13 @@ def run_main(argv) -> int:
     a = ap.parse_args(argv)
     fail = lambda msg: _fail(msg, a.json)                # with --json, the error as JSON too
     cfg = config.load()
-    if a.model or a.base_url:
-        same = (a.model or cfg.model) == cfg.model and (a.base_url or cfg.base_url) == cfg.base_url
-        cfg = config.Config(coords=cfg.coords if same else "", tool_calls=cfg.tool_calls if same else "",
-                            model=a.model or cfg.model, base_url=a.base_url or cfg.base_url,
-                            api_key_env=a.api_key_env or ("" if a.base_url and a.base_url != cfg.base_url else cfg.api_key_env),
-                            api_key="" if a.base_url and a.base_url != cfg.base_url else cfg.api_key,
-                            desktop=cfg.desktop, app=cfg.app)
-    elif a.api_key_env:
-        cfg.api_key, cfg.api_key_env = "", a.api_key_env
-    if cfg.missing():
-        return fail(cfg.missing())
+    named = dict(model=a.model, provider=a.provider, base_url=a.base_url, api_key_env=a.api_key_env)
+    try:                                                 # the model, its server and its key (legato.config.resolve)
+        choice = config.resolve(**named, cfg=cfg)
+    except ValueError as e:
+        return fail(str(e))
+    if choice.missing():
+        return fail(choice.missing())
     desktop = "background" if a.app else "screen" if a.screen else a.sandbox
     if (desktop or cfg.desktop) == "e2b":
         try:
@@ -182,14 +181,14 @@ def run_main(argv) -> int:
     restore = _hide_console() if (not a.show_terminal and "background" not in what
                                   and (desktop or cfg.desktop or "screen") in ("screen", "local")) else (lambda: None)
     t0 = time.monotonic()
-    say(f"{cfg.model}{config.dot()}{what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
+    say(f"{choice.model}{config.dot()}{what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
     if "background" not in what and (desktop or cfg.desktop or "") in ("", "screen", "local"):
         say("  it uses this computer's mouse and keyboard: Ctrl+C here stops it, and so does moving the mouse into a corner")
 
     def show(i, acts, t):
         say(f"  {time.monotonic() - t0:5.1f} s  {', '.join(x.describe() if x else 'looking' for x in acts) or 'looking'}")
     try:
-        agent = agent_for(env, cfg=cfg, **({"coords": a.coords} if a.coords else {}))
+        agent = agent_for(env, cfg=cfg, **named, **({"coords": a.coords} if a.coords else {}))
         from legato.agent import ANSWER_NOTE
         # a desktop that fails mid-run comes back as status "error", with the usage so far
         left = None if a.timeout is None else max(0.0, a.timeout - (time.monotonic() - t_start))
@@ -205,7 +204,7 @@ def run_main(argv) -> int:
     if a.json:
         print(json.dumps({"status": res.status, "done": res.done, "failed": res.failed, "answer": res.answer,
                           "error": res.error, "stopped": res.stopped, "steps": res.steps, "actions": res.actions,
-                          "wall_s": round(res.wall_s, 2), "usage": res.usage, "desktop": what, "model": cfg.model}))
+                          "wall_s": round(res.wall_s, 2), "usage": res.usage, "desktop": what, "model": choice.model}))
     else:
         if res.answer:
             print(f"\n{res.answer}\n")

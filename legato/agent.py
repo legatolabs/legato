@@ -31,22 +31,25 @@ DESKTOPS = ('"background", "screen", "docker", "docker:IMAGE", "e2b", "path/to/f
 
 
 def agent_for(env: Env | None = None, *, model: str | None = None, base_url: str | None = None,
-              api_key: str | None = None, cfg: cfgmod.Config | None = None, **options: Any) -> Harness:
+              api_key: str | None = None, provider: str | None = None, api_key_env: str | None = None,
+              cfg: cfgmod.Config | None = None, **options: Any) -> Harness:
     """A Harness for `env` with the saved model (or the one given). On a Mac's whole screen: the Mac app's setup
     (one plan per turn, a shell and checked AppleScript beside the screen, 4 screenshots kept, the ending fix). In
     one app's window in the background: one action at a time, with no shell, so nothing it runs takes the screen
     from you (4 screenshots kept, the ending fix). Elsewhere: Harness's defaults. For the saved model, what setup's
     check found it needs: its coordinates, and JSON actions when it takes no tool calls. `options` go to Harness and
-    win over these."""
+    win over these.
+
+    A model named without a provider or server runs where its name says (legato.config.resolve): claude-... on
+    Anthropic's API with your Anthropic key, gpt-... on OpenAI's, a vendor/model name on OpenRouter; `provider`
+    ("anthropic", "openai", "openrouter", ...) names it instead. Without api_key, the key is that provider's: saved
+    by `legato setup --add-key`, or in its usual environment variable (or in api_key_env)."""
     cfg = cfg or cfgmod.load()
-    model = model or cfg.model
-    base_url = base_url or cfg.base_url
-    if not model or not base_url:
-        raise ValueError(cfg.missing() or "pass model= and base_url=")
+    choice = cfgmod.resolve(model, provider=provider, base_url=base_url, api_key_env=api_key_env, cfg=cfg)
+    model, base_url = choice.model, choice.base_url
     source = "the api_key you passed"
     if api_key is None:
-        api_key = cfg.key if base_url == cfg.base_url else ""
-        source = cfg.key_source if base_url == cfg.base_url else ""
+        api_key, source = choice.key, choice.key_source
     setup: dict[str, Any] = {}
     kind = desktop_kind(env)
     if kind == "mac-screen":
@@ -115,7 +118,7 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
 
 
 def run(task: str, desktop: str | Env | None = None, *, model: str | None = None, base_url: str | None = None,
-        api_key: str | None = None, app: str | None = None, max_steps: int = 40, on_step: Callable | None = None,
+        api_key: str | None = None, provider: str | None = None, app: str | None = None, max_steps: int = 40, on_step: Callable | None = None,
         confirm: Any = "auto", timeout_s: float | None = None, cancel: threading.Event | None = None,
         max_cost_usd: float | None = None, record_dir: str | os.PathLike | None = None,
         **options: Any) -> RunResult:
@@ -134,6 +137,11 @@ def run(task: str, desktop: str | Env | None = None, *, model: str | None = None
     model call once set (status "cancelled"). max_cost_usd: ends the run (status "max_cost") once the cost its model
     calls report reaches it, checked between turns; only providers that report cost count (OpenRouter does).
     record_dir: a folder for the screen after each turn (start.png, turn-001.png, ...); result.trace names them.
+
+    model: a model's name picks where it runs when provider and base_url are not given: claude-... on Anthropic's
+    API, gpt-... on OpenAI's, gemini-... on Google's, grok-... on xAI's, vendor/model on OpenRouter, each with that
+    provider's key (`legato setup --add-key PROVIDER`, or ANTHROPIC_API_KEY, OPENAI_API_KEY, ...). provider: name it
+    instead ("anthropic", "openai", "openrouter", ...).
 
     confirm: what happens before a risky action (keys such as cmd+Delete or cmd+Q, a typed rm or sudo: the list is in
     legato.safety) on this computer ("background", "screen"); other desktops ignore it, and an Env you pass keeps its
@@ -162,7 +170,7 @@ def run(task: str, desktop: str | Env | None = None, *, model: str | None = None
             return RunResult(task, error=f"cannot start the desktop: {e}"[:300], status="error",
                              wall_s=time.monotonic() - t0)
     try:
-        agent = agent_for(env, model=model, base_url=base_url, api_key=api_key, **options)
+        agent = agent_for(env, model=model, base_url=base_url, api_key=api_key, provider=provider, **options)
         res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, timeout_s=left(),
                         cancel=cancel, raise_desktop_errors=False, max_cost_usd=max_cost_usd, record_dir=record_dir)
         if res.status == "timeout" and end is not None:      # the limit the caller set, not the part left for the run

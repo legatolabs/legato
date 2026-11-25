@@ -22,8 +22,9 @@ screen has stopped changing.
 4. **Check what you see.** Judge the result from the screenshot, and say what you saw when you report back.
 5. **Close.** Call `desktop_close` when you are done.
 
-- **Long GUI chores:** `desktop_run_task` hands a whole task to Legato's own agent, with the model the user set up,
-  and returns its answer, its report and the final screen.
+- **Long GUI chores:** `desktop_run_task` hands a whole task to Legato's own agent, with the model the user set up
+  (or one you name: `claude-...`, `gpt-...` and `vendor/model` each run with that provider's key), and returns its
+  answer, its report and the final screen.
 - **In the background on a Mac** (`desktop_open(app="Safari", url=...)`): drags and clicks on nothing pressable are
   not possible; use the keyboard for those. Don't close the user's windows.
 - **The user's own screen** (`legato mcp --local`): these are their real windows. Do not close windows or change
