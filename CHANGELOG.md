@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The plugins, the Gemini extension, the MCP Registry entry and the one-click installs start `legato mcp` with the
+  desktop `legato setup` saved**, as `legato mcp` does by hand: with none saved, one app's window in the
+  background on a Mac and the whole screen elsewhere. Before, they always started a Docker container.
 - **The Claude Code plugin has a folder of its own, `plugins/legato/`,** ready for Anthropic's plugin directory:
   it pins the package it runs (`legatolabs[mcp]==` this version), and has a README that says what it runs, fetches
   and sends. `/plugin install legato --marketplace legatolabs/legato` installs it from there. The repo also has a
