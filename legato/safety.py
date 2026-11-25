@@ -23,6 +23,10 @@ class Stopped(Exception):
     """The person stopped the agent. `Harness.run` ends the run with `stopped=True`."""
 
 
+class NeedsYes(Stopped):
+    """A risky action needed a yes and there was nobody to ask: the run ends there, with the action in `error`."""
+
+
 class Denied(Exception):
     """The person did not allow an action, so it was not run. `Harness.run` tells the model and carries on."""
 
@@ -152,11 +156,13 @@ ASK_TIMEOUT_S = 120.0
 
 
 def deny_and_say(description: str) -> bool:
-    """`deny`, with one line on stderr saying what was refused and how to allow it: for a command line with nobody
-    to ask (its output piped or run by another program)."""
-    print(f"legato: not allowed with nobody to ask: {description}. --yes allows risky actions: an agent should ask "
-          "its user first.", file=sys.stderr, flush=True)
-    return False
+    """For a command line with nobody to ask (its output piped, or run by another program): the risky action is not
+    run and the run ENDS there, with one line on stderr saying what it was and how to allow it. Carrying on would
+    let the model reach the same end another way that no rule sees (a Delete item in a right-click menu), which is
+    what happened when this only refused (legato-research EXP-0107)."""
+    print(f"legato: stopped with nobody to ask: the agent wanted to {description}. --yes allows risky actions: an "
+          "agent should ask its user first.", file=sys.stderr, flush=True)
+    raise NeedsYes(f"stopped before a risky action, with nobody to ask for a yes: {description}")
 
 
 def deny(description: str) -> bool:

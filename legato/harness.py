@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Callable, Literal, TypedDict
 from legato.actions import Action, parse
 from legato.env import Env, png_size
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
-from legato.safety import Denied, Stopped, Unavailable
+from legato.safety import Denied, Stopped, Unavailable, NeedsYes
 from legato.tools import Tool, ToolCall
 from legato import plan as plans
 
@@ -1139,7 +1139,7 @@ class Harness:
                 try:
                     pngs, results = self._run_plan(plan, env, seen, timing)
                 except Stopped as e:              # the person's stop, during a step
-                    res.stopped, res.error = True, f"stopped by the person: {e}"
+                    res.stopped, res.error = True, (str(e) if isinstance(e, NeedsYes) else f"stopped by the person: {e}")
                 except Denied as e:               # the person's no to a step: the rest did not run
                     note = _refused(e) + _again(refusals, e)
                     denied = f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}"
@@ -1161,7 +1161,7 @@ class Harness:
                 try:
                     obs = env.observe() if a is None else env.act(a)
                 except Stopped as e:              # the person's stop: end here, with what was done so far
-                    res.stopped, res.error = True, f"stopped by the person: {e}"
+                    res.stopped, res.error = True, (str(e) if isinstance(e, NeedsYes) else f"stopped by the person: {e}")
                     break
                 except Denied as e:               # the person's no: nothing ran; the model is told and chooses again
                     note = _refused(e) + _again(refusals, e)
