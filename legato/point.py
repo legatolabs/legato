@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from typing import TYPE_CHECKING, Callable
 
@@ -69,17 +70,18 @@ ACT_TOOL = {"type": "function", "function": {
     "name": "act", "description": "The next actions to run, or the task's end.",
     "parameters": {"type": "object", "properties": {
         "status": {"type": "string", "enum": ["continue", "done", "fail"]},
-        "answer": {"type": "string", "description": "with done: what the task asked to find out, if anything; "
-                                                    "with fail: why"},
-        "actions": {"type": "array", "items": {"type": "object", "properties": {
+        "actions": {"type": "array", "description": "with continue: the actions to run now, in order; [] with done or fail",
+                    "items": {"type": "object", "properties": {
             "click": {"type": "string"}, "button": {"type": "string", "enum": ["left", "double", "right", "triple"]},
             "hold": {"type": "string"}, "key": {"type": "string"}, "type": {"type": "string"},
             "scroll": {"type": "string"}, "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
             "amount": {"type": "number"}, "drag": {"type": "string"}, "to": {"type": "string"},
             "at": {"type": "array", "items": {"type": "number"}},
             "to_at": {"type": "array", "items": {"type": "number"}},
-            "wait": {"type": "number"}}}}},
-        "required": ["status"]}}}
+            "wait": {"type": "number"}}}},
+        "answer": {"type": "string", "description": "with done: what the task asked to find out, if anything; "
+                                                    "with fail: why"}},
+        "required": ["status", "actions"]}}}
 
 POINTER_SYSTEM = """You find things on a screenshot of a computer desktop ({w}x{h} pixels). You are given a \
 description of one thing. Call the `point` tool with the coordinate of its centre, or with found false if it is not \
@@ -171,6 +173,20 @@ def _args(rec: dict) -> dict:
     return _plan_args(rec)
 
 
+def _actions(a: dict) -> list:
+    """The actions in a planner's reply. Tool calling through some hosts is loose (Qwen3.8-27B through OpenRouter,
+    legato-research EXP-0109): one action as an object, or under "action", "actions.1", "actions[0]"."""
+    acts = a.get("actions")
+    if isinstance(acts, dict):
+        acts = [acts]
+    if not isinstance(acts, list):
+        acts = []
+        for k in sorted(k for k in a if re.fullmatch(r"actions?(\W*\d+\W*)?", str(k))):
+            v = a[k]
+            acts += v if isinstance(v, list) else [v]
+    return [x for x in acts if isinstance(x, dict)]
+
+
 def _point_args(rec: dict) -> dict:
     """The pointer's answer: its tool call or JSON, else the first [x, y] or (x, y) pair in its text (a small
     grounding model often answers in its own notation, e.g. click(start_box='(412,96)') or <point>412 96</point>)."""
@@ -233,7 +249,7 @@ def act_tool(progress: bool = False, shell: tuple = (), notes: bool = False) -> 
         par["properties"] = {**par["properties"], "notes": NOTES}
     if progress:
         par["properties"] = {**par["properties"], "progress": PROGRESS}
-        par["required"] = ["status", "progress"]
+        par["required"] = ["status", "actions", "progress"]
     return {"type": "function", "function": f}
 
 
@@ -263,6 +279,7 @@ class Pointing:
         self.running: list[tuple] = []          # given out and not yet run: (Action, what it is on, its plan entry)
         self.quick: list[bool] = []             # for the actions next() last gave: no settled screen is needed after
         self.status, self.error = "continue", None
+        self.empty = 0                          # planner replies in a row that had no actions
         self.why = ("start", "Nothing has been run yet.")
         self.seen = png                         # the screen the planner's latest call looked at
         self.pointer_calls = 0
@@ -315,12 +332,15 @@ class Pointing:
         self.calls.append(({"messages": msgs, "max_tokens": p.max_tokens, "temperature": p.temperature}, rec))
         a = _args(rec)
         status = str(a.get("status") or "").lower()
-        acts = [x for x in a.get("actions") or [] if isinstance(x, dict) and
+        acts = [x for x in _actions(a) if
                 any(k in x for k in ("click", "key", "type", "scroll", "drag", "wait") + self.shell)][: p.max_steps]
         if status not in ("continue", "done", "fail"):
             status = "continue" if acts else "fail"
-        if status == "continue" and not acts:
-            status = "fail"
+        empty = status == "continue" and not acts   # a turn spent on notes or thinking, with nothing to run (Qwen does
+        #                                              this on its first call): ask again, twice at most, then it fails
+        self.empty = self.empty + 1 if empty else 0
+        if empty and self.empty > 2:
+            status, a = "fail", {**a, "answer": a.get("answer") or "the planner gave no actions to run, three calls in a row"}
         if p.notes and isinstance(a.get("notes"), str) and a["notes"].strip():
             self.notes = a["notes"].strip()[:NOTES_MAX]
         progress = " ".join(str(a.get("progress") or "").split())[:400]
@@ -344,6 +364,9 @@ class Pointing:
         self.frames.clear()
         self.status, self.pending = status, (acts if status == "continue" else [])
         self.why = ("next", "Those actions ran. This is the screen now.")
+        if empty and status == "continue":
+            self.why = ("empty", "Your last reply had no actions, so nothing ran" + (" (your notes are kept)" if p.notes else "") +
+                        ". Give the next actions to run now, or done, or fail with why. This is the screen now.")
         if status == "done" and not self.answer and self.ask and key != "answer" and \
                 self.pointer_calls + pl["calls"] < self.max_calls:
             self.ask = False                    # once: the next call asks for the answer, or goes on to get it
