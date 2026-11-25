@@ -14,6 +14,10 @@ result does not depend on what someone remembers seeing.
 2. Quit any other Legato (they share Fn and ⌥⇧Space), then `app/macos/check.sh start` to note the time and open it.
 3. A model key: the one `legato setup` saved is used (the app starts from it). Each task stops at $1.
 
+Two things that are not bugs in the test: Legato's HUD and command bar are left out of screenshots on purpose
+(`sharingType = .none`), so a screen recording of a test shows neither; and on a full menu bar the Legato icon can sit
+behind the notch (#97), where System Events can still open its menu.
+
 Every case lists what to do, what should happen, and how it is checked. Write PASS or FAIL with a note; file each FAIL
 under the Mac app epic (#93) with the case id.
 
@@ -23,7 +27,7 @@ under the Mac app epic (#93) with the case id.
 |---|---|---|---|
 | A1 | Open Legato Test | "Set up Legato" opens; the menu bar shows the Legato icon | look |
 | A2 | Allow… for each permission, switch it on in System Settings | Each row turns green within about 1 s | look |
-| A3 | Reopen when asked (Screen Recording) | The app comes back; all three rows green | `check.sh perms` |
+| A3 | Reopen when asked (Screen Recording) | The app comes back; all three rows green; the menu says "Permissions…" with no "(N missing)" | look |
 | A4 | Read the model line | `legato setup`'s model and provider, ready (green) | look |
 | A5 | "Open Keyboard Settings" | Keyboard settings open | look |
 | A6 | Done | The window closes and stays closed on the next launch | `check.sh onboarded` |
@@ -54,11 +58,11 @@ under the Mac app epic (#93) with the case id.
 
 | Id | Do | Should happen | Check |
 |---|---|---|---|
-| D1 | Start a long task, move the mouse | It pauses: "You moved the mouse" | `check.sh log paused` |
+| D1 | Start a long task, move the mouse | It pauses: "You moved the mouse"; the menu shows Resume | `check.sh run` (a turn reads `paused`) |
 | D2 | Resume | It looks at the screen again, then goes on | `check.sh run done` |
 | D3 | Start a task, press Esc | Stops within 5 s | `check.sh run stopped` |
 | D4 | `Empty the Trash` | Asks first; Deny ends the step without doing it | `check.sh run` |
-| D5 | Lock the screen mid-run | Paused; nothing clicked while locked | `check.sh log paused` |
+| D5 | Lock the screen mid-run | Paused; nothing clicked while locked | `check.sh run` (a turn reads `paused`) |
 | D6 | Set the cost cap to $0.01, run C1 | Ends with the cost cap | `check.sh run cost_cap` |
 
 ## E. Afterwards
