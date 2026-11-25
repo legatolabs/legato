@@ -5,7 +5,7 @@ runs the actions it picks on a desktop, and decides when the screen is ready for
 
 **How do I start?**
 Tell Claude Code, Codex or Cursor "Set up Legato for me: https://legato.computer/setup", or run
-`pip install legatolabs && legato setup`, or download the Mac app ([setup](setup.md)).
+`pip install legatolabs` and then `legato setup`, or download the Mac app ([setup](setup.md)).
 
 **What are the Mac app, the terminal, the MCP server and the Python package?**
 Four ways into the same agent. The Mac app is for people (hold Fn, say a task); `legato run` is for one task from a

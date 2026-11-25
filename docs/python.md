@@ -97,6 +97,7 @@ def on_step(turn, actions, timing):           # after each model turn
 
 result = agent.run("Open example.com and tell me the page title", desk, max_steps=40, on_step=on_step,
                    max_cost_usd=0.50, record_dir="run-1")
+print(result.answer)
 ```
 
 `agent.run(task, desk, max_steps=40, on_step=None, *, timeout_s=None, cancel=None, raise_desktop_errors=True,
