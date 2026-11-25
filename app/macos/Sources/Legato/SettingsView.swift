@@ -25,7 +25,12 @@ struct SettingsView: View {
         Form {
             Section("Model") {
                 Picker("Provider", selection: Binding(get: { settings.providerID },
-                                                      set: { id in settings.choose(ProviderPreset.find(id)); key = settings.apiKey })) {
+                                                      set: { id in
+                                                          settings.choose(ProviderPreset.find(id))
+                                                          key = settings.apiKey
+                                                          // no model to offer yet: list the provider's models if a key is there
+                                                          if settings.model.isEmpty && settings.usable(id) { refreshModels() }
+                                                      })) {
                     ForEach(ProviderPreset.all) { Text($0.name).tag($0.id) }
                 }
                 TextField("Base URL", text: $settings.baseURL, prompt: Text("https://…/v1"))

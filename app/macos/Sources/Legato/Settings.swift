@@ -160,13 +160,20 @@ final class AppSettings: ObservableObject {
 
     var preset: ProviderPreset { ProviderPreset.find(providerID) }
 
+    /// Switch provider. Each provider keeps its own URL and the model last used with it; a provider with neither a
+    /// remembered nor a known model gets none, so `problem` asks for one instead of sending another provider's model id.
     func choose(_ p: ProviderPreset) {
-        if !baseURL.isEmpty { d.set(baseURL, forKey: "baseURL." + providerID) }   // each provider keeps its own URL
+        if !baseURL.isEmpty { d.set(baseURL, forKey: "baseURL." + providerID) }
+        if !model.isEmpty { d.set(model, forKey: "model." + providerID) }
         providerID = p.id
         baseURL = d.string(forKey: "baseURL." + p.id) ?? p.baseURL
         if baseURL.isEmpty { baseURL = p.baseURL }
         let known = p.models + (catalog[p.id] ?? [])
-        if let m = known.first, !known.contains(model) { model = m }
+        if let m = d.string(forKey: "model." + p.id), !m.isEmpty {
+            model = m
+        } else if !known.contains(model) {
+            model = known.first ?? ""
+        }
     }
 
     /// Switch to `c` (the command bar's chips and picker): its provider, that provider's URL and key, and the model.
