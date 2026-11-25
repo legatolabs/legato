@@ -4,7 +4,7 @@
     "legato": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["--from", "legatolabs[mcp]", "legato", "mcp", "--sandbox", "docker"]
+      "args": ["--from", "legatolabs[mcp]", "legato", "mcp"]
     }
   }
 }

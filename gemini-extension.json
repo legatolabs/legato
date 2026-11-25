@@ -1,7 +1,7 @@
 {
   "name": "legato",
   "version": "0.3.2",
-  "description": "Give Gemini CLI a computer: a desktop container (needs Docker), your own screen or a cloud desktop it can see and click, through Legato's MCP server.",
+  "description": "Give Gemini CLI a computer it can see and use, through Legato's MCP server: one app's window on your Mac in the background, your whole screen, a desktop container or your own sandbox.",
   "mcpServers": {
     "legato": {
       "command": "uvx",
@@ -9,9 +9,7 @@
         "--from",
         "legatolabs[mcp]",
         "legato",
-        "mcp",
-        "--sandbox",
-        "docker"
+        "mcp"
       ]
     }
   }

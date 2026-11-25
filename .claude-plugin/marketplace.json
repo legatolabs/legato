@@ -1,14 +1,25 @@
 {
   "name": "legatolabs",
   "description": "Legato: a computer for coding agents, and an open-source computer-use runtime for any model",
-  "owner": { "name": "Legato Labs", "url": "https://legato.computer" },
+  "owner": {
+    "name": "Legato Labs",
+    "url": "https://legato.computer"
+  },
   "plugins": [
     {
       "name": "legato",
       "source": "./plugins/legato",
-      "description": "Give Claude Code a computer: a desktop container (or your screen, or your sandbox) it can see and click, through MCP",
+      "description": "Give Claude Code a computer: one app's window on your Mac, your screen, a desktop container or your own sandbox, through MCP",
       "category": "computer-use",
-      "tags": ["computer-use", "mcp", "desktop", "gui", "docker"]
+      "tags": [
+        "computer-use",
+        "mcp",
+        "desktop",
+        "gui",
+        "macos",
+        "windows",
+        "linux"
+      ]
     }
   ]
 }

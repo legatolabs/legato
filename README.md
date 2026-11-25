@@ -23,8 +23,8 @@ legato setup          # your model, where it works, your coding agents; offers a
 Or on a Mac, with no code: [download Legato for Mac](https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg),
 hold Fn and say what to do.
 
-Or add the MCP server to Cursor in one click (it needs [uv](https://docs.astral.sh/uv/) and Docker, and gives Cursor a
-desktop container): [![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/link/mcp/install?name=legato&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJsZWdhdG9sYWJzW21jcF0iLCJsZWdhdG8iLCJtY3AiLCItLXNhbmRib3giLCJkb2NrZXIiXX0%3D)
+Or add the MCP server to Cursor in one click (it needs [uv](https://docs.astral.sh/uv/), and uses the desktop `legato setup`
+saved): [![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/link/mcp/install?name=legato&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyItLWZyb20iLCJsZWdhdG9sYWJzW21jcF0iLCJsZWdhdG8iLCJtY3AiXX0%3D)
 
 ## One agent, four ways in
 

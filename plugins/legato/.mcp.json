@@ -2,7 +2,7 @@
   "mcpServers": {
     "legato": {
       "command": "uvx",
-      "args": ["--from", "legatolabs[mcp]==0.3.2", "legato", "mcp", "--sandbox", "docker"]
+      "args": ["--from", "legatolabs[mcp]==0.3.2", "legato", "mcp"]
     }
   }
 }
