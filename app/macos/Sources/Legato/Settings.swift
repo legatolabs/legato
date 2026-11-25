@@ -260,33 +260,96 @@ final class AppSettings: ObservableObject {
     }
 }
 
+/// Every provider's key in one Keychain item (a JSON object, provider id -> key), read once and kept in memory.
+/// macOS asks to unlock each item an app reads, so one item means at most one prompt, and none after Always Allow.
+/// Keys from before (one item per provider) are moved into it the first time it is read, then deleted.
 enum Keychain {
     static let service = "computer.legato.mac.api-key"
+    static let account = "keys"
 
-    static func read(account: String) -> String? {
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                kSecAttrAccount as String: account, kSecReturnData as String: true,
-                                kSecMatchLimit as String: kSecMatchLimitOne]
+    private static let lock = NSLock()
+    private static var cache: [String: String]?
+
+    static func read(account provider: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        return loaded()[provider]
+    }
+
+    static func write(_ value: String, account provider: String) {
+        lock.lock(); defer { lock.unlock() }
+        var keys = loaded()
+        guard keys[provider] != value else { return }
+        keys[provider] = value
+        if save(keys) { cache = keys }
+    }
+
+    static func delete(account provider: String) {
+        lock.lock(); defer { lock.unlock() }
+        var keys = loaded()
+        guard keys.removeValue(forKey: provider) != nil else { return }
+        if save(keys) { cache = keys }
+    }
+
+    // ------------------------------------------------------------ the one item
+    private static func query(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+         kSecAttrAccount as String: account]
+    }
+
+    /// The keys, from memory or the Keychain. A read the person denied gives no keys this launch and changes nothing
+    /// in the Keychain; only an item that is not there yet is made (from the old items, if any).
+    private static func loaded() -> [String: String] {
+        if let cache { return cache }
+        var q = query(account)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: AnyObject?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func write(_ value: String, account: String) {
-        let data = Data(value.utf8)
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                kSecAttrAccount as String: account]
-        if SecItemUpdate(q as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
-            var add = q
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            SecItemAdd(add as CFDictionary, nil)
+        let status = SecItemCopyMatching(q as CFDictionary, &out)
+        if status == errSecSuccess, let data = out as? Data,
+           let keys = try? JSONDecoder().decode([String: String].self, from: data) {
+            cache = keys
+            return keys
         }
+        guard status == errSecItemNotFound else { return [:] }     // denied or locked: ask again next launch
+        let keys = migrate()
+        cache = keys
+        return keys
     }
 
-    static func delete(account: String) {
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                kSecAttrAccount as String: account]
-        SecItemDelete(q as CFDictionary)
+    private static func save(_ keys: [String: String]) -> Bool {
+        guard let data = try? JSONEncoder().encode(keys) else { return false }
+        let q = query(account)
+        let status = SecItemUpdate(q as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecSuccess { return true }
+        guard status == errSecItemNotFound else { return false }
+        var add = q
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+    }
+
+    /// The old layout, one item per provider (account = provider id): read each once, save them as the one item,
+    /// and delete the old ones only once the new one is saved.
+    private static func migrate() -> [String: String] {
+        var keys: [String: String] = [:]
+        var found: [String] = []
+        for p in ProviderPreset.all {
+            var q = query(p.id)
+            q[kSecReturnData as String] = true
+            q[kSecMatchLimit as String] = kSecMatchLimitOne
+            var out: AnyObject?
+            let status = SecItemCopyMatching(q as CFDictionary, &out)
+            guard status != errSecItemNotFound else { continue }
+            found.append(p.id)
+            if status == errSecSuccess, let data = out as? Data, let k = String(data: data, encoding: .utf8), !k.isEmpty {
+                keys[p.id] = k
+            }
+        }
+        // an old item that could not be read (denied) would be lost: keep the old layout and try again next launch
+        guard !keys.isEmpty, keys.count == found.count else { return keys }
+        if save(keys) {
+            for id in found where keys[id] != nil { SecItemDelete(query(id) as CFDictionary) }
+        }
+        return keys
     }
 }
