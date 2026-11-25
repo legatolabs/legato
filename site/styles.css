@@ -520,8 +520,8 @@ footer a:hover { color: var(--fg); }
 /* ===================================================================== /mac: the app, the demo, three points */
 .mac .mac-hero { padding-bottom: 40px; }
 .mac .mac-hero .req { margin-top: 4px; }
-.calm .x-sec.mac-demo { padding: 40px 0 120px; border-top: 0; }
-.calm .x-sec.mac-points { padding: 96px 0 120px; }
+.calm .x-sec.mac-demo { padding: 40px 0 56px; border-top: 0; }
+.calm .x-sec.mac-points { padding: 64px 0 120px; }
 .trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; max-width: 1040px; margin: 0 auto; }
 .trio b { display: block; font: 400 30px/1.15 var(--serif); color: var(--fg); margin-bottom: 12px; }
 .trio p { margin: 0; color: var(--fg-2); font: 16px/1.65 var(--sans); }
