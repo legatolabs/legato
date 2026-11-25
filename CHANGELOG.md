@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **The Claude Code plugin has a folder of its own, `plugins/legato/`,** ready for Anthropic's plugin directory:
+  it pins the package it runs (`legatolabs[mcp]==` this version), and has a README that says what it runs, fetches
+  and sends. `/plugin install legato --marketplace legatolabs/legato` installs it from there. The repo also has a
+  Cursor plugin manifest (`.cursor-plugin/plugin.json`), and the README an Add to Cursor button.
 - **Bring any model, with your own key for each provider.** A model's name now says where it runs: `claude-...` on
   Anthropic's API with your Anthropic key, `gpt-...` and `o3` on OpenAI's, `gemini-...` on Google's, `grok-...` on
   xAI's, and `vendor/model` on OpenRouter. This works for `desktop_run_task(model=...)`, `legato run --model`,

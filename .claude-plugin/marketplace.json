@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "legato",
-      "source": "./",
+      "source": "./plugins/legato",
       "description": "Give Claude Code a computer: a desktop container (or your screen, or your sandbox) it can see and click, through MCP",
       "category": "computer-use",
       "tags": ["computer-use", "mcp", "desktop", "gui", "docker"]
