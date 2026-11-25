@@ -306,3 +306,41 @@ def test_run_task_under_record_keeps_each_step(monkeypatch, tmp_path):
     assert [e["event"] for e in log] == ["open", "run_step", "run_step", "run_step", "run_task"]
     assert steps[0]["actions"] == ["click (5, 5)"] and all(e["screenshot"] for e in steps[:2])
     assert (tmp_path / did / steps[0]["screenshot"]).read_bytes().startswith(b"\x89PNG")
+
+
+def test_risky_actions_on_this_computer_are_refused_unless_the_server_was_started_with_yes(monkeypatch):
+    """An MCP server's stdin is its client's pipe, so "ask in the terminal" asked nobody and ran Cmd+Q, a typed rm,
+    and the shell and AppleScript steps of desktop_run_task. They are refused now, and the client is told how to
+    allow them; `legato mcp --yes` runs them as before."""
+    import asyncio
+
+    from legato import mcp_server, providers, safety
+    from legato.local import LocalEnv
+    built, real_build = {}, mcp_server.build_server
+
+    class Screen(LocalEnv):
+        def __init__(self):
+            self.confirm, self.mac, self.mac_cmd = "unset", False, False
+    monkeypatch.setattr(providers, "load", lambda spec: lambda w, h: (None, Screen()))
+    monkeypatch.setattr(providers, "warm", lambda spec: None)
+    monkeypatch.setattr(mcp_server, "build_server", lambda factory, **kw: built.update(factory=factory, **kw) or
+                        type("S", (), {"run": lambda self: None})())
+    monkeypatch.setattr(safety.sys.stdin, "isatty", lambda: False)
+    monkeypatch.delenv("LEGATO_CONFIRM", raising=False)
+    mcp_server.main(["--sandbox", "local"])
+    assert built["factory"]((64, 40))[1].confirm is safety.deny
+    mcp_server.main(["--sandbox", "local", "--yes"])
+    assert built["factory"]((64, 40))[1].confirm is None
+
+    def refused(a):
+        raise safety.Denied("key cmd+q")
+    env = legato.attach(screenshot=lambda: png(), execute=refused, fixed_wait_s=0.0)
+    env.confirm = safety.deny
+    srv = real_build(lambda res: (None, env))
+
+    async def go():
+        r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
+        did = r.content[0].text.split("desktop_id: ")[1].split()[0]
+        with pytest.raises(Exception, match="refused here.*legato mcp --yes"):
+            await srv.call_tool("desktop_act", {"desktop_id": did, "action": "key", "keys": "cmd+q"})
+    asyncio.run(go())

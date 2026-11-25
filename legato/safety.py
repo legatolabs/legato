@@ -112,23 +112,40 @@ def is_enter(names: list[str]) -> bool:
 # ------------------------------------------------------------ asking
 def ask(description: str) -> bool:
     """The default `confirm`: a yes/no question in the terminal. Anything but y or yes is a no."""
-    import threading
-    said: list[str] = []
-
-    def read() -> None:
-        try:
-            said.append(input())
-        except (EOFError, OSError):
-            said.append("")
     # the whole question on stderr and flushed, so it shows when stdout is captured or redirected
     print(f"\a\nlegato: the agent wants to {description}\nlegato: allow it? [y/N] ", end="", file=sys.stderr, flush=True)
-    t = threading.Thread(target=read, daemon=True)
-    t.start()
-    t.join(ASK_TIMEOUT_S)
-    if not said:                      # nobody answered: a run must not sit silent for ever on a question nobody sees
-        print(f"\nlegato: no answer in {ASK_TIMEOUT_S:g} s: not allowed (pass --yes to allow risky actions)", file=sys.stderr, flush=True)
+    said = _read_line(ASK_TIMEOUT_S)
+    if said is None:                  # nobody answered: a run must not sit silent for ever on a question nobody sees
+        print(f"\nlegato: no answer in {ASK_TIMEOUT_S:g} s: not allowed (--yes allows risky actions: an agent should "
+              "ask its user first)", file=sys.stderr, flush=True)
         return False
-    return said[0].strip().lower() in ("y", "yes")
+    return said.strip().lower() in ("y", "yes")
+
+
+def _read_line(timeout_s: float) -> str | None:
+    """One line from the terminal, or None if none came in time. No thread is left reading stdin (one that is still
+    blocked there when Python exits crashes the interpreter on Windows)."""
+    import time
+    end = time.monotonic() + timeout_s
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            out = ""
+            while time.monotonic() < end:
+                if msvcrt.kbhit():
+                    ch = msvcrt.getwche()
+                    if ch in "\r\n":
+                        print(file=sys.stderr)
+                        return out
+                    out = out[:-1] if ch == "\b" else out + ch
+                else:
+                    time.sleep(0.05)
+            return None
+        import select
+        ready, _, _ = select.select([sys.stdin], [], [], timeout_s)
+        return sys.stdin.readline() if ready else None
+    except (OSError, ValueError, EOFError):
+        return ""
 
 
 ASK_TIMEOUT_S = 120.0
@@ -137,7 +154,8 @@ ASK_TIMEOUT_S = 120.0
 def deny_and_say(description: str) -> bool:
     """`deny`, with one line on stderr saying what was refused and how to allow it: for a command line with nobody
     to ask (its output piped or run by another program)."""
-    print(f"legato: not allowed with nobody to ask: {description}. Pass --yes to allow risky actions.", file=sys.stderr, flush=True)
+    print(f"legato: not allowed with nobody to ask: {description}. --yes allows risky actions: an agent should ask "
+          "its user first.", file=sys.stderr, flush=True)
     return False
 
 

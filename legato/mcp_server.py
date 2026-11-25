@@ -280,6 +280,11 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         except Unavailable as e:
             raise ToolError(f"Not run: this desktop can't do that ({e}).") from None
         except Denied as e:
+            from legato import safety
+            if getattr(d["env"], "confirm", None) is safety.deny:      # nobody at the server's terminal to ask
+                raise ToolError(f"Not run: risky actions are refused here, since nobody at this computer can be "
+                                f"asked ({e}). Ask the user: they can allow them by starting `legato mcp --yes`.") \
+                    from None
             raise ToolError(f"Not run: the person at this computer did not allow it ({e}).") from None
         d["wh"] = (obs.width, obs.height)
         last = d["env"].last
@@ -448,6 +453,10 @@ def main(argv=None) -> int:
     ap.add_argument("--wait-scope", choices=("screen", "app"), default="screen",
                     help="with --local on macOS: what the wait for the screen watches, all of it (default) or only "
                          "the front app's windows, so another app animating doesn't hold every action to the cap")
+    ap.add_argument("--yes", action="store_true",
+                    help="on this computer: run risky actions (Cmd+Q, a typed rm or sudo: legato.safety's list) "
+                         "without asking. By default they are refused, since nobody is at the server's terminal to "
+                         "say yes, and a client's approval of a tool call is not approval of each action in it")
     ap.add_argument("--background", action="store_true",
                     help="macOS: work in one app's window (desktop_open's app) without moving your mouse or taking "
                          "the screen, so you can keep using the Mac (docs/sandboxes.md)")
@@ -464,17 +473,24 @@ def main(argv=None) -> int:
             from legato.local import local
             return None, local(wait_scope=a.wait_scope)
     providers.warm(spec)                       # e.g. pull the desktop image while the agent gets going
+    from legato import safety
+    from legato.local import LocalEnv
+    # this computer's risky actions: an MCP server's stdin is the client's pipe, so "auto" would ask nobody and run
+    # them all; they are refused instead (desktop_act's, and the shell and AppleScript steps of desktop_run_task)
+    confirm = None if a.yes else safety.default_confirm(unattended=safety.deny)
 
     def factory(res):
         sb, env = make(*res)
         if a.fixed_wait is not None:
             env.fixed_wait_s = a.fixed_wait
+        if isinstance(env, LocalEnv):
+            env.confirm = confirm
         return sb, env
     bg = None
     if a.background:
         def bg(app: str) -> Env:
             from legato.background import background
-            return background(app, fixed_wait_s=a.fixed_wait)
+            return background(app, fixed_wait_s=a.fixed_wait, confirm=confirm)
     build_server(factory, about=providers.about("background" if a.background else spec), record=a.record,
                  image_format=a.image_format, background=bg).run()
     return 0
