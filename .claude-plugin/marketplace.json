@@ -1,6 +1,6 @@
 {
   "name": "legatolabs",
-  "description": "Legato: a computer for coding agents, and an open-source computer-use harness for any model",
+  "description": "Legato: a computer for coding agents, and an open-source computer-use runtime for any model",
   "owner": { "name": "Legato Labs", "url": "https://legato.computer" },
   "plugins": [
     {
