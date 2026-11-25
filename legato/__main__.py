@@ -144,7 +144,9 @@ def run_main(argv) -> int:
         from legato import safety
         # a person at the terminal is asked before a risky action; with nobody to ask (output piped, run by a coding
         # agent or a script) it is refused and said, never run unseen. --yes allows them all.
-        confirm = None if a.yes else safety.default_confirm(unattended=safety.deny_and_say)
+        # --json is for scripts and agents: nobody reads a question there, so it is treated as nobody to ask
+        confirm = (None if a.yes else safety.deny_and_say if a.json
+                   else safety.default_confirm(unattended=safety.deny_and_say))
         env, close, what = open_desktop(desktop, task=a.task, app=a.app, confirm=confirm, cfg=cfg,
                                         timeout_s=a.timeout)
     except ImportError as e:
