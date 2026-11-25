@@ -1,6 +1,6 @@
 # Legato
 
-The fast, open-source computer-use agent. Bring any model.
+The fast, open-source computer-use runtime. Bring any model.
 
 ![Legato enters three invoices from a text file into a Windows desktop app](https://legato.computer/media/invoice-desk-2x.gif)
 
