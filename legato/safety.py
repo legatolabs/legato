@@ -61,7 +61,7 @@ TEXT_RULES: list[tuple[re.Pattern, str]] = [(re.compile(p), why) for p, why in [
      "erases or overwrites a disk"),
     (r"\bgit\s+push\b.*(\s--force\S*|\s-\w*f\w*\b|\s--delete\b|\s--mirror\b|\s\+\S)", "overwrites or deletes a remote branch"),
     (r"\bgit\s+reset\b.*\s--hard\b|\bgit\s+clean\b.*\s-\w*f", "discards local changes"),
-    (r"(^|\s)>\s*[\w~./$\"']|\btruncate\s+\S", "overwrites a file"),
+    (r"\btruncate\s+\S", "overwrites a file"),
     (r"\|\s*(sudo\s+)?(ba|z|da|fi)?sh\b", "runs a downloaded script"),
     # Windows: PowerShell and cmd (their names are not case-sensitive)
     # at the start of a command (a line, after ; & | ( or after cmd /c and powershell -Command), so that "del" or "rd"
@@ -76,7 +76,38 @@ TEXT_RULES: list[tuple[re.Pattern, str]] = [(re.compile(p), why) for p, why in [
 ]]
 
 
+# `> path`: asked about as an overwrite, unless the path is plainly a file that is not there yet (new_file)
+_REDIRECT = re.compile(r"(^|\s)>\s*(?=[\w~./$%\"'])(\"[^\"]*\"|'[^']*'|\S+)")
+_VAR = re.compile(r"(?i)\$env:(\w+)|\$\{(\w+)\}|\$(\w+)|%(\w+)%")
+_PRIVATE = ("appdata", "library")       # with dot folders: where programs that start by themselves are kept
+
 ENTER = "enter"
+
+
+def new_file(target: str) -> bool:
+    """Is `target`, as written after a `>`, a file under the home folder that does not exist yet? Then the redirect
+    creates a file and overwrites nothing. True only when that can be told from the text: a full path (~, $HOME,
+    $env:USERPROFILE and %USERPROFILE% are filled in), with no other variable, pattern or `..` in it, outside dot
+    folders, AppData and Library. A relative path is not known (the shell's folder is not), so it is still asked."""
+    path = target.strip("\"'")
+    if target[:1] == "'" and re.search(r"[$%]", path):         # single quotes: the shell fills nothing in
+        return False
+    try:
+        path = _VAR.sub(lambda m: os.environ[next(g for g in m.groups() if g)], path)
+    except KeyError:
+        return False
+    if path[:2] in ("~/", "~\\"):
+        path = os.path.expanduser("~") + path[1:]
+    if os.sep == "\\":
+        path = path.replace("/", "\\")
+    elif "\\" in path:
+        return False
+    if not os.path.isabs(path) or re.search(r"[$%*?\[\]`\"'<>|;&()]|\.\.", path):
+        return False
+    home, full = (os.path.normcase(os.path.realpath(p)) for p in (os.path.expanduser("~"), path))
+    inside = full[len(home):].split(os.sep)                   # "", then each folder, then the file
+    return (full.startswith(home + os.sep) and not any(p.startswith(".") or p.lower() in _PRIVATE or ":" in p for p in inside)
+            and os.path.isdir(os.path.dirname(full)) and not os.path.lexists(full))
 
 
 def keys_risk(names: list[str]) -> str | None:
@@ -94,6 +125,8 @@ def text_risk(text: str) -> str | None:
         for pat, why in TEXT_RULES:
             if pat.search(line):
                 return why
+        if any(not new_file(m.group(2)) for m in _REDIRECT.finditer(line)):
+            return "overwrites a file"
     return None
 
 
@@ -176,10 +209,23 @@ def default_confirm(unattended: Confirm | None = None) -> Confirm | None:
     legato.local and the CLI) holds nothing back, `deny` (legato.run's) refuses. LEGATO_CONFIRM=off turns it off."""
     if os.environ.get("LEGATO_CONFIRM", "").lower() in ("0", "off", "no", "false"):
         return None
+    return ask if at_terminal() else unattended
+
+
+def at_terminal() -> bool:
+    """Can a person answer a question on stdin? On Windows an empty stdin (NUL, which a coding agent's shell gives
+    its commands) says it is a terminal, so the console itself is asked too."""
     try:
-        return ask if sys.stdin is not None and sys.stdin.isatty() else unattended
-    except (ValueError, OSError):
-        return unattended
+        if sys.stdin is None or not sys.stdin.isatty():
+            return False
+        if sys.platform == "win32":
+            import ctypes
+            import msvcrt
+            handle = ctypes.c_void_p(msvcrt.get_osfhandle(sys.stdin.fileno()))
+            return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(ctypes.c_uint32())))
+        return True
+    except (ValueError, OSError, AttributeError):
+        return False
 
 
 # ------------------------------------------------------------ macOS permissions and the Escape key

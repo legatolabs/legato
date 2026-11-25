@@ -17,7 +17,7 @@ Or in a terminal:
 
 ```bash
 pip install legatolabs
-legato setup          # your model, where it works, your coding agents; then a first task
+legato setup          # your model, where it works, your coding agents; offers a first task
 ```
 
 Or on a Mac, with no code: [download Legato for Mac](https://github.com/legatolabs/legato/releases/latest/download/Legato.dmg),
@@ -30,7 +30,7 @@ Choose your model once. Every way in runs the same agent with it.
 | | How | What for |
 |---|---|---|
 | **Mac app** | Hold Fn, say the task | Your own apps, no code ([docs](https://legato.computer/docs/mac)) |
-| **Terminal** | `legato run "Find the next Caltrain from SF to Palo Alto"` | One task at a time, scripts, cron |
+| **Terminal** | `legato run "On Wikipedia, look up the Eiffel Tower and tell me how tall it is"` | One task at a time, scripts, cron |
 | **Your coding agent** | Claude Code, Codex or Cursor gets a computer (MCP); `legato setup` adds it | Test the app you are building, do the GUI part of a task ([docs](https://legato.computer/docs/mcp)) |
 | **Python** | `legato.run("...")`, or `legato.Harness(...).run(task, desktop)` | Your own agent, RL rollouts ([docs](https://legato.computer/docs/python)) |
 
@@ -77,7 +77,7 @@ Most of a computer-use agent's time goes to waiting: on the model, and on the sc
 
 ## Safety and limits
 
-- **Your own screen:** risky keys and typed commands (`rm`, `sudo`, Cmd+Q...) wait for your yes, and are refused when
+- **Your own screen:** risky keys and typed commands (`rm`, `sudo`, `Remove-Item`, Cmd+Q, Alt+F4...) wait for your yes, and are refused when
   nobody can answer (an MCP server, a script; `--yes` allows them). It's a list, not a sandbox: a click on Delete
   isn't caught. Move the mouse into a corner to stop a run. `--sandbox docker` or a cloud desktop keeps the agent off
   your screen and files.

@@ -56,13 +56,13 @@ class Action:
             return f"{self.keys + '+' if self.keys else ''}{t.replace('_', ' ')} ({self.x}, {self.y})"
         if t == "type":
             s = self.text or ""
-            return f'type "{s[:40]}{"…" if len(s) > 40 else ""}"'
+            return f'type "{s[:40]}{"..." if len(s) > 40 else ""}"'
         if t == "key":
             return f"key {self.keys}"
         if t == "scroll":
             return f"scroll {self.direction} {self.amount or 3}"
         if t == "drag":
-            return f"drag ({self.x}, {self.y}) → ({self.x2}, {self.y2})"
+            return f"drag ({self.x}, {self.y}) -> ({self.x2}, {self.y2})"
         return t
 
 
@@ -88,8 +88,15 @@ def _xy(a: dict, end: bool = False):
 
 
 def norm_keys(k) -> str:
+    """Key names as Legato writes them: "ctrl+s" is one chord, a space separates presses ("Down Down Return").
+    Modifiers and then one key with spaces between ("ctrl s", "ctrl shift s", as some models write a chord) are a
+    chord too."""
     if isinstance(k, (list, tuple)):
         k = "+".join(str(x) for x in k)
+    words = [KEYMAP.get(w.lower(), w) for w in str(k).split()]
+    mods = ("ctrl", "shift", "alt", "super")
+    if len(words) > 1 and "+" not in str(k) and all(w in mods for w in words[:-1]) and words[-1] not in mods:
+        k = "+".join(words)
     parts = [p.strip() for p in re.split(r"\s*\+\s*", str(k)) if p.strip()]
     return "+".join(KEYMAP.get(p.lower(), p if len(p) > 1 else p) for p in parts)
 

@@ -14,6 +14,26 @@
   providers it has a key for (`legato doctor --json` lists them under `setup.keys`). The Claude Desktop extension
   asks for optional OpenRouter, Anthropic and OpenAI keys, and the MCP registry entry lists them.
 
+From first-time users on fresh Windows machines:
+
+- **Nobody at the keyboard is no longer asked.** An empty stdin on Windows (what a coding agent's shell gives a
+  command) said it was a terminal, so `legato setup` and `legato init` printed a question and stopped, and
+  `legato run` waited 120 s on "allow it?". They now go on as they do with no terminal, and a question that meets
+  the end of input takes its default, as `--yes` does. `legato setup --mcp X`, `--coords` and `--api-key-env` change
+  that one thing without the questions once a model is saved, and `legato init` keeps the saved desktop.
+- **`> file` for a new file is no longer "overwrites a file".** A redirect to a full path under your home folder that
+  does not exist yet (outside dot folders, AppData and Library) runs; an existing file, a relative path and anything
+  else still ask.
+- **A refused command is cleared from the prompt** (Escape on Windows, Ctrl+U elsewhere), so a later Return cannot
+  run it.
+- **`legato.local()` minimises the console window on Windows**, as `legato run` did, so a Python script's agent does
+  not type into its own terminal (`hide_terminal=False` keeps it in front).
+- A chord written with spaces (`ctrl s`, `ctrl shift s`) is pressed as a chord, not as one key after another.
+- Printed actions are plain ASCII (`drag (1, 2) -> (3, 4)`, `type "..."`): the arrow printed as `?` on Windows.
+- `legato init`'s agent.py prints the answer, and its `Then:` line (like `legato setup`'s `Next:`) gives a real task
+  instead of `"your task"`. `legato setup --mcp` says when only the name of a key's variable is saved, which a coding
+  agent may not pass on.
+
 ## 0.3.2
 
 - **Legato describes itself as a computer-use runtime**: the package description on PyPI, the CLI banner, the README,

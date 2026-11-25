@@ -47,7 +47,7 @@ desktops are Linux today; managed Windows and macOS desktops are planned for Leg
 **Is it safe to let an agent use my computer?**
 Use a desktop container (`--sandbox docker`) or a cloud desktop when you can: the agent then never touches your own
 screen or files. On your own screen, move the mouse into a corner to stop it. Risky keys and typed commands (Cmd+Q,
-`rm`, `sudo`...) wait for your yes, and the Mac app also asks before clicking Send, Delete or Pay.
+Alt+F4, `rm`, `sudo`, `Remove-Item`...) wait for your yes, and the Mac app also asks before clicking Send, Delete or Pay.
 
 **Where does my data go?**
 Screenshots and the task go to the model you chose, and nowhere else. With a model on your own machine, nothing

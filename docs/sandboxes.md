@@ -51,7 +51,11 @@ with a model on your own GPU ([models](models.md#on-your-own-gpu)) and nothing l
     log out), Alt+F4, Shift+Delete, Ctrl+Alt+Delete;
   - typed text that is run (it ends with a newline, or Return is pressed after it): `rm`, `rmdir`, `unlink`,
     `shred`, `find -delete`, `sudo`, `doas`, `mkfs`, `dd of=`, `diskutil erase…`, `git push --force/--delete/--mirror`,
-    `git reset --hard`, `git clean -f`, `> file`, `truncate`, and anything piped into a shell.
+    `git reset --hard`, `git clean -f`, `> file` (unless it is plainly a new file under your home folder, outside
+    dot folders, AppData and Library), `truncate`, and anything piped into a shell; in PowerShell and cmd:
+    `Remove-Item`, `del`, `rd`, `Clear-Content`, `Clear-RecycleBin`, `format`, `reg delete`, `Stop-Computer`,
+    `shutdown`, `Start-Process -Verb RunAs`, and a download piped into `iex`.
+  - a refused command that was already typed is cleared from the prompt (Escape on Windows, Ctrl+U elsewhere).
 
   A click is only coordinates, so a click on Delete, Send or Buy, a menu item, a drag to the Trash, the Delete key
   alone and a command behind an alias are **not** caught. `legato.local(confirm=fn)` takes your own

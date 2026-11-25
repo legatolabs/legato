@@ -95,9 +95,9 @@ In Windows PowerShell, which has no `&&`, run the two commands one after the oth
   `$env:OPENROUTER_API_KEY = "..."`).
 - **Clicks do nothing, or screenshots are only the wallpaper** (macOS): Accessibility and Screen Recording, as in
   step 6.
-- **"... did not open within 30 s"** (background mode): the Mac is busy or the app is slow to start the first time;
+- **"... did not open within 30 s"** (macOS, background mode): the Mac is busy or the app is slow to start the first time;
   open the app once, then run again.
-- **"... has no window on screen"** (background mode): the app is minimized or on another Space; bring one of its
+- **"... has no window on screen"** (macOS, background mode): the app is minimized or on another Space; bring one of its
   windows onto this desktop.
 - **The model answers but never acts, or clicks in the wrong place:** `legato doctor --model` says whether it accepts
   images and which coordinates it uses ([models](models.md)).

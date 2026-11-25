@@ -331,3 +331,23 @@ def test_a_screen_that_cannot_be_captured_raises_a_desktop_error():
     e = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Gone())
     with pytest.raises(legato.DesktopError, match="the screen could not be captured: XGetImage"):
         e.observe()
+
+
+def test_a_chord_written_with_spaces_is_a_chord():
+    """A pointer model sent {"action": "hotkey", "text": "ctrl s"}: it ran as ctrl, then s, and typed a stray s."""
+    from legato.actions import norm_keys, parse
+    assert parse({"action": "hotkey", "text": "ctrl s"}, 100, 100)[0].keys == "ctrl+s"
+    assert norm_keys("ctrl shift s") == "ctrl+shift+s" and norm_keys("cmd Enter") == "super+Return"
+    assert norm_keys("alt F4") == "alt+F4" and norm_keys("ctrl+s") == "ctrl+s"
+    for same in ("space", "Down Down Return", "page down", "Tab Tab", "ctrl", "ctrl+a ctrl+c", "shift ctrl"):
+        assert norm_keys(same) == same, same           # presses one after another, as before
+
+
+def test_the_console_is_only_minimised_on_windows_with_the_real_screen(monkeypatch):
+    L, hidden = sys.modules["legato.local"], []
+    monkeypatch.setattr(L, "hide_console", lambda: hidden.append(1) or (lambda: None))
+    e = LocalEnv(fixed_wait_s=0, gui=Gui(), grabber=Screen())
+    e.show_terminal()                                  # always there to call
+    assert hidden == [] and L.hide_console.__doc__ is None
+    monkeypatch.undo()
+    assert L.hide_console()() is None or sys.platform == "win32"      # elsewhere: nothing to do

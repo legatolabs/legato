@@ -131,10 +131,16 @@ def test_return_after_a_risky_command_is_asked():
     with pytest.raises(safety.Denied):
         e.act(Action("key", keys="Return"))
     assert "sudo rm -rf /" in asked[0] and not any(c[0] == "press" for c in e.gui.calls)
+    clear = ("press", ("esc",)) if sys.platform == "win32" else ("hotkey", ("ctrl", "u"))
+    assert e.gui.calls[-1] == clear and e._typed == ""       # the refused line is cleared, not left at the prompt
+    e.gui.calls.clear()
+    e.act(Action("key", keys="Return"))                      # so a later Return runs nothing and is not asked
+    assert len(asked) == 1
     answer[0] = True
-    e.act(Action("key", keys="Return"))                      # asked again, allowed, and then forgotten
+    e.act(Action("type", text="sudo ls"))
+    e.act(Action("key", keys="Return"))                      # asked, allowed, and then forgotten
     e.act(Action("key", keys="Return"))
-    assert len(asked) == 2 and [c for c in e.gui.calls if c[0] == "press"] == [("press", ("enter",))] * 2
+    assert len(asked) == 2 and [c for c in e.gui.calls if c[0] == "press"] == [("press", ("enter",))] * 3
     e.act(Action("type", text="rm x"))
     e.act(Action("click", x=5, y=5))                         # a click may go back into the same terminal:
     e.act(Action("key", keys="Return"))                      # a line that deletes is still asked about
@@ -333,3 +339,61 @@ def test_a_risky_line_is_still_asked_about_after_a_click():
     q, env._typed = env._risk(Action("type", text="hello"))
     q, env._typed = env._risk(Action("click", x=10, y=10))
     assert env._typed == ""
+
+
+def test_a_refused_line_is_cleared_with_nobody_to_ask_and_other_refusals_clear_nothing(capsys):
+    """A stopped run left `Remove-Item ...` typed in PowerShell, and the next run's Return submitted it."""
+    e = env(confirm=safety.deny_and_say)
+    e.act(Action("type", text="Remove-Item -Path x -Recurse -Force"))
+    with pytest.raises(safety.NeedsYes):
+        e.act(Action("key", keys="Return"))
+    assert e.gui.calls[-1][0] in ("press", "hotkey") and e.gui.calls[-1][1] in (("esc",), ("ctrl", "u"))
+    e = env(confirm=safety.deny)
+    e.act(Action("type", text="some words"))
+    n = len(e.gui.calls)
+    with pytest.raises(safety.Denied):
+        e.act(Action("key", keys="alt+F4"))                  # a risky key: the typed words stay
+    assert len(e.gui.calls) == n and e._typed == "some words"
+    e = env(confirm=safety.deny)
+    with pytest.raises(safety.Denied):
+        e.act(Action("type", text="rm -rf x\n"))             # refused before it was typed: nothing to clear
+    assert e.gui.calls == []
+
+
+def test_a_redirect_to_a_new_file_at_home_is_not_an_overwrite(tmp_path, monkeypatch):
+    """`echo "hello" > Desktop\\notes.md` stopped a run as "overwrites a file" when no such file existed."""
+    for name in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(name, str(tmp_path))
+    for d in ("Desktop", ".ssh", "Library"):
+        (tmp_path / d).mkdir()
+    (tmp_path / "Desktop" / "old.md").write_text("x")
+    home = "$env:USERPROFILE" if sys.platform == "win32" else "$HOME"
+    for ok in (f'echo "hello from legato" > "{home}/Desktop/notes.md"', "echo hi > ~/Desktop/notes.md",
+               "echo hi > ${HOME}/Desktop/notes.md" if sys.platform != "win32" else "echo hi > %USERPROFILE%\\Desktop\\n.md",
+               f"echo hi > {tmp_path}/Desktop/n.md"):
+        assert safety.text_risk(ok) is None, ok
+    for ask in ("echo hi > ~/Desktop/old.md",                # it exists
+                "echo hi > notes.md", "echo hi > ./notes.md",  # where the shell is, is not known
+                "echo hi > ~/.ssh/authorized_keys", "echo hi > ~/.profile", "echo hi > ~/Library/x.plist",
+                "echo hi > /dev/sda", "echo hi > /etc/hosts", "echo hi > %NO_SUCH_VARIABLE_X%\\notes.md", "echo hi > $UNSET_VARIABLE_X/notes.md",
+                "echo hi > ~/Desktop/../.ssh/x", "echo hi > '$HOME/Desktop/notes.md'", "echo hi > ~/Desktop/*.md",
+                "echo hi > ~/nowhere/notes.md", "echo hi > ~/Desktop/notes.md > ~/Desktop/old.md"):
+        assert safety.text_risk(ask) == "overwrites a file", ask
+    assert safety.text_risk("rm x > ~/Desktop/notes.md") == "deletes files"
+
+
+def test_an_empty_stdin_is_nobody_at_the_terminal(monkeypatch):
+    """Windows: NUL says isatty(), so the question was asked and waited 120 s. The console is asked as well."""
+    monkeypatch.setattr(sys, "stdin", None)
+    assert safety.at_terminal() is False and safety.default_confirm(unattended=safety.deny) is safety.deny
+    monkeypatch.setattr(sys, "stdin", type("S", (), {"isatty": lambda self: False})())
+    assert safety.at_terminal() is False
+    if sys.platform != "win32":
+        monkeypatch.setattr(sys, "stdin", type("S", (), {"isatty": lambda self: True})())
+        assert safety.at_terminal() is True
+
+
+def test_described_actions_are_ascii():
+    """The drag arrow printed as ? in a Windows console, and the ellipsis as byte 0x85 through a pipe."""
+    assert Action("drag", x=208, y=252, x2=615, y2=558).describe() == "drag (208, 252) -> (615, 558)"
+    assert Action("type", text="a" * 50).describe() == 'type "' + "a" * 40 + '..."'
