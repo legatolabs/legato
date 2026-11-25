@@ -58,22 +58,22 @@ official OSWorld-Verified submission.
 
 With fixed sleeps, 40–53% of rollout time was idle.
 
-## Windows desktop apps: Legato and Devin
+## Windows desktop apps
 
-Different agents and models on Windows, so this compares products, not loops. Legato ran on one EC2 Windows Server
-2022 machine with two models: GPT-6.1 Terra plans and UI-TARS-1.5-7B points (`legato.Planner(..., style="point")`,
-see [Terminal and Python](python.md)). Devin ran on its own Windows machines. Raw data:
+Legato on one EC2 Windows Server 2022 machine (m7i.xlarge, 1024x768) with two models: GPT-6.1 Terra plans and
+UI-TARS-1.5-7B points (`legato.Planner(..., style="point")`, see [Terminal and Python](python.md)). Each task said to
+work through the desktop with the mouse and keyboard, not with a shell or a script. Raw data:
 [benchmarks/results/windows-2026-11](../benchmarks/results/windows-2026-11).
 
-| tasks | Legato | Devin |
-|---|---|---|
-| Six basic tasks (Notepad, a folder in Explorer, the time zone, bold in WordPad, a shortcut, Calculator to Notepad), all six summed | 102.8 s (mean of 2 runs), 12/12 passed | 300 s with sessions already running, 6/6; 1478 s from new sessions, 6/6 |
-| Three invoices from a text file into a Windows program with no API | 32.2 s and 33.7 s passed, one run failed at 103 s | 58 s (its recorded run) and 67 s, both passed |
+| tasks | result |
+|---|---|
+| Six basic tasks (Notepad, a folder in Explorer, the time zone, bold in WordPad, a shortcut, Calculator to Notepad), run one after another | 102.8 s for all six (mean of 2 runs, about 17 s a task), 12/12 passed |
+| Three invoices from a text file into Invoice Desk, a test program we built with no API | 32.2 s and 33.7 s passed, one run failed at 103 s |
 
-- **Timing:** Legato from its first screenshot to done; Devin from sending the task to its DONE reply.
-- **Screens differ:** Legato's machine ran at 1024x768, Devin's at 1600x1200.
-- **Invoice runs:** Legato's failed run entered one invoice three times. A fourth run began with the previous run's
-  window and rows still on screen; it is left out as invalid, and its row is in the raw data.
+- **Timing:** from the first screenshot to done.
+- **Invoice runs:** Legato said done on all three valid runs and two passed: the failed one entered the same invoice
+  three times. A fourth run began with the previous run's window and rows still on screen; it is left out as
+  invalid, and its row is in the raw data.
 - One machine and a few runs: no interval is claimed.
 
 ## A DCF in Excel (demo)
