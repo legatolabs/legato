@@ -6,7 +6,7 @@
   project mounted.
 - [Claude Code computer use on Linux, Team plans, Bedrock, CI and in parallel](guides/claude-code-computer-use-anywhere.md):
   when the built-in `computer-use` server is missing from `/mcp`.
-- [Run a computer-use agent with a local model](guides/local-model.md): vLLM, Ollama or LM Studio, so nothing leaves
+- [Run a computer-use agent with a local model](guides/local-model.md): vLLM (Ollama and LM Studio untested), so nothing leaves
   your machine.
 - [Automate spreadsheets and office apps](guides/office-tasks.md): with results on the Legato Office Bench.
 - [Why computer-use agents are slow](guides/faster-agents.md): fixed sleeps, model calls and cache misses, and what

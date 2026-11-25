@@ -1,6 +1,6 @@
 """Head-to-head report: several harnesses (arms) on the same tasks, compared with one reference arm.
 
-    python -m legato.rl.bench.h2h --tasks tasks.json --arm reference=runs/ref --arm legato=runs/legato \
+    legato bench h2h --tasks tasks.json --arm reference=runs/ref --arm legato=runs/legato \
         --ref reference --out report/
 
 Per arm: success, agent time (first screenshot to the model's last turn: model calls, actions, waits for the screen,
@@ -132,7 +132,7 @@ def report_md(res: dict, meta: dict) -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m legato.rl.bench.h2h")
+    ap = argparse.ArgumentParser(prog="legato bench h2h")
     ap.add_argument("--tasks", required=True)
     ap.add_argument("--arm", action="append", required=True, help="name=rollout_dir")
     ap.add_argument("--ref", required=True)

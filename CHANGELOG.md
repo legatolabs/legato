@@ -1,12 +1,43 @@
 # Changelog
 
-## Unreleased
-
-- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
-  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
-  starting it, and keeps the path absolute.
-
 ## 0.3.1
+
+- **Bring any model, checked the way a run uses it.** `legato setup` now tries the model with the agent's own prompt,
+  a test screenshot and the `computer` tool (it was a one-word colour question, which passed models that then failed
+  every run with "No endpoints found that support tool use"). A model that takes images but no tool calls is asked
+  for its actions as JSON instead; that and the coordinates its click used (pixels or the 0–1000 grid) are saved in
+  the config (`tool_calls`, `coords`; `legato setup --coords`), so `legato run`, `legato mcp` and `legato.run()` use
+  them. `Harness` also switches to JSON actions by itself when a server refuses tool calls. A text-only model is
+  refused in plain words ("this model does not accept images; Legato needs a vision model") with two that work.
+- **`legato doctor --model [NAME]`** tries the saved or a named model: answers, accepts images, makes tool calls,
+  where its click lands, each with its fix (exit 1 when it cannot be used; `--json` has `model_check`).
+- **What is true about setup:** with no setup and a key in the environment, `legato` and `legato doctor` say the
+  default model is in use and that `legato setup` saves a choice, and `legato init` takes that default without
+  asking. A setup that saved no key says what is missing instead of "Next: legato run". `--provider local` with no
+  server names the three it looked for and how to start one, at once. Key hints use PowerShell's form on Windows.
+  `legato doctor`, `legato run` and `report()` print " - " in place of the middle dot where stdout is not UTF-8
+  (a Windows pipe showed it as another character).
+- **Python API: answers, cost limits, traces and honest planner totals.**
+  - A task that asks for information ("what", "tell me", a question mark) gets its answer in `result.answer` from
+    `Harness.run` too, not only `legato.run`: the task is sent with a line asking for it, and a done without it gets
+    one more turn (`ask_answer` now defaults to deciding from the task's words; `False` turns it off). GPT-6.1 Terra
+    and Claude Sonnet 5.5 returned `answer: ''` before. A planner (`legato.Planner`) now gives the answer as well.
+  - `Harness(plan=True)` offers only the steps that can run: no shell steps without a `bash` tool, no label steps
+    without a text reader (Windows and Linux), PowerShell named where the shell is PowerShell, and a step that
+    can't run is said to the model. On Windows with no tools it ran "out of steps ... 20 model turns, 0 actions".
+  - `max_cost_usd=` on `legato.run` and `Harness.run` ends a run with the new status `max_cost` once the cost the
+    provider reports reaches it. `on_step`'s `timing` carries `usage` (the run's tokens and cost so far).
+  - `record_dir=` saves the screen after each turn, and every run has `result.trace` (what the model said, what ran,
+    seconds, the screenshot's path), not only planner runs.
+  - Planner runs count the planner: `steps`, `usage`, `timings` and `report()` include its calls, tokens, cost and
+    seconds (they showed "0 model turns" and 0 tokens), `on_step` gets the actions each batch ran, and the planner's
+    notes are in `result.planner["notes"]` and at each planner call in the trace.
+  - `result.error` says why for every status but `done`: `failed` carries the model's reason (still in `answer`) and
+    `max_steps` says so; both were `None`.
+- **`legato mcp` refuses risky actions on this computer unless started with `--yes`.** Its stdin is the client's
+  pipe, so "ask in the terminal" asked nobody and ran them: Cmd+Q or a typed `rm` through `desktop_act`, and the
+  shell and AppleScript steps inside `desktop_run_task`. The client is told how to allow them. The README says what
+  the list doesn't catch, and that a page on screen can try to instruct the agent.
 
 - **Background mode opens an app that isn't running yet.** 0.3.0 waited for it with a plain sleep, and macOS only
   updates a process's list of running apps from its run loop, so an app opened after the first look was never seen:
@@ -19,6 +50,14 @@
   every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
   stall the window is taken with `screencapture` for the next five minutes (its sheets and menus are left out then).
   A run that fails mid-way prints one line, not a traceback.
+- **MCP on Windows reads text and waits.** `desktop_read` works on a Windows screen: the foreground window's text
+  (an Edge or Chrome page, Notepad, a dialog, Settings) through the UI Automation that PowerShell ships with, with
+  nothing to install. New `desktop_wait` waits until given text is in the window, or until the screen has changed and
+  holds still. `desktop_open` gives `{desktop_id, width, height, started, start_error}` as structured content, the
+  real screen size, and marks a url or app that did not start as an error; the server reports its version.
+  `desktop_run_task` takes no `desktop_id` (it opens a desktop for the run and closes it), adds `cost_usd` to its
+  structured result, and says when the model key is missing from the server's environment. The MCP docs say what the
+  one-click buttons need (uv and Docker) and show the path that works everywhere.
 - **The MCP server passes a desktop's failure to the client with its reason** (the MCP library otherwise shows only
   "Error executing tool"). The MCP docs say what `desktop_close` and `desktop_shell` do in the background.
 - **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on
@@ -36,6 +75,130 @@
 - **The Mac app starts from `legato setup`'s model.** With no model chosen in the app yet, it reads the provider,
   model and base URL from `~/.config/legato/config.json` (and a key pasted into `legato setup`, if the Keychain has
   none for that provider). Choosing a model in the app makes that the app's own.
+- `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
+  `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
+  starting it, and keeps the path absolute.
+- **On Windows the shell tool is PowerShell.** `legato.tools.bash()` and `bash(legato.local())` run commands with
+  `powershell -NoProfile -NonInteractive -Command` (it was `cmd.exe`), say so in the tool's description, and a planner
+  is told which shell it has (`Tool.runs`; `Planner(shell_name=...)` overrides it).
+
+From the persona tests (six simulated launch users on a real Mac):
+
+- **Every run result has a `status`:** done, failed, max_steps, timeout, cancelled, stopped or error.
+  `legato.run(timeout_s=, cancel=)`, `Harness.run(timeout_s=, cancel=)` and `legato run --timeout S` end a run on a
+  deadline or a `threading.Event`, keeping its usage so far.
+- **A failed desktop is a result, not an exception,** in `legato.run`, `legato run` and `desktop_run_task`
+  (`status="error"`). `Harness.run` still raises unless `raise_desktop_errors=False`, so rollout retries are
+  unchanged.
+- **Provider errors keep only the status code and the message:** OpenRouter's account `user_id` no longer appears in
+  `error`.
+- `Harness.run` defaults to 40 steps, like `legato.run` and the CLI; `RunResult.usage` is typed as `legato.Usage`;
+  `legato run` exits 2 on a model error, and `--json` output leads with `status`.
+- **MCP `desktop_read`:** a background desktop's window text from its Accessibility tree, as a short outline, so a
+  coding agent can check what a page says without a screenshot.
+- **`legato doctor` takes a real window capture** and reports works, stalled or failed, with the fix. With a model on
+  this machine, it checks the server answers, and it no longer reports a dead server as ready.
+- **Background mode:**
+  - It no longer presses the window's close, minimize or zoom buttons; the model is told the desktop can't.
+  - An open menu or popover now shows in the screenshot (it was drawn behind the window).
+  - With window capture stalled, a sheet (a Save or New Game dialog) is captured as itself.
+  - The default browser is Safari: Chrome 158 and later ignore background clicks on a web page's elements. A task
+    can still name Chrome.
+- A missing app fails at once ("NoSuchApp could not be opened: Unable to find application..."), not after 30 s;
+  `legato doctor --help` prints help.
+- After a window-capture stall, the next Legato processes skip the 3 s wait too, for five minutes (a note in
+  `~/.cache/legato`). `legato doctor` tries a few ordinary windows before it calls window capture failed.
+- A model that doesn't answer says where and what to do ("the model at http://localhost:11434/v1 did not answer (2
+  attempts): ConnectError... Is the model server running?"). `legato setup` suggests Ollama's or LM Studio's port when
+  that server is installed. README and llms.txt: vLLM is the tested local server; Ollama and LM Studio aren't yet.
+- `legato.run(timeout_s=)` covers opening the desktop too. New `legato.DesktopError` and `DesktopStartError` (both
+  RuntimeErrors) when a desktop can't open or act. `usage["complete"]` is False when a call was cut off and may still
+  be billed. A refused key (HTTP 401/403) says which key (by its variable's name, never its value) and how to fix it.
+- **Unattended runs refuse risky actions by default:** with no terminal, `legato.run`'s `confirm="auto"` refuses them
+  and tells the model. Pass `confirm` (a function, `None`, or `"deny"`) to choose.
+- **Background mode, round two:**
+  - It works in the app's real window, skipping bubbles and popovers (TextEdit's autocorrect, Chrome's help), and
+    picks again when a window closes instead of blaming Screen Recording.
+  - Bold, italic and font changes are refused: a background app turns those menu items off, and its format bar
+    lights up without changing the text, so a model reported bold that never happened. Underline and alignment work.
+  - In Safari, `desktop_open(url)` opens the page in its own window (no Apple Events permission needed), ready to
+    read and click when it returns: 2.8 s, was 15.7 s. `desktop_close` closes that window; the person's tabs are
+    left alone.
+- An app Legato just opened gets the rest of its launch time to show its first window (a cold start was an error
+  after 5 s). Docs: `usage` is read as `usage["complete"]`; an attached desktop raises its own exceptions.
+- Runs are asked to finish with fail when any part of the task couldn't be done (a run ended `done` while saying
+  nothing worked). The text report puts an error before its timing and shows the cost. FAQ: the apps Legato
+  drives keep their own habits, e.g. TextEdit autosaving a new document to iCloud.
+- **Background mode works in a window of its own and never steers the person's windows.** Every background desktop
+  (`legato.run`, `legato run`, MCP `desktop_open`) opens a new window or document through the app's own New menu item;
+  a browser window closes when the run ends, a document stays. An app whose New item would change the person's data
+  ("New Note", "New Game") is worked in its front window, and the desktop names it. A persona test had turned three of
+  the person's Safari tabs into apple.com.
+  - Each desktop follows only its own windows (and ones its own actions open); two MCP desktops in one app no longer
+    share a window.
+  - Cmd+R, Cmd+[ and Cmd+] press Safari's toolbar buttons; system shortcuts (Cmd+Space, Cmd+Tab, Mission Control) are
+    refused.
+  - `desktop_run_task` returns structured output (`status`, `answer`, `seconds`, `steps`, `error`) and sets `isError`
+    for failed, timeout and error; `--record` keeps its inner steps.
+- **The same impossible action no longer loops to the step limit.** From its second refusal the model is told
+  to call fail and say why; the third ends the run as failed with the reason. A background app's Save, Close and
+  Find stay turned off however often they're pressed (a TextEdit "save it" task looped to the call limit).
+- **Background mode refuses browsers other than Safari.** In Firefox a run's screenshots and keys reached the
+  person's own Firefox window and changed its selected tab, though the window it opened was its own; Chrome 158
+  ignores background clicks on web pages. `legato init` refuses them too; `window="front"` still works.
+- **Two Legato processes in one app keep to their own windows.** Their claims were per process, so a Safari window
+  another process had just opened was taken as one this run's action opened, and clicked. They are now shared
+  through `~/.cache/legato/windows`; a window another desktop took is never this one's, and one it closed (macOS
+  still lists it for a moment) is nobody's. Opening its own window gives the front back if the app took it.
+- **Typed text goes in as written** in background apps other than browsers, through Accessibility: TextEdit had
+  capitalised a typed list ("alpha" to "Alpha"), and the run spent 2.5 minutes retyping it; the same list now takes
+  5 s. A field's newline is still Return.
+- **Save, Duplicate, Export and Print are refused in the background by their menu title**, on or off: Cmd+S had
+  opened a real Save sheet no click could reach, and Cmd+Shift+S ran TextEdit's Duplicate. A fail with no text gets
+  the last refusal as its `error`.
+- **Background desktops never take another window's sheet** (another tester's close prompt appeared while one acted,
+  and its form reached the model), **answer their own window's close prompt** ("You have entered text…"; five
+  sign-up checks each left a window open), and `legato mcp` closes its background windows when the client goes.
+- **Refusals of any kind end the run at six**, and a refused Save, Export or Print says it stays off in the background:
+  a "save it" task tried four ways and ran to its 120 s limit; it now fails in 16 s with the reason. A failed run's
+  `report()` and `desktop_run_task` reply lead with that reason.
+- **A question gets its answer.** When a task asks for information ("what", "tell me", "how many", a question mark)
+  and the model calls done without the answer, it gets one more turn with the screen and is asked for it
+  (`Harness(ask_answer=True)`, which `legato.run`, `legato run` and `desktop_run_task` set). GPT-6.1 Terra ended
+  20 of 20 Safari questions with an empty done (legato-research EXP-0102), often in the same plan as the
+  navigation, before the page had loaded.
+- MCP: `desktop_read` honors `max_chars` and drops TextEdit's ruler markers; `desktop_run_task` takes `timeout_s`; the
+  Chrome refusal says Chrome ignores background clicks on web pages.
+- `legato rl`: Python `collect()` raises `CollectError` when no rollout completed (and names the `__main__` guard);
+  rollouts per hour come from real time; `--start-stagger`; the fake screen is 640×400 and readable; export rows have
+  `attempt`, and steps record `retry_reasons`.
+- **`legato rl collect --backend fake` works out of the box** (the fake harness is its default). A harness or backend
+  that can't load stops before any worker starts, naming the fix, and `collect` exits 1 when no rollout completed.
+- **Sampling for GRPO:**
+  - `--temperature` sets it, and a temperature in `--extra-body` or `--harness-opts` now applies too.
+  - `--seed` records a seed per rollout.
+  - A group sampled at temperature 0 gets a warning.
+- **Exported samples keep tool calls:** `response_text` includes the action. New fields: `response_content`,
+  `response_tool_calls`, `tokens_cover_response`, `finish_reason`, `sampling`.
+- The fake desktop's reward can be set with `--fake-opts`, and help text says `legato rl`.
+- **`legato rl` works on a first try without VMs, and says what needs what.** docs/rl.md opens with "Try it in two
+  minutes, without VMs". `--backend fake` now runs `legato.Harness`, so the recorded actions are the model's own (the
+  old default clicked (10, 10) whatever the model said), and its reward is labelled fake in the records, the export
+  and the report. `legato rl probe` also sends an image and a tool call, says in words what the server is good for
+  (evaluation, policy-gradient training) and exits 1 for a model without image input; `collect --require-logprobs`
+  stops before any rollout when the server returns none. Every JSON option takes `@file.json` (PowerShell drops the
+  quotes inside an argument), and a bad one, a wrong model or URL, or a missing tasks file is one line, not a
+  traceback. `--backend path/to/file.py:Class` runs your own environment (`legato.rl.Desktop`,
+  `examples/rl_custom_backend.py`), and `--backend local` runs this computer's screen with your reset and grading.
+  The export gains `actions` (with the parsed action) and `reward_source`. OSWorld's errors say it needs Linux with
+  KVM. `legato bench --help` lists its commands.
+- **Safer on your own screen, on Windows too.** Typed `Remove-Item`, `del`, `rd`, `format`, `reg delete`, a shutdown and
+  a downloaded script piped to `iex` wait for a yes, as `rm` and `sudo` do; so does Delete right after selecting
+  everything. With nobody to ask (`legato run` with its output piped, or run by a coding agent) a risky action is
+  refused and said on stderr, not run unseen; `--yes` allows them. A question nobody answers in two minutes is a no, and `legato run --json` never asks: it refuses and says so. A typed delete is
+  still asked about when a click comes between the typing and Return.
+  `legato run` says how to stop it, and no longer crashes when its output is piped on Windows (an arrow the console's
+  encoding lacks).
 
 ## 0.3.0
 

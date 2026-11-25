@@ -28,7 +28,7 @@ from typing import Any
 
 from legato import safety
 from legato.actions import Action
-from legato.env import Env, Obs
+from legato.env import DesktopError, DesktopStartError, Env, Obs
 from legato.settle import LOCAL_RULES, Waiter
 from legato.tools import local_shell
 
@@ -171,7 +171,13 @@ class LocalEnv(Env):
             no_dock_icon()
         self.gui = gui or _need("pyautogui")
         self.gui.PAUSE = 0.02                     # pyautogui sleeps 0.1 s after every call by default
-        self.sct = grabber or _need("mss").mss()
+        if grabber is None:
+            mss = _need("mss")
+            try:
+                grabber = mss.mss()
+            except Exception as e:                # no display to capture (Linux without X, a headless session)
+                raise DesktopStartError(f"this screen can't be captured: {e}") from e
+        self.sct = grabber
         self.mon = self.sct.monitors[1]           # the primary screen, where pyautogui's (0, 0) is
         self.size = tuple(self.gui.size())        # logical size: what pyautogui clicks in
         self.mac = sys.platform == "darwin"
@@ -230,7 +236,10 @@ class LocalEnv(Env):
             return tuple(x.hexdigest() for x in hs)
 
     def _grab(self):
-        return self.sct.grab(self.mon)
+        try:
+            return self.sct.grab(self.mon)
+        except Exception as e:
+            raise DesktopError(f"the screen could not be captured: {e}") from e
 
     def _digest(self) -> str:
         if self.wait_scope == "app" and self.mac:
@@ -306,13 +315,20 @@ class LocalEnv(Env):
                 names = [self.key(k) for k in combo.split("+") if k]
                 if why := safety.keys_risk(names):
                     return f"press {combo} ({why})", typed
+                if safety.is_delete(names) and getattr(self, "_all_selected", False):
+                    self._all_selected = False
+                    return f"press {combo} after selecting everything (deletes all that is selected)", typed
+                self._all_selected = safety.is_select_all(names)
                 if safety.is_enter(names):
                     if why := safety.text_risk(typed):
                         return f"press Return after typing {quote(typed)} ({why})", ""
                     typed = ""
             return None, typed
         if t in ("click", "double_click", "triple_click", "right_click", "drag"):
-            return None, ""                       # the focus may have moved: a later Return runs something else
+            self._all_selected = False
+            # the typed text is kept: a click back into the same terminal and then Return still runs it, and a line
+            # that would delete or overwrite is worth one question even if the focus did move
+            return None, (typed if safety.text_risk(typed) else "")
         return None, typed
 
     def _front(self) -> str | None:
@@ -503,7 +519,8 @@ def local(mac_cmd: bool = True, fixed_wait_s: float | None = None, *,
     wait_scope="app" (macOS): the wait for the screen watches only the front app's windows. `options` go to LocalEnv
     (wait="screen" | "cells" | "ax" | "ax|cells": what decides that the screen has settled).
     background="TextEdit" (macOS): work in that app's window only, without moving the mouse or taking the screen, so
-    the person can keep using the Mac (`legato.background`)."""
+    the person can keep using the Mac (`legato.background`). Raises legato.DesktopStartError when it can't be opened
+    (an app that is not installed, no screen to capture), legato.DesktopError when it fails later."""
     if background is not None:
         from legato.background import BackgroundEnv
         return BackgroundEnv(background, mac_cmd=mac_cmd, fixed_wait_s=fixed_wait_s, confirm=confirm)

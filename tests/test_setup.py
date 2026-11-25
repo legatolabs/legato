@@ -61,7 +61,9 @@ def test_the_browser_is_used_only_where_background_mode_is_tested(monkeypatch):
     monkeypatch.setattr(config, "default_browser", lambda: "Firefox")
     assert config.pick_app("x", config.Config()) == "Safari"
     monkeypatch.setattr(config, "default_browser", lambda: "Google Chrome")
-    assert config.pick_app("x", config.Config()) == "Google Chrome"
+    assert config.pick_app("x", config.Config()) == "Safari"            # Chrome 158 ignores background clicks on pages
+    monkeypatch.setattr(config, "app_for_task", lambda task, apps=None: "Google Chrome")
+    assert config.pick_app("open chrome", config.Config()) == "Google Chrome"   # named, it is still used
     assert config.pick_app("x", config.Config(app="TextEdit")) == "TextEdit"
 
 
@@ -153,6 +155,8 @@ def test_setup_adds_legato_to_coding_agents(no_machine, monkeypatch, tmp_path):
         returncode, stdout, stderr = 0, "", ""
     monkeypatch.setattr(setup, "coding_agents", lambda: ["claude", "cursor"])
     monkeypatch.setattr(setup.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or Done())
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/local/bin/{name}")
     cursor = tmp_path / ".cursor" / "mcp.json"
     cursor.parent.mkdir()
     cursor.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
@@ -308,7 +312,7 @@ def test_legato_run_json_prints_json_when_it_cannot_start(capsys):
 
 
 def test_a_desktop_that_fails_mid_run_is_one_line_and_json(monkeypatch, own_config, capsys):
-    """A capture that fails after the run started: no traceback, and with --json one JSON object with the error."""
+    """A capture that fails after the run started: no traceback, and with --json the run's result with its status."""
     import legato.agent
     saved()
     def broken():
@@ -318,5 +322,156 @@ def test_a_desktop_that_fails_mid_run_is_one_line_and_json(monkeypatch, own_conf
     assert main(["run", "Say hello", "--json"]) == 2
     out, err = capsys.readouterr()
     got = json.loads(out.strip().splitlines()[-1])
-    assert got["done"] is False and got["error"].startswith("the run stopped: the window could not be captured")
+    assert got["status"] == "error" and got["done"] is False and got["failed"] is False
+    assert got["error"] == "the desktop failed: the window could not be captured" and "usage" in got
     assert "Traceback" not in err
+    assert main(["run", "Say hello"]) == 2
+    out, err = capsys.readouterr()
+    assert "\nthe desktop failed: the window could not be captured (after " in out and "Traceback" not in err
+
+
+def test_legato_run_timeout_and_status_in_json(monkeypatch, own_config, capsys):
+    import legato.agent
+    from legato.rl.fake import tiny_png
+    saved()
+    env = legato.attach(screenshot=lambda: tiny_png(1), execute=lambda a: None)
+    monkeypatch.setattr(legato.agent, "open_desktop", lambda *a, **k: (env, lambda: None, "a test desktop"))
+    assert main(["run", "Say hello", "--json", "--timeout", "0"]) == 1       # out of time before the first call
+    got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert (got["status"], got["steps"], got["done"]) == ("timeout", 0, False) and "time limit" in got["error"]
+
+
+def test_legato_run_json_says_error_when_it_cannot_start(capsys):
+    assert main(["run", "Say hello", "--json"]) == 2
+    got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert got["status"] == "error" and got["done"] is False
+
+
+def test_legato_run_timeout_covers_opening_the_desktop(monkeypatch, own_config, capsys):
+    import legato.agent
+    from legato.rl.fake import tiny_png
+    saved()
+    seen = {}
+
+    def opened(*a, **k):
+        seen.update(k)
+        return legato.attach(screenshot=lambda: tiny_png(1), execute=lambda a: None), (lambda: None), "a test desktop"
+    monkeypatch.setattr(legato.agent, "open_desktop", opened)
+    assert main(["run", "Say hello", "--json", "--timeout", "0"]) == 1
+    got = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert seen["timeout_s"] == 0 and got["error"] == "the run's time limit (0 s) ran out"
+
+
+def test_a_coding_agent_that_is_not_installed_is_said_plainly(monkeypatch):
+    import shutil
+
+    from legato import setup
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    try:
+        setup.add_mcp("claude")
+    except RuntimeError as e:
+        assert "claude is not installed here" in str(e) and "nothing was added" in str(e)
+    else:
+        raise AssertionError("a missing client must not pass silently")
+
+
+def test_doctor_says_when_the_legato_command_is_not_on_path(monkeypatch, capsys):
+    import shutil
+
+    from legato import doctor
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    c = doctor.checks()
+    assert c["command"]["ok"] is False and "-m legato" in c["command"]["fix"] and "PATH" in c["command"]["fix"]
+
+
+def test_an_environment_variable_is_written_as_the_platforms_shell_writes_it(monkeypatch):
+    from legato import config
+    monkeypatch.setattr(config.sys, "platform", "win32")
+    assert config.env_name("OPENROUTER_API_KEY") == "$env:OPENROUTER_API_KEY"
+    monkeypatch.setattr(config.sys, "platform", "darwin")
+    assert config.env_name("OPENROUTER_API_KEY") == "$OPENROUTER_API_KEY"
+
+
+def test_a_saved_key_is_not_sent_to_a_server_named_by_the_environment(monkeypatch, tmp_path):
+    from legato import config
+    monkeypatch.setenv("LEGATO_CONFIG", str(tmp_path / "config.json"))
+    for v in ("LEGATO_API_KEY", "LEGATO_BASE_URL", "LEGATO_MODEL", "OPENROUTER_API_KEY"):
+        monkeypatch.delenv(v, raising=False)
+    config.save(config.Config(provider="openrouter", model="qwen/qwen3.8-27b", api_key="sk-or-saved"))
+    assert config.load().key == "sk-or-saved"
+    monkeypatch.setenv("LEGATO_BASE_URL", "http://localhost:8000/v1")
+    cfg = config.load()
+    assert cfg.base_url == "http://localhost:8000/v1" and cfg.key == "" and cfg.key_source == ""
+    monkeypatch.setenv("LEGATO_API_KEY", "its-own")
+    assert config.load().key == "its-own"
+    monkeypatch.delenv("LEGATO_API_KEY")
+    monkeypatch.setenv("LEGATO_BASE_URL", "https://openrouter.ai/api/v1/")        # the same server: the key stays
+    assert config.load().key == "sk-or-saved"
+    config.save(config.Config(provider="openrouter", model="m", api_key_env="OPENROUTER_API_KEY"))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")
+    monkeypatch.setenv("LEGATO_BASE_URL", "http://other.example/v1")
+    assert config.load().key == ""
+
+
+# ------------------------------------------------------------ what the model check finds, saved for every run
+def test_setup_saves_what_the_model_needs_and_every_run_uses_it(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {
+        "ok": True, "seconds": 1.8, "sees_images": True, "tool_calls": "json", "coords": "pixels",
+        "coords_default": "norm1000", "fix": None})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert main(["setup", "--yes", "--mcp", "none", "--desktop", "screen", "--model", "mistralai/pixtral-large-2502"]) == 0
+    out = capsys.readouterr().out
+    assert "ok, 1.8 s a call; it takes no tool calls here, so Legato will ask it for its actions as JSON (saved)" in out
+    assert "its clicks are in pixels (saved)" in out
+    saved_file = json.loads(own_config.read_text())
+    assert (saved_file["tool_calls"], saved_file["coords"]) == ("json", "pixels")
+    h = legato.agent.agent_for(None)
+    assert h.native_tools is False and h.coords == "pixels"
+    assert legato.agent.agent_for(None, coords="norm1000").coords == "norm1000"        # what the caller passes wins
+    other = legato.agent.agent_for(None, model="qwen/qwen3.8-27b")                     # another model: its own defaults
+    assert other.native_tools is True and other.coords == "norm1000"
+    # a model that needs nothing unusual clears what the last one needed
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {
+        "ok": True, "seconds": 0.8, "sees_images": True, "tool_calls": "native", "coords": "norm1000",
+        "coords_default": "norm1000", "fix": None})
+    assert main(["setup", "--yes", "--mcp", "none", "--model", "qwen/qwen3.8-27b"]) == 0
+    assert not {"tool_calls", "coords"} & set(json.loads(own_config.read_text()))
+    assert main(["setup", "--yes", "--mcp", "none", "--no-check", "--coords", "pixels"]) == 0     # by hand
+    assert json.loads(own_config.read_text())["coords"] == "pixels"
+
+
+def test_setup_refuses_a_text_only_model_in_plain_words(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {
+        "ok": False, "answers": True, "images": False, "error": "HTTP 404: No endpoints found that support image input",
+        "fix": "this model does not accept images; Legato needs a vision model, for example a/one or b/two"})
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert main(["setup", "--yes", "--mcp", "none", "--model", "deepseek/deepseek-v4-flash"]) == 1
+    cap = capsys.readouterr()
+    assert "nothing was saved: this model does not accept images; Legato needs a vision model, for example a/one" in cap.err
+    assert "Check the key" not in cap.err + cap.out and not own_config.exists()
+
+
+def test_setup_local_with_no_server_says_where_it_looked(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(config, "find_local_server", lambda: None)
+    monkeypatch.setattr(config, "list_models", lambda *a, **k: pytest.fail("no second wait for a server that is not there"))
+    assert main(["setup", "--yes", "--mcp", "none", "--provider", "local"]) == 2
+    err = capsys.readouterr().err
+    assert all(s in err for s in ("no model server answered", ":8000", ":11434", ":1234", "ollama serve", "vllm serve"))
+    assert not own_config.exists()
+
+
+def test_setup_without_a_key_does_not_say_run_is_next(no_machine, monkeypatch, own_config, capsys):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(config, "_windows_owner_only", lambda p: True)
+    assert main(["setup", "--yes", "--mcp", "none", "--provider", "openrouter", "--desktop", "screen"]) == 0
+    out = capsys.readouterr().out
+    assert 'no key yet: $env:OPENROUTER_API_KEY = "..."' in out and "export" not in out
+    assert "Before a task can run: no key for" in out and "Next: legato run" not in out
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert "export OPENROUTER_API_KEY=..." in config.load().missing()
+
+
+def test_find_local_server_asks_them_together_and_takes_the_first_in_order(monkeypatch):
+    monkeypatch.setattr(config, "list_models", lambda u, timeout_s=0: ["m"] if u.endswith(("b", "c")) else [])
+    assert config.find_local_server(("http://a", "http://b", "http://c")) == ("http://b", ["m"])
+    assert config.find_local_server(("http://a",)) is None

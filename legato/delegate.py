@@ -36,8 +36,9 @@ type or press, naming what is on screen) and what the screen shows once it is do
 shortcuts. Save files in their current format.
 Call the `plan` tool:
 - status "continue" with the steps still to do (at most {max_steps}), when the task is not finished;
-- status "done" when the screen shows the task is complete and saved;
-- status "fail" when the task cannot be done on this computer.
+- status "done" when the screen shows the task is complete and saved; if the task asks for information, put the \
+answer itself in "answer" (the number, name or sentence asked for);
+- status "fail" when the task cannot be done on this computer, with why in "answer".
 When you are called again, the plan so far and what happened are given: keep what still holds, fix what went wrong, \
 and judge done only from the screen."""
 
@@ -49,8 +50,14 @@ PLAN_TOOL = {"type": "function", "function": {
             "do": {"type": "string", "description": "one concrete step"},
             "expect": {"type": "string", "description": "what the screen shows when the step is done"}},
             "required": ["do", "expect"]}},
+        "answer": {"type": "string", "description": "with done: what the task asked to find out, if anything; "
+                                                    "with fail: why"},
         "note": {"type": "string", "description": "one line: why (optional)"}},
         "required": ["status"]}}}
+
+ANSWER_ASK = ("You said done without an answer. This is the screen now: if the task asks for information, say done "
+              "again with the answer itself in `answer` (the number, name or sentence asked for). If the task asks "
+              "for no information, say done again.")
 
 EXECUTOR_TASK = """Overall task (for context; do only your step): {task}
 Your step now: {do}
@@ -77,7 +84,8 @@ class Planner:
     style: str = "steps"                 # "steps": the executor does each step (this module); "point": legato/point.py
     notes: bool = True                   # point: the planner keeps notes that are given back to it at every call
     #                                      (on by default: it does not slow short tasks, legato-research EXP-0098)
-    shell_name: str = "bash"             # point: what the harness's shell tool runs, as the planner is told
+    shell_name: str = ""                 # point: what the harness's shell tool runs, as the planner is told ("":
+    #                                      what the tool says it runs: bash, or PowerShell on Windows)
 
     def __post_init__(self) -> None:
         if self.client is None:
@@ -146,13 +154,17 @@ def _describe(st: _State, reason: str) -> str:
     return "\n".join(lines)
 
 
-def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
-                  on_step: Callable | None = None) -> "RunResult":
-    """Harness.run with a planner (see the module docstring). max_steps counts executor turns."""
-    from legato.harness import RunResult
+def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 40,
+                  on_step: Callable | None = None, *, res: "RunResult | None" = None, limits=None) -> "RunResult":
+    """Harness.run with a planner (see the module docstring). max_steps counts executor turns; the result's steps
+    count every model call, the planner's too, and its usage and timings hold both models' tokens, cost and seconds
+    (result.planner has the planner's share). res: the result to fill in (Harness.run's); limits: its deadline,
+    cancel event and cost limit, checked before each model call."""
+    from legato.harness import RunResult, _book
     p: Planner = h.planner
-    res, t0 = RunResult(task), time.monotonic()
-    res.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cost_usd": 0.0}
+    res = RunResult(task) if res is None else res
+    t0 = time.monotonic()
+    res.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
     res.trace = []                          # what happened, call by call: for reading a run afterwards
     added = []
     for t in (Tool("step_done", "the current step's expected result is on the screen", {"type": "object",
@@ -164,6 +176,8 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             added.append(t.name)
     obs = env.observe()
     png = obs.screenshot
+    if limits is not None:
+        limits.shot(png, "start.png")
 
     def call_planner(reason_key: str, state: str) -> tuple[str, list]:
         t = time.monotonic()
@@ -172,30 +186,42 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
         pl = res.planner
         pl["calls"] += 1
         pl["by"][reason_key] = pl["by"].get(reason_key, 0) + 1
-        pl["s"] += time.monotonic() - t
+        dt = time.monotonic() - t
+        pl["s"] += dt
         pl["prompt"] += u.get("prompt") or 0
         pl["completion"] += u.get("completion") or 0
+        pl["cached"] += u.get("cached") or 0
         pl["cost_usd"] += u.get("cost") or 0.0
-        res.usage["cost_usd"] += u.get("cost") or 0.0
-        res.timings.append({"planner_s": time.monotonic() - t, "planner": reason_key})
-        res.trace.append({"planner": reason_key, "status": status, "s": round(time.monotonic() - t, 2),
-                          "steps": [[x["do"][:140], x["expect"][:100]] for x in steps]})
+        _book(res.usage, rec)                   # the planner's tokens and cost are in the run's totals
+        res.steps += 1                          # and its calls among the model calls
+        res.timings.append({"planner_s": dt, "planner": reason_key, "model_s": dt})
+        entry = {"planner": reason_key, "status": status, "s": round(dt, 2),
+                 "steps": [[x["do"][:140], x["expect"][:100]] for x in steps]}
+        if status != "continue":
+            res.answer = entry["answer"] = " ".join(str(_plan_args(rec).get("answer") or "").split())[:2000]
+        res.trace.append(entry)
         return status, steps
 
+    res.status = "error"                    # until it ends another way
     try:
         try:
             status, steps = call_planner("start", "No plan yet: write the first one.")
         except PolicyError as e:
-            res.error = f"planner: {str(e)[:280]}"
+            _book(res.usage, error=e)
+            res.error = f"planner: {str(e)[:480]}"
+            if limits is not None:
+                limits.hit(res)                 # a call cut short by the deadline: a timeout
             return res
         st = _State(steps)
         turns = turns_in_step = since_check = 0
         ep = None
         while status == "continue" and not res.stopped:
+            if limits is not None and limits.hit(res):
+                break
             if st.i >= len(st.steps):           # the plan ran out: the planner judges the end, or plans more
                 reason_key, reason = "end", "Every step is marked done. Is the task complete and saved?"
             elif turns >= max_steps:
-                res.error = f"executor turn limit ({max_steps})"
+                res.error, res.status = f"executor turn limit ({max_steps})", "max_steps"
                 break
             else:
                 reason_key = reason = None
@@ -208,12 +234,12 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                 try:
                     plan = h.decide(ep)
                 except PolicyError as e:
-                    res.error = str(e)[:300]
+                    _book(res.usage, error=e)
+                    res.error = str(e)[:500]
+                    if limits is not None:
+                        limits.hit(res)
                     break
-                u = plan.rec.get("usage") or {}
-                for k in ("prompt", "completion", "cached"):
-                    res.usage[k] += u.get(k) or 0
-                res.usage["cost_usd"] += u.get("cost") or 0.0
+                _book(res.usage, plan.rec)
                 timing = {"model_s": plan.rec["s"], "act_s": 0.0, "settle_s": 0.0, "obs_s": 0.0}
                 turns += 1
                 turns_in_step += 1
@@ -258,12 +284,15 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
                     png = pngs[-1]
                 res.steps += 1
                 desc = [a.describe() if a else "screenshot" for a in ran]
-                res.trace.append({"step": st.i, "turn": turns_in_step, "acts": [str(x)[:80] for x in desc],
-                                  "done": step_done, "stuck": stuck, "s": round(plan.rec["s"], 2),
-                                  "say": " | ".join(plan.reply)[:160]})
                 res.actions += desc
                 st.recent += desc
                 res.timings.append(timing)
+                if limits is not None:
+                    limits.step(res, timing, png)
+                res.trace.append({"step": st.i, "turn": turns_in_step, "acts": [str(x)[:80] for x in desc],
+                                  "done": step_done, "stuck": stuck, "s": round(plan.rec["s"], 2),
+                                  "say": " | ".join(plan.reply)[:160],
+                                  **({"screenshot": timing["screenshot"]} if timing.get("screenshot") else {})})
                 if on_step:
                     on_step(turns - 1, ran, timing)
                 if res.stopped:
@@ -290,17 +319,27 @@ def run_delegated(h: "Harness", task: str, env: "Env", max_steps: int = 30,
             try:
                 status, steps = call_planner(reason_key, _describe(st, reason))
             except PolicyError as e:
-                res.error = f"planner: {str(e)[:280]}"
+                _book(res.usage, error=e)
+                res.error = f"planner: {str(e)[:480]}"
+                if limits is not None:
+                    limits.hit(res)
                 break
             since_check = 0
             st = _State(steps, marks=[], recent=st.recent[-8:])
             ep = None
+        if status == "done" and not res.answer and h._asks(task):   # a question's done without the answer: once more
+            try:
+                call_planner("answer", ANSWER_ASK)
+            except PolicyError as e:
+                _book(res.usage, error=e)
         if status == "done":
-            res.done = True
+            res.done, res.status = True, "done"
             res.actions.append("done")
         elif status == "fail":
-            res.failed = True
+            res.failed, res.status = True, "failed"
             res.actions.append("fail")
+        elif res.stopped:
+            res.status = "stopped"
     finally:
         for name in added:
             h.tools.pop(name, None)

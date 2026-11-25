@@ -42,7 +42,7 @@ def test_init_writes_an_agent_that_compiles(tmp_path, quiet, monkeypatch, capsys
     compile(src, str(out), "exec")
     assert 'model="qwen/qwen3.8-27b"' in src and 'base_url="https://openrouter.ai/api/v1"' in src
     assert 'os.environ.get("OPENROUTER_API_KEY", "")' in src
-    assert 'legato.local(background="Google Chrome")' in src     # the default browser, in the background
+    assert 'legato.local(background="Safari")' in src     # Chrome is the default browser, but background mode is Safari's
     assert f'python {out} "your task"' in capsys.readouterr().out
 
 
@@ -68,7 +68,7 @@ def test_the_written_agent_runs_the_loop(tmp_path, quiet, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["agent.py", "open", "the", "terminal"])
     exec(compile(out.read_text(), str(out), "exec"), {"__name__": "__main__"})
     assert seen["harness"] == {"model": "qwen/qwen3.8-27b", "base_url": "https://openrouter.ai/api/v1", "api_key": "k"}
-    assert seen["run"] == ("open the terminal", ("desk", {}), 30)
+    assert seen["run"] == ("open the terminal", ("desk", {}), 40)
 
 
 def test_init_local_model_and_docker(tmp_path, quiet):
@@ -83,9 +83,11 @@ def test_init_local_model_and_docker(tmp_path, quiet):
 def test_init_any_app_and_a_note_for_untested_ones(tmp_path, quiet, monkeypatch, capsys):
     monkeypatch.setattr(sys, "platform", "darwin")
     out = tmp_path / "a.py"
-    assert main(["init", "--yes", "--app", "Firefox", "--out", str(out)]) == 0
-    assert 'legato.local(background="Firefox")' in out.read_text()
-    assert "tested on Safari, Google Chrome, TextEdit" in capsys.readouterr().out
+    assert main(["init", "--yes", "--app", "Notes", "--out", str(out)]) == 0
+    assert 'legato.local(background="Notes")' in out.read_text()
+    assert "tested on Safari, TextEdit" in capsys.readouterr().out
+    assert main(["init", "--yes", "--app", "Firefox", "--out", str(tmp_path / "f.py")]) == 2   # refused: not written
+    assert not (tmp_path / "f.py").exists() and "works in Safari, not Firefox" in capsys.readouterr().err
 
 
 def test_init_background_is_mac_only(tmp_path, quiet, monkeypatch):
@@ -185,3 +187,30 @@ def test_background_without_the_mac_extras(monkeypatch):
     monkeypatch.setitem(sys.modules, "ApplicationServices", None)
     with pytest.raises(ImportError, match=r'pip install "legatolabs\[local\]"'):
         MacApp("Safari")
+
+
+def test_a_key_in_the_environment_is_not_called_set_up(tmp_path, quiet, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "Set up:" not in out and "legato setup saves a choice" in out
+    assert "using OPENROUTER_API_KEY from the environment with the default model (qwen/qwen3.8-27b)" in out
+    # legato init takes that default too, without asking which model
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("asked a question"))
+    agent = tmp_path / "agent.py"
+    assert main(["init", "--desktop", "docker", "--out", str(agent)]) == 0
+    src = agent.read_text()
+    assert 'model="qwen/qwen3.8-27b"' in src and 'os.environ.get("OPENROUTER_API_KEY", "")' in src
+    assert "Using OPENROUTER_API_KEY from the environment with the default model" in capsys.readouterr().out
+
+
+def test_init_writes_what_setup_found_the_model_needs(tmp_path, quiet):
+    from legato import config
+    config.save(config.Config(provider="openrouter", model="m/x", base_url="https://openrouter.ai/api/v1", api_key="k",
+                              coords="pixels", tool_calls="json"))
+    agent = tmp_path / "agent.py"
+    assert main(["init", "--yes", "--desktop", "docker", "--out", str(agent)]) == 0
+    src = agent.read_text()
+    assert 'coords="pixels",' in src and "native_tools=False," in src
+    compile(src, str(agent), "exec")
