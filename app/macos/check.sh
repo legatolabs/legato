@@ -50,7 +50,7 @@ keychain)
   [ "$old" = 0 ] || fail "$old old one-per-provider items" ;;
 run)
   want="${2:-}"; s=$(since)
-  d=$(ls -dt "$RUNS"/*/ 2>/dev/null | while read -r r; do [ "$(stat -f %m "$r")" -ge "$s" ] && echo "$r"; done | head -1)
+  d=$(ls -dt "$RUNS"/*/ 2>/dev/null | while read -r r; do if [ "$(stat -f %m "$r")" -ge "$s" ]; then echo "$r"; fi; done | head -1 || true)
   [ -n "$d" ] || fail "no run since start"
   python3 - "$d/run.json" "$want" <<'EOF'
 import json, sys
