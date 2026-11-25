@@ -136,9 +136,13 @@ def test_return_after_a_risky_command_is_asked():
     e.act(Action("key", keys="Return"))
     assert len(asked) == 2 and [c for c in e.gui.calls if c[0] == "press"] == [("press", ("enter",))] * 2
     e.act(Action("type", text="rm x"))
-    e.act(Action("click", x=5, y=5))                         # the focus moved: Return no longer runs that text
+    e.act(Action("click", x=5, y=5))                         # a click may go back into the same terminal:
+    e.act(Action("key", keys="Return"))                      # a line that deletes is still asked about
+    assert len(asked) == 3 and "rm x" in asked[2]
+    e.act(Action("type", text="hello"))
+    e.act(Action("click", x=5, y=5))                         # harmless text is forgotten at a click, as before
     e.act(Action("key", keys="Return"))
-    assert len(asked) == 2
+    assert len(asked) == 3
 
 
 def test_no_confirm_asks_nothing_and_auto_is_off_without_a_terminal(monkeypatch):
@@ -156,15 +160,12 @@ def test_no_confirm_asks_nothing_and_auto_is_off_without_a_terminal(monkeypatch)
 
 
 def test_ask_reads_a_yes_or_no(monkeypatch, capsys):
-    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    monkeypatch.setattr(safety, "_read_line", lambda timeout_s: "y\n")
     assert safety.ask("press cmd+q (quits the app)") is True
     assert "press cmd+q" in capsys.readouterr().err
-    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    monkeypatch.setattr(safety, "_read_line", lambda timeout_s: "\n")
     assert safety.ask("x") is False
-
-    def eof(prompt=""):
-        raise EOFError
-    monkeypatch.setattr("builtins.input", eof)
+    monkeypatch.setattr(safety, "_read_line", lambda timeout_s: "")          # end of input
     assert safety.ask("x") is False
 
 
@@ -304,7 +305,7 @@ def test_select_all_then_delete_is_asked_about():
 def test_a_question_nobody_answers_is_a_no(monkeypatch, capsys):
     import time
     monkeypatch.setattr(safety, "ASK_TIMEOUT_S", 0.2)
-    monkeypatch.setattr("builtins.input", lambda *a: time.sleep(5) or "y")
+    monkeypatch.setattr(safety, "_read_line", lambda t: None)
     assert safety.ask("delete everything") is False
     assert "no answer" in capsys.readouterr().err
 
@@ -312,3 +313,22 @@ def test_a_question_nobody_answers_is_a_no(monkeypatch, capsys):
 def test_with_nobody_to_ask_the_command_line_refuses_and_says_so(capsys):
     assert safety.deny_and_say("press ctrl+a then Delete") is False
     assert "--yes" in capsys.readouterr().err
+
+
+def test_a_risky_line_is_still_asked_about_after_a_click():
+    """type a delete command, click, press Return: the Return is asked about (EXP-0107: it was not)."""
+    import legato
+    from legato.actions import Action
+    asked = []
+    env = legato.local.__globals__["LocalEnv"].__new__(legato.local.__globals__["LocalEnv"])
+    env._typed, env._all_selected = "", False
+    env.key = lambda k: k
+    q, env._typed = env._risk(Action("type", text='Remove-Item -Path "$env:USERPROFILE\\Downloads\\*" -Recurse -Force'))
+    assert q is None
+    q, env._typed = env._risk(Action("click", x=10, y=10))
+    assert q is None and env._typed
+    q, env._typed = env._risk(Action("key", keys="Return"))
+    assert q and "deletes files" in q
+    q, env._typed = env._risk(Action("type", text="hello"))
+    q, env._typed = env._risk(Action("click", x=10, y=10))
+    assert env._typed == ""

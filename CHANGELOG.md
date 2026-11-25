@@ -152,7 +152,8 @@ From the persona tests (six simulated launch users on a real Mac):
 - **Safer on your own screen, on Windows too.** Typed `Remove-Item`, `del`, `rd`, `format`, `reg delete`, a shutdown and
   a downloaded script piped to `iex` wait for a yes, as `rm` and `sudo` do; so does Delete right after selecting
   everything. With nobody to ask (`legato run` with its output piped, or run by a coding agent) a risky action is
-  refused and said on stderr, not run unseen; `--yes` allows them. A question nobody answers in two minutes is a no.
+  refused and said on stderr, not run unseen; `--yes` allows them. A question nobody answers in two minutes is a no, and `legato run --json` never asks: it refuses and says so. A typed delete is
+  still asked about when a click comes between the typing and Return.
   `legato run` says how to stop it, and no longer crashes when its output is piped on Windows (an arrow the console's
   encoding lacks).
 

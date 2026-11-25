@@ -326,7 +326,9 @@ class LocalEnv(Env):
             return None, typed
         if t in ("click", "double_click", "triple_click", "right_click", "drag"):
             self._all_selected = False
-            return None, ""                       # the focus may have moved: a later Return runs something else
+            # the typed text is kept: a click back into the same terminal and then Return still runs it, and a line
+            # that would delete or overwrite is worth one question even if the focus did move
+            return None, (typed if safety.text_risk(typed) else "")
         return None, typed
 
     def _front(self) -> str | None:
