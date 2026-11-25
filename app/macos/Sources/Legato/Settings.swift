@@ -264,7 +264,8 @@ final class AppSettings: ObservableObject {
 /// macOS asks to unlock each item an app reads, so one item means at most one prompt, and none after Always Allow.
 /// Keys from before (one item per provider) are moved into it the first time it is read, then deleted.
 enum Keychain {
-    static let service = "computer.legato.mac.api-key"
+    /// "computer.legato.mac.api-key" for the release; a build with another bundle id (a test copy) gets its own.
+    static let service = (Bundle.main.bundleIdentifier ?? "computer.legato.mac") + ".api-key"
     static let account = "keys"
 
     private static let lock = NSLock()
