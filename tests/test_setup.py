@@ -491,3 +491,133 @@ def test_a_saved_key_is_not_sent_to_a_new_base_url(monkeypatch):
     assert seen.get("k") != "sk-or-saved"                  # not sent to the new server (with no key, not checked)
     saved = config.load(use_env=False)
     assert not (saved.base_url == "https://elsewhere.example/v1" and saved.api_key == "sk-or-saved")
+
+
+# ------------------------------------------------------------ a key per provider: the model's name says where it runs
+ANT, OAI, OR = "https://api.anthropic.com/v1", "https://api.openai.com/v1", "https://openrouter.ai/api/v1"
+
+
+def test_a_models_name_says_which_providers_api_it_runs_on():
+    assert [config.provider_for_model(m) for m in (
+        "claude-sonnet-5-5", "gpt-6.2-sol", "o3", "o4-mini", "gemini-3-pro", "grok-5", "computer-use-preview",
+        "anthropic/claude-sonnet-5.5", "qwen/qwen3.8-27b", "Qwen/Qwen3.5-9B", "llama-4", "ollama-thing",
+        "gpt-oss-120b")] == ["anthropic", "openai", "openai", "openai", "gemini", "xai", "openai", "", "", "", "", "",
+                             ""]
+
+
+def test_each_provider_gets_only_its_own_key(monkeypatch):
+    """With OpenRouter saved, a Claude model by Anthropic's name runs on Anthropic's API with the Anthropic key, and
+    the OpenRouter key is never sent there; a vendor/model name stays on OpenRouter."""
+    saved(api_key="sk-or-saved")
+    c = config.resolve("claude-sonnet-5-5")
+    assert (c.provider, c.base_url, c.key) == ("anthropic", ANT, "")              # not the OpenRouter key
+    assert "ANTHROPIC_API_KEY" in c.missing() and "legato setup --add-key anthropic" in c.missing()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+    c = config.resolve("claude-sonnet-5-5")
+    assert (c.key, c.missing(), c.saved) == ("sk-ant-env", None, False) and "$ANTHROPIC_API_KEY" in c.key_source
+    c = config.resolve("anthropic/claude-sonnet-5.5")
+    assert (c.provider, c.base_url, c.key) == ("openrouter", OR, "sk-or-saved")
+    c = config.resolve()                                                          # nothing named: the saved choice
+    assert (c.model, c.base_url, c.key, c.saved) == ("qwen/qwen3.8-27b", OR, "sk-or-saved", True)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
+    for c in (config.resolve("gpt-6.2-sol"), config.resolve("gpt-6.2-sol", provider="openai")):
+        assert (c.provider, c.base_url, c.key) == ("openai", OAI, "sk-oai")
+    c = config.resolve(provider="anthropic")                                      # its usual model
+    assert (c.model, c.base_url) == ("claude-sonnet-5-5", ANT)
+    with pytest.raises(ValueError, match="unknown provider 'antropic'"):
+        config.resolve("claude-sonnet-5-5", provider="antropic")
+    with pytest.raises(ValueError, match="pass model: the model's name at OpenAI"):
+        config.resolve(provider="openai")                                         # OpenAI has no usual model here
+
+
+def test_a_vendor_model_name_goes_to_openrouter_when_a_providers_own_api_is_saved(monkeypatch):
+    saved(provider="anthropic", model="claude-sonnet-5-5", base_url=ANT, api_key="sk-ant-saved")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")
+    c = config.resolve("qwen/qwen3.8-27b")
+    assert (c.provider, c.base_url, c.key) == ("openrouter", OR, "sk-or-env")
+    assert config.resolve("claude-opus-5-5").key == "sk-ant-saved"              # another Claude: the same key
+
+
+def test_your_own_server_keeps_every_model_name(monkeypatch):
+    """A proxy of your own (LiteLLM, a gateway) may serve claude-... or gpt-... under those names: they stay there,
+    with LEGATO_API_KEY, and no provider's key is sent to it."""
+    saved(provider="custom", model="m", base_url="https://gateway.example/v1", api_key="")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+    monkeypatch.setenv("LEGATO_API_KEY", "gw-key")
+    c = config.resolve("claude-sonnet-5-5")
+    assert (c.base_url, c.key) == ("https://gateway.example/v1", "gw-key")
+    c = config.resolve("claude-sonnet-5-5", provider="anthropic")                 # named: Anthropic's own
+    assert (c.base_url, c.key) == (ANT, "sk-ant-env")
+    c = config.resolve("x", provider="openrouter", base_url="https://elsewhere.example/v1")
+    assert c.key == "gw-key"                                    # a server you name: never the OpenRouter key
+
+
+def test_an_unfilled_extension_setting_is_no_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "${user_config.anthropic_api_key}")   # Claude Desktop, left empty
+    assert config.resolve("claude-sonnet-5-5").key == "" and not config.load().ready
+
+
+def test_setup_add_key_saves_a_key_for_one_more_provider_and_keeps_the_default(no_machine, monkeypatch, own_config,
+                                                                               capsys):
+    saved(api_key="sk-or-saved", desktop="background")
+    tried = []
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: tried.append((m, u, k)) or
+                        {"ok": True, "seconds": 0.9, "sees_images": True})
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-ant-new\n"))
+    assert main(["setup", "--add-key", "anthropic", "--api-key", "-"]) == 0
+    assert tried == [("claude-sonnet-5-5", ANT, "sk-ant-new")]                    # tried with its own server
+    out = capsys.readouterr().out
+    assert "Saved your Claude (Anthropic) key" in out and "Your default model is still qwen/qwen3.8-27b" in out
+    assert "sk-ant-new" not in out
+    cfg = config.load()
+    assert (cfg.model, cfg.key, cfg.desktop, cfg.keys) == ("qwen/qwen3.8-27b", "sk-or-saved", "background",
+                                                           {"anthropic": "sk-ant-new"})
+    assert stat.S_IMODE(os.stat(own_config).st_mode) == 0o600
+    assert config.resolve("claude-sonnet-5-5").key == "sk-ant-new" and cfg.keys_found() == ["openrouter", "anthropic"]
+    # a key the check refuses is not saved
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: {"ok": False, "error": "HTTP 401: invalid x-api-key",
+                                                               "fix": "check the key"})
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-oai-bad\n"))
+    assert main(["setup", "--add-key", "openai", "--model", "gpt-6.2-sol", "--api-key", "-"]) == 1
+    assert "nothing was saved" in capsys.readouterr().err and "openai" not in config.load().keys
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    assert main(["setup", "--add-key", "openai"]) == 2                            # no key given
+
+
+def test_changing_the_default_provider_keeps_the_old_key(no_machine, monkeypatch, own_config):
+    saved(api_key="sk-or-saved")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-ant-1\n"))
+    assert main(["setup", "--yes", "--no-check", "--mcp", "none", "--desktop", "docker", "--provider", "anthropic",
+                 "--api-key", "-"]) == 0
+    cfg = config.load()
+    assert (cfg.provider, cfg.key, cfg.keys) == ("anthropic", "sk-ant-1", {"openrouter": "sk-or-saved"})
+    assert config.resolve("qwen/qwen3.8-27b").key == "sk-or-saved"                # still runs on OpenRouter
+    assert main(["setup", "--yes", "--no-check", "--mcp", "none", "--desktop", "docker", "--provider",
+                 "openrouter"]) == 0                                              # back: its saved key again
+    cfg = config.load()
+    assert (cfg.provider, cfg.key, cfg.keys) == ("openrouter", "sk-or-saved", {"anthropic": "sk-ant-1"})
+
+
+def test_legato_run_and_doctor_use_the_models_own_provider(monkeypatch, capsys):
+    from legato import doctor
+    saved(api_key="sk-or-saved")
+    assert main(["run", "a task", "--model", "claude-sonnet-5-5", "--json"]) == 2
+    err = json.loads(capsys.readouterr().out)["error"]
+    assert "no key for Claude (Anthropic)" in err and "ANTHROPIC_API_KEY" in err
+    tried = []
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: tried.append((m, u, k)) or {"ok": True})
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
+    c = doctor.checks(model="gpt-6.2-sol")
+    assert tried == [("gpt-6.2-sol", OAI, "sk-oai")] and c["setup"]["keys"] == ["openrouter", "openai"]
+    assert doctor.checks(model="claude-sonnet-5-5")["model_check"]["error"] == "no key"
+
+
+def test_agent_for_runs_a_named_model_at_its_own_provider(monkeypatch):
+    saved(api_key="sk-or-saved", coords="norm1000")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+    from legato.agent import agent_for
+    h = agent_for(model="claude-sonnet-5-5")
+    assert (h.client.cfg.base_url, h.client.cfg.api_key, h.coords) == (ANT, "sk-ant-env", "pixels")
+    assert "$ANTHROPIC_API_KEY" in h.client.key_source
+    h = agent_for()
+    assert (h.client.cfg.base_url, h.client.cfg.api_key, h.coords) == (OR, "sk-or-saved", "norm1000")

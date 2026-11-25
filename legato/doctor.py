@@ -4,7 +4,7 @@
     legato doctor --json     # the same as one JSON object, for coding agents and scripts
     legato doctor --model    # also try your saved model: does it answer, take images, make tool calls, and where
                              # does its click land on a test image (one small paid call, three at most)
-    legato doctor --model NAME [--base-url URL]    # the same for another model, with your saved key
+    legato doctor --model NAME [--provider P | --base-url URL]    # another model, with that provider's key
 
 Besides what is installed, it tries the two things that fail at run time: on a Mac, one real window capture, as
 background mode takes it (it can stall); and with a model on this machine, whether its server answers.
@@ -138,7 +138,8 @@ def window_capture(app: str = "", perms: dict | None = None) -> dict:
     return out
 
 
-def checks(capture: bool = False, model: str | None = None, base_url: str | None = None) -> dict:
+def checks(capture: bool = False, model: str | None = None, base_url: str | None = None,
+           provider: str | None = None) -> dict:
     """What is installed and set up. capture=True also takes one real window capture on a Mac (a few seconds at
     most); a model server on this machine is always asked whether it answers (1.5 s at most). model: also try that
     model ("" for the saved one) with legato.config.check_model, at base_url or the saved server ("model_check")."""
@@ -196,19 +197,20 @@ def checks(capture: bool = False, model: str | None = None, base_url: str | None
                     "desktop": cfg.desktop or config.default_desktop(), "app": cfg.app or None,
                     "config": str(config.path()), "fix": fix, "server": server,
                     "saved": config.path().exists(), "default_from": cfg.default_from or None,
-                    "coords": cfg.coords or None, "tool_calls": cfg.tool_calls or None}
+                    "coords": cfg.coords or None, "tool_calls": cfg.tool_calls or None,
+                    "keys": cfg.keys_found()}          # the providers it has a key for, by name
     if model is not None:
-        name, url = model or cfg.model, base_url or cfg.base_url
-        if not name or not url:
-            out["model_check"] = {"ok": False, "model": name or None, "answers": False,
-                                  "error": "no model to try", "fix": fix or "run legato setup, or pass --model NAME"}
+        try:                                    # where the model runs and its key (legato.config.resolve)
+            choice = config.resolve(model or None, provider=provider, base_url=base_url, cfg=cfg)
+        except ValueError as e:
+            out["model_check"] = {"ok": False, "model": model or cfg.model or None, "answers": False,
+                                  "error": "no model to try", "fix": fix or str(e)}
         else:
-            same = url.rstrip("/") == cfg.base_url.rstrip("/")
-            if not (cfg.key if same else os.environ.get("LEGATO_API_KEY", "")) and not config.is_local_url(url):
-                out["model_check"] = {"ok": False, "model": name, "answers": False, "error": "no key",
-                                      "fix": cfg.missing() if same else f"{config.set_env('LEGATO_API_KEY')} (the key for {url})"}
+            if choice.missing():
+                out["model_check"] = {"ok": False, "model": choice.model, "answers": False, "error": "no key",
+                                      "fix": choice.missing()}
             else:
-                out["model_check"] = config.check_model(name, url, cfg.key if same else os.environ.get("LEGATO_API_KEY", ""))
+                out["model_check"] = config.check_model(choice.model, choice.base_url, choice.key)
     if capture and sys.platform == "darwin":
         cap = out["window_capture"] = window_capture(cfg.app, perms)
         local = out["sandboxes"]["local"]
@@ -227,8 +229,9 @@ def main(argv=None) -> int:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--model", nargs="?", const="")
     ap.add_argument("--base-url")
+    ap.add_argument("--provider")
     a = ap.parse_args(argv)
-    c = checks(capture=True, model=a.model, base_url=a.base_url)
+    c = checks(capture=True, model=a.model, base_url=a.base_url, provider=a.provider)
     mc = c.get("model_check")
     if a.json:
         print(json.dumps(c))

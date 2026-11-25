@@ -49,8 +49,8 @@ codex mcp add legato -- legato mcp                                   # Codex: th
   ```
 
   On macOS and Linux, `"command": "legato", "args": ["mcp"]` with `legato` on the `PATH`, and the same arguments as
-  above. `env` is for `desktop_run_task`'s model key when `legato setup` saved none: many clients start the server
-  without your shell's environment.
+  above. `env` is for `desktop_run_task`'s model keys when `legato setup` saved none: many clients start the server
+  without your shell's environment ([Any model, your keys](#any-model-your-keys)).
 
 | tool | what it does |
 |---|---|
@@ -60,7 +60,7 @@ codex mcp add legato -- legato mcp                                   # Codex: th
 | `desktop_read(desktop_id, max_chars=8000)` | the window's text without a screenshot, as an outline (`- heading "Counter"`, `- text "Count: 1"`, `- button "+1"`) of at most `max_chars` characters; in a browser, the page with its title and address. In the background on a Mac (the desktop's window, from its Accessibility tree) and on a Windows screen (the foreground window, from UI Automation). Other desktops answer with an error |
 | `desktop_wait(desktop_id, text=None, timeout_s=10)` | with `text`: waits until the window's text contains it (where `desktop_read` works) and returns the lines that have it; without: waits until the screen differs from the last screenshot and holds still, on any desktop, and returns it. Text that never came is a tool error that says what the window read |
 | `desktop_shell(desktop_id, command, timeout_s=30)` | runs a shell command on the desktop's computer (the container, the sandbox, or yours with `--local` or `--background`, where it is not sandboxed); returns its output and exit code |
-| `desktop_run_task(task, desktop_id=None, model, base_url, api_key_env, max_steps, timeout_s)` | hands a whole task to Legato's own agent, with the model `legato setup` saved unless you name one, on a desktop from `desktop_open` or, with no `desktop_id`, on one it opens for the run and closes after; returns the run report and the final screen, and `{status, answer, seconds, steps, error, cost_usd}` as structured content to branch on (`cost_usd` where the provider reports it, as OpenRouter does, else null). A run that failed, timed out or errored is marked as a tool error (`isError`). `timeout_s` is a deadline for the whole run |
+| `desktop_run_task(task, desktop_id=None, model, provider, base_url, api_key_env, max_steps, timeout_s)` | hands a whole task to Legato's own agent, with the model `legato setup` saved unless you name one (see [Any model, your keys](#any-model-your-keys)), on a desktop from `desktop_open` or, with no `desktop_id`, on one it opens for the run and closes after; returns the run report and the final screen, and `{status, answer, seconds, steps, error, cost_usd}` as structured content to branch on (`cost_usd` where the provider reports it, as OpenRouter does, else null). A run that failed, timed out or errored is marked as a tool error (`isError`). `timeout_s` is a deadline for the whole run |
 | `desktop_close(desktop_id)` | stops the desktop (a container or sandbox is deleted; in the background, the browser window the desktop opened is closed, a new document stays open, and the app stays open) |
 
 - **`desktop_act` lets your agent drive.** Use it when your agent's own model (for example Claude in Claude Code) does
@@ -90,6 +90,34 @@ codex mcp add legato -- legato mcp                                   # Codex: th
 - **`desktop_shell` skips the screen** for what a command does faster: starting apps, reading files, checking results.
 - **`desktop_run_task` delegates.** Use it to offload a whole GUI task to a cheaper open model while your agent keeps
   working.
+
+## Any model, your keys
+
+`desktop_run_task` runs the model `legato setup` saved, or the one your agent names. The model's name says where it
+runs, each with that provider's own key:
+
+| `model` | runs on | key |
+|---|---|---|
+| `claude-sonnet-5-5`, `claude-...` | Anthropic's API | `ANTHROPIC_API_KEY` |
+| `gpt-...`, `o3`, `o4-mini` | OpenAI's API | `OPENAI_API_KEY` |
+| `gemini-...` | Google's API | `GEMINI_API_KEY` |
+| `grok-...` | xAI's API | `XAI_API_KEY` |
+| `qwen/qwen3.8-27b`, `anthropic/claude-sonnet-5.5` (vendor/model) | OpenRouter | `OPENROUTER_API_KEY` |
+
+`provider` names one instead (`together`, `fireworks`, `groq`, `cerebras` too), and `base_url` with `api_key_env`
+any other OpenAI-compatible server. A server of your own saved with `legato setup` (a gateway, a proxy) keeps every
+model name.
+
+Give the server a key in either of two ways:
+
+```bash
+legato setup --add-key anthropic          # saved for this user; your default model stays as it is
+claude mcp add legato -e ANTHROPIC_API_KEY=sk-ant-... -- legato mcp   # or in the client's env for the server
+```
+
+A key goes only to its own provider. With no key for the model it was asked for, the tool says which key is missing,
+how to add it, and which providers it does have a key for. The Claude Desktop extension asks for OpenRouter, Anthropic
+and OpenAI keys in its settings, all optional.
 
 If something fails, `legato doctor` (or `legato doctor --json`) says what is installed and set up, with the fix for
 each. On a Mac it also takes one real window capture, as background mode does, and reports whether it works, stalled

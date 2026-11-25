@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **Bring any model, with your own key for each provider.** A model's name now says where it runs: `claude-...` on
+  Anthropic's API with your Anthropic key, `gpt-...` and `o3` on OpenAI's, `gemini-...` on Google's, `grok-...` on
+  xAI's, and `vendor/model` on OpenRouter. This works for `desktop_run_task(model=...)`, `legato run --model`,
+  `legato.run(model=...)` and `legato doctor --model`, and `provider=` / `--provider` names one instead. Before, a
+  named model went to the saved provider, so `claude-sonnet-5-5` with OpenRouter saved failed.
+- **`legato setup --add-key PROVIDER`** saves a key for one more provider (tried first, readable by you only), and
+  the default model stays as it is. Changing the default provider keeps the old one's key. A key goes only to its own
+  provider; a gateway of your own keeps every model name.
+- With no key for the model it was asked for, `desktop_run_task` says which key is missing, how to add it, and which
+  providers it has a key for (`legato doctor --json` lists them under `setup.keys`). The Claude Desktop extension
+  asks for optional OpenRouter, Anthropic and OpenAI keys, and the MCP registry entry lists them.
+
 ## 0.3.2
 
 - **Legato describes itself as a computer-use runtime**: the package description on PyPI, the CLI banner, the README,
