@@ -108,6 +108,17 @@ def test_the_answer_is_the_done_steps_words_not_the_json_written_after_them(tmp_
     assert rec["status"] == "done" and rec["message"] == "The text is bold."
 
 
+def test_an_answer_given_only_in_the_done_step_is_shown(tmp_path):
+    class Terse(FakeHarness):
+        def decide(self, ep):                     # a native tool call: no prose, the answer in done's text
+            return Plan({"content": "", "s": 0.1, "usage": {"prompt": 10, "completion": 2}}, [],
+                        [Action("done", text="391")], [], done=True)
+    r = Run(FakeLink(), {"id": "r1", "task": "17 x 23", "model": "m", "base_url": "http://x/v1", "runs_dir": str(tmp_path)},
+            env_factory=lambda run: ScriptEnv(), harness=Terse(["done"]))
+    rec = r()
+    assert rec["status"] == "done" and rec["message"] == "391"
+
+
 def test_a_run_stops_once_it_has_cost_the_most_the_app_allows(tmp_path):
     script = [[Action("click", x=1, y=2)], [Action("click", x=3, y=4)], [Action("click", x=5, y=6)], "done"]
     rec, link, h = run(script, tmp_path=tmp_path, max_cost_usd=0.0015)      # each turn costs 0.001
