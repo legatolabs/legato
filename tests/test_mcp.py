@@ -38,8 +38,8 @@ def test_open_act_screenshot_close():
 
     async def go():
         names = {t.name for t in await srv.list_tools()}
-        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_read", "desktop_shell",
-                         "desktop_run_task", "desktop_close"}
+        assert names == {"desktop_open", "desktop_act", "desktop_screenshot", "desktop_read", "desktop_wait",
+                         "desktop_shell", "desktop_run_task", "desktop_close"}
         r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
         assert kinds(r) == ["text", "image"]
         did = r.content[0].text.split()[1]
@@ -240,7 +240,7 @@ def test_run_task_reports_its_status_and_a_desktop_error(monkeypatch):
         r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
         assert kinds(r) == ["text", "image"] and r.content[0].text.startswith("status: done\n")
         assert r.structured_content["status"] == "done" and r.structured_content["steps"] == 2 and not r.is_error
-        assert set(r.structured_content) == {"status", "answer", "seconds", "steps", "error"}
+        assert set(r.structured_content) == {"status", "answer", "seconds", "steps", "error", "cost_usd"}
         shots["fail_after"] = shots["n"] + 1               # the first screenshot works, the one after the click fails
         r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it"})
         assert kinds(r) == ["text"] and r.content[0].text.startswith(
@@ -271,7 +271,7 @@ def test_run_task_passes_its_deadline_and_says_status_in_its_description(monkeyp
         r = await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t", "timeout_s": 90})
         assert r.content[0].text.startswith("status: timeout\n") and r.is_error            # a client can branch on it
         assert r.structured_content["status"] == "timeout"
-        assert tool.output_schema["required"] == ["status", "answer", "seconds", "steps", "error"]
+        assert tool.output_schema["required"] == ["status", "answer", "seconds", "steps", "error", "cost_usd"]
         await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t"})
     asyncio.run(go())
     assert got[0]["timeout_s"] == 90.0 and got[1]["timeout_s"] is None
@@ -344,3 +344,108 @@ def test_risky_actions_on_this_computer_are_refused_unless_the_server_was_starte
         with pytest.raises(Exception, match="refused here.*legato mcp --yes"):
             await srv.call_tool("desktop_act", {"desktop_id": did, "action": "key", "keys": "cmd+q"})
     asyncio.run(go())
+
+
+def test_open_gives_its_id_and_real_size_as_structured_content_and_the_server_its_version():
+    def factory(res):                                   # a real screen: its size is its own
+        env = legato.attach(screenshot=lambda: png(96, 72), execute=lambda a: None, fixed_wait_s=0.0)
+        env.shell = lambda cmd, timeout_s: "start : not found\n[exit 1]"
+        return None, env
+
+    srv = build_server(factory)
+    low = getattr(srv, "_lowlevel_server", None) or srv._mcp_server
+    assert low.version == legato.__version__
+
+    async def go():
+        tool = next(t for t in await srv.list_tools() if t.name == "desktop_open")
+        assert "Windows" in tool.description
+        r = await srv.call_tool("desktop_open", {})
+        assert r.content[0].text.split()[2] == "(96x72)" and "asked for" not in r.content[0].text
+        r2 = await srv.call_tool("desktop_open", {"width": 1280, "height": 800})
+        assert "its size is 96x72, not the 1280x800 asked for" in r2.content[0].text
+        r3 = await srv.call_tool("desktop_open", {"app": "nope"})
+        return r, r3
+    r, r3 = asyncio.run(go())
+    out = getattr(r, "structuredContent", None) or getattr(r, "structured_content", None)
+    if out is None:                                     # mcp 1: text and image only
+        return
+    did = r.content[0].text.split()[1]
+    assert out == {"desktop_id": did, "width": 96, "height": 72, "started": None, "start_error": None}
+    bad = getattr(r3, "structuredContent", None) or getattr(r3, "structured_content", None)
+    assert (r3.isError if hasattr(r3, "isError") else r3.is_error) and "not found" in bad["start_error"]
+    assert bad["desktop_id"] in r3.content[0].text and bad["started"] is None
+
+
+WINDOW = '#window\tUntitled - Notepad\n0\tEdit\tf\tText Editor\t{}\n[exit 0]'
+
+
+def test_read_and_wait_on_a_windows_screen(monkeypatch):
+    import legato.mcp_server as m
+    texts, sent = ["", "", "Count: 2"], []
+    frames = {"n": 0}
+
+    def screen():                                       # changes once after the first look, then holds still
+        frames["n"] += 1
+        return png(64, 40) if frames["n"] < 4 else png(64, 41)
+
+    def factory(res):
+        env = legato.attach(screenshot=screen, execute=lambda a: None, fixed_wait_s=0.0)
+        env.shell = lambda cmd, timeout_s: sent.append(cmd) or WINDOW.format(texts.pop(0) if len(texts) > 1 else texts[0])
+        return None, env
+
+    async def go(srv):
+        did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
+        with pytest.raises(Exception, match="only in background mode on a Mac.*Windows screen"):
+            await srv.call_tool("desktop_read", {"desktop_id": did})
+        monkeypatch.setattr(m, "windows_screen", lambda env: True)
+        r = await srv.call_tool("desktop_read", {"desktop_id": did})
+        assert r.content[0].text == 'window "Untitled - Notepad"\n- textbox "Text Editor": "" [focused]'
+        assert "UIAutomationClient" in sent[0]
+        r = await srv.call_tool("desktop_wait", {"desktop_id": did, "text": "count: 2"})
+        assert kinds(r) == ["text"] and "is there after" in r.content[0].text and '"Count: 2"' in r.content[0].text
+        with pytest.raises(Exception, match="'Saved' was not in the window after 1 s. It reads:\nwindow"):
+            await srv.call_tool("desktop_wait", {"desktop_id": did, "text": "Saved", "timeout_s": 1})
+        r = await srv.call_tool("desktop_wait", {"desktop_id": did})
+        assert kinds(r) == ["text", "image"] and "changed and held still" in r.content[0].text
+        r = await srv.call_tool("desktop_wait", {"desktop_id": did, "timeout_s": 1})
+        assert "did not change" in r.content[0].text
+        descs = {t.name: t.description for t in await srv.list_tools()}
+        assert "Windows" in descs["desktop_read"] and "desktop_wait" in descs["desktop_shell"]
+    asyncio.run(go(m.build_server(factory)))
+
+
+def test_run_task_opens_its_own_desktop_reports_cost_and_names_a_missing_key(monkeypatch, tmp_path):
+    import legato.agent as agent_mod
+    from legato.harness import RunResult
+    monkeypatch.setenv("LEGATO_CONFIG", str(tmp_path / "none.json"))
+    for k in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LEGATO_API_KEY", "LEGATO_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    closed = []
+
+    class Box:
+        def kill(self):
+            closed.append(True)
+
+    srv = build_server(lambda res: (Box(), legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                         fixed_wait_s=0.0)))
+
+    class Agent:
+        model, client = "m", object()
+
+        def run(self, task, env, **kw):
+            return RunResult("t", done=True, steps=2, wall_s=1.0, status="done", answer="42", usage={"cost_usd": 0.0123})
+
+    async def go():
+        for args in ({"task": "x"}, {"task": "x", "model": "some/model"}):
+            with pytest.raises(Exception, match="no model key in this server's environment: add it .* to your MCP "
+                                                "client's `env` for this server, or run `legato setup`"):
+                await srv.call_tool("desktop_run_task", args)
+        assert closed == []                             # no desktop was opened to say so
+        monkeypatch.setattr(agent_mod, "agent_for", lambda env, **kw: Agent())
+        return await srv.call_tool("desktop_run_task", {"task": "what is 6 x 7?", "model": "some/model",
+                                                        "base_url": "http://localhost:1/v1"})
+    r = asyncio.run(go())
+    assert "answer: 42" in r.content[0].text and closed == [True]
+    out = getattr(r, "structuredContent", None) or getattr(r, "structured_content", None)
+    if out is not None:
+        assert out["cost_usd"] == 0.0123 and out["answer"] == "42"
