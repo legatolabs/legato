@@ -11,7 +11,7 @@ Harness's defaults elsewhere, where the one-action loop was faster: KNOWLEDGE.md
 """
 from __future__ import annotations
 
-import re
+import os
 import sys
 import threading
 import time
@@ -19,28 +19,15 @@ from typing import Any, Callable
 
 from legato import config as cfgmod
 
-# Added to a task run through legato.run, `legato run` and desktop_run_task, so a question gets its answer back.
-ANSWER_NOTE = ("\n\nIf the task asks for information, finish with done and put the answer itself in done's text "
-               "(the number, name or sentence asked for). If any part of the task couldn't be done, finish with fail "
-               "and say what didn't work.")
 from legato import safety
 from legato.env import DesktopStartError, Env
-from legato.harness import Harness, RunResult
+# ANSWER_NOTE is added to a task run through legato.run, `legato run` and desktop_run_task, so a question gets its
+# answer back; a done without one then gets one more turn when the task's words ask (asks_for_information)
+from legato.harness import ANSWER_NOTE, Harness, RunResult, asks_for_information  # noqa: F401
 
 # What legato.run says for a desktop name that is none of these (the CLI says it with --sandbox's words).
 DESKTOPS = ('"background", "screen", "docker", "docker:IMAGE", "e2b", "path/to/file.py:function" or '
             '"module:function", or a desktop you opened (legato.local(...), legato.attach(...))')
-
-
-# words that ask for an answer: a done without one then gets one more turn (Harness(ask_answer=True))
-_ASKS = re.compile(r"\?|\b(tell me|what|which|who|whose|when|where|why|how (many|much|long|old|far|big)|find out|"
-                   r"look up|check (if|whether)|is there|are there)\b", re.I)
-
-
-def asks_for_information(task: str) -> bool:
-    """Does `task` ask for an answer ("what is ...", "tell me ...", "how many ...")? A guess from its words: a wrong
-    yes costs one more model call, and only after a done that came without text."""
-    return bool(_ASKS.search(task))
 
 
 def agent_for(env: Env | None = None, *, model: str | None = None, base_url: str | None = None,
@@ -48,7 +35,9 @@ def agent_for(env: Env | None = None, *, model: str | None = None, base_url: str
     """A Harness for `env` with the saved model (or the one given). On a Mac's whole screen: the Mac app's setup
     (one plan per turn, a shell and checked AppleScript beside the screen, 4 screenshots kept, the ending fix). In
     one app's window in the background: one action at a time, with no shell, so nothing it runs takes the screen
-    from you (4 screenshots kept, the ending fix). Elsewhere: Harness's defaults. `options` go to Harness and win over these."""
+    from you (4 screenshots kept, the ending fix). Elsewhere: Harness's defaults. For the saved model, what setup's
+    check found it needs: its coordinates, and JSON actions when it takes no tool calls. `options` go to Harness and
+    win over these."""
     cfg = cfg or cfgmod.load()
     model = model or cfg.model
     base_url = base_url or cfg.base_url
@@ -69,6 +58,12 @@ def agent_for(env: Env | None = None, *, model: str | None = None, base_url: str
         # the loop background mode is tested with (tests/test_background_live.py), with the Mac's ending fix and 4
         # screenshots; plans in the background are unmeasured (two small runs on 24 Nov were inconclusive)
         setup = dict(end_fix=True, image_max=4)
+    if model == cfg.model and base_url.rstrip("/") == cfg.base_url.rstrip("/"):
+        # what `legato setup` found this model needs (legato.config.check_model)
+        if cfg.coords in ("pixels", "norm1000"):
+            setup["coords"] = cfg.coords
+        if cfg.tool_calls == "json":
+            setup["native_tools"] = False
     setup.update(options)
     h = Harness(model=model, base_url=base_url, api_key=api_key, **setup)
     if hasattr(h.client, "key_source"):          # named in a 401 or 403 (never the key itself)
@@ -122,6 +117,7 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
 def run(task: str, desktop: str | Env | None = None, *, model: str | None = None, base_url: str | None = None,
         api_key: str | None = None, app: str | None = None, max_steps: int = 40, on_step: Callable | None = None,
         confirm: Any = "auto", timeout_s: float | None = None, cancel: threading.Event | None = None,
+        max_cost_usd: float | None = None, record_dir: str | os.PathLike | None = None,
         **options: Any) -> RunResult:
     """Run one task with your saved model on your saved desktop (`legato setup`), or the ones given. `desktop` is a
     name ("background", "screen", "docker", "e2b"), a --sandbox spec, or an Env you opened yourself. The result has
@@ -135,7 +131,9 @@ def run(task: str, desktop: str | Env | None = None, *, model: str | None = None
     argument (a desktop name that is none) still raises. timeout_s: a deadline for the whole call, opening the desktop
     and each model call included (status "timeout"); an app's launch, docker and E2B's create request are cut at the time left, your own
     --sandbox function and the first screenshot are not. cancel: a threading.Event that ends the run before its next
-    model call once set (status "cancelled").
+    model call once set (status "cancelled"). max_cost_usd: ends the run (status "max_cost") once the cost its model
+    calls report reaches it, checked between turns; only providers that report cost count (OpenRouter does).
+    record_dir: a folder for the screen after each turn (start.png, turn-001.png, ...); result.trace names them.
 
     confirm: what happens before a risky action (keys such as cmd+Delete or cmd+Q, a typed rm or sudo: the list is in
     legato.safety) on this computer ("background", "screen"); other desktops ignore it, and an Env you pass keeps its
@@ -164,10 +162,9 @@ def run(task: str, desktop: str | Env | None = None, *, model: str | None = None
             return RunResult(task, error=f"cannot start the desktop: {e}"[:300], status="error",
                              wall_s=time.monotonic() - t0)
     try:
-        options.setdefault("ask_answer", asks_for_information(task))
         agent = agent_for(env, model=model, base_url=base_url, api_key=api_key, **options)
         res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, timeout_s=left(),
-                        cancel=cancel, raise_desktop_errors=False)
+                        cancel=cancel, raise_desktop_errors=False, max_cost_usd=max_cost_usd, record_dir=record_dir)
         if res.status == "timeout" and end is not None:      # the limit the caller set, not the part left for the run
             res.error = f"the run's time limit ({timeout_s:g} s) ran out"
         res.task = task

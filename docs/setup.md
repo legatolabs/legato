@@ -20,8 +20,8 @@ pip install legatolabs     # or: uv tool install legatolabs, or pipx install leg
 legato setup
 ```
 
-`legato setup` asks three things (which model and key, where it works, which coding agents get it), checks the model
-with one call, and offers a first task you can watch. What it saves is used by `legato run`, by `legato mcp` and by
+`legato setup` asks three things (which model and key, where it works, which coding agents get it), tries the model
+with one call (a test screenshot and a click, as a run sends them), and offers a first task you can watch. What it saves is used by `legato run`, by `legato mcp` and by
 `legato.run()` in Python. Run it again to change anything; `legato doctor` shows what is set up.
 
 **From a coding agent:** tell Claude Code, Codex or Cursor *"Set up Legato for me: https://legato.computer/setup"*.
@@ -49,7 +49,8 @@ You are setting Legato up on your user's computer. Run the commands yourself; as
    Providers: `openrouter` (one key for Qwen, Claude, GPT and others; the default, with `qwen/qwen3.8-27b`),
    `anthropic`, `openai`, `gemini`, `xai`, `together`, `fireworks`, `groq`, `cerebras`, `local` (a model server on
    this machine: vLLM, Ollama or LM Studio; no key), `custom` (with `--base-url`). Add `--model NAME` to choose the
-   model. The model must accept images.
+   model. The model must accept images: setup tries it and saves nothing when it cannot be used, with the reason.
+   `legato doctor --model NAME` tries a model without saving it.
 4. **Where it works.** The default is right for most people: on a Mac, one app's window in the background (the user
    keeps using the Mac), elsewhere the whole screen: on Windows and Linux Legato uses the real mouse, keyboard and
    screen while a task runs, so tell the user before the first task. Ask only if the user mentioned something else:
@@ -88,14 +89,17 @@ In Windows PowerShell, which has no `&&`, run the two commands one after the oth
 ## If something fails
 
 - `legato doctor` (or `legato doctor --json`) lists what is installed and set up, with the fix for each.
-- **"no model is set up yet"**: run `legato setup`, or export the key (`OPENROUTER_API_KEY=...`).
+  `legato doctor --model` also tries the model: it answers, accepts images, makes tool calls, and where its click
+  lands.
+- **"no model is set up yet"**: run `legato setup`, or set the key (`export OPENROUTER_API_KEY=...`; in PowerShell
+  `$env:OPENROUTER_API_KEY = "..."`).
 - **Clicks do nothing, or screenshots are only the wallpaper** (macOS): Accessibility and Screen Recording, as in
   step 6.
 - **"... did not open within 30 s"** (background mode): the Mac is busy or the app is slow to start the first time;
   open the app once, then run again.
 - **"... has no window on screen"** (background mode): the app is minimized or on another Space; bring one of its
   windows onto this desktop.
-- **The model answers but never acts:** it may not accept images, or it may need `--coords pixels`
-  ([models](models.md)).
+- **The model answers but never acts, or clicks in the wrong place:** `legato doctor --model` says whether it accepts
+  images and which coordinates it uses ([models](models.md)).
 
 Next: [Terminal and Python](python.md) · [Coding agents](mcp.md) · [Mac app](mac.md) · [Desktops](sandboxes.md)

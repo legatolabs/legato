@@ -2,6 +2,38 @@
 
 ## 0.3.1
 
+- **Bring any model, checked the way a run uses it.** `legato setup` now tries the model with the agent's own prompt,
+  a test screenshot and the `computer` tool (it was a one-word colour question, which passed models that then failed
+  every run with "No endpoints found that support tool use"). A model that takes images but no tool calls is asked
+  for its actions as JSON instead; that and the coordinates its click used (pixels or the 0–1000 grid) are saved in
+  the config (`tool_calls`, `coords`; `legato setup --coords`), so `legato run`, `legato mcp` and `legato.run()` use
+  them. `Harness` also switches to JSON actions by itself when a server refuses tool calls. A text-only model is
+  refused in plain words ("this model does not accept images; Legato needs a vision model") with two that work.
+- **`legato doctor --model [NAME]`** tries the saved or a named model: answers, accepts images, makes tool calls,
+  where its click lands, each with its fix (exit 1 when it cannot be used; `--json` has `model_check`).
+- **What is true about setup:** with no setup and a key in the environment, `legato` and `legato doctor` say the
+  default model is in use and that `legato setup` saves a choice, and `legato init` takes that default without
+  asking. A setup that saved no key says what is missing instead of "Next: legato run". `--provider local` with no
+  server names the three it looked for and how to start one, at once. Key hints use PowerShell's form on Windows.
+  `legato doctor`, `legato run` and `report()` print " - " in place of the middle dot where stdout is not UTF-8
+  (a Windows pipe showed it as another character).
+- **Python API: answers, cost limits, traces and honest planner totals.**
+  - A task that asks for information ("what", "tell me", a question mark) gets its answer in `result.answer` from
+    `Harness.run` too, not only `legato.run`: the task is sent with a line asking for it, and a done without it gets
+    one more turn (`ask_answer` now defaults to deciding from the task's words; `False` turns it off). GPT-6.1 Terra
+    and Claude Sonnet 5.5 returned `answer: ''` before. A planner (`legato.Planner`) now gives the answer as well.
+  - `Harness(plan=True)` offers only the steps that can run: no shell steps without a `bash` tool, no label steps
+    without a text reader (Windows and Linux), PowerShell named where the shell is PowerShell, and a step that
+    can't run is said to the model. On Windows with no tools it ran "out of steps ... 20 model turns, 0 actions".
+  - `max_cost_usd=` on `legato.run` and `Harness.run` ends a run with the new status `max_cost` once the cost the
+    provider reports reaches it. `on_step`'s `timing` carries `usage` (the run's tokens and cost so far).
+  - `record_dir=` saves the screen after each turn, and every run has `result.trace` (what the model said, what ran,
+    seconds, the screenshot's path), not only planner runs.
+  - Planner runs count the planner: `steps`, `usage`, `timings` and `report()` include its calls, tokens, cost and
+    seconds (they showed "0 model turns" and 0 tokens), `on_step` gets the actions each batch ran, and the planner's
+    notes are in `result.planner["notes"]` and at each planner call in the trace.
+  - `result.error` says why for every status but `done`: `failed` carries the model's reason (still in `answer`) and
+    `max_steps` says so; both were `None`.
 - **`legato mcp` refuses risky actions on this computer unless started with `--yes`.** Its stdin is the client's
   pipe, so "ask in the terminal" asked nobody and ran them: Cmd+Q or a typed `rm` through `desktop_act`, and the
   shell and AppleScript steps inside `desktop_run_task`. The client is told how to allow them. The README says what
@@ -18,6 +50,14 @@
   every screenshot, so every run failed with "is Screen Recording on for this app?". The call now gets 3 s; after a
   stall the window is taken with `screencapture` for the next five minutes (its sheets and menus are left out then).
   A run that fails mid-way prints one line, not a traceback.
+- **MCP on Windows reads text and waits.** `desktop_read` works on a Windows screen: the foreground window's text
+  (an Edge or Chrome page, Notepad, a dialog, Settings) through the UI Automation that PowerShell ships with, with
+  nothing to install. New `desktop_wait` waits until given text is in the window, or until the screen has changed and
+  holds still. `desktop_open` gives `{desktop_id, width, height, started, start_error}` as structured content, the
+  real screen size, and marks a url or app that did not start as an error; the server reports its version.
+  `desktop_run_task` takes no `desktop_id` (it opens a desktop for the run and closes it), adds `cost_usd` to its
+  structured result, and says when the model key is missing from the server's environment. The MCP docs say what the
+  one-click buttons need (uv and Docker) and show the path that works everywhere.
 - **The MCP server passes a desktop's failure to the client with its reason** (the MCP library otherwise shows only
   "Error executing tool"). The MCP docs say what `desktop_close` and `desktop_shell` do in the background.
 - **`legato run --json` prints one JSON object when it fails too** (`done: false` and the `error`), not only on

@@ -12,6 +12,24 @@ or SGLang server, including one on the same machine. Two settings depend on the 
 
 Other models are untested; please open an issue with what you find.
 
+## Will my model work?
+
+```bash
+legato doctor --model                          # your saved model
+legato doctor --model mistralai/pixtral-large-2502     # another one, at the saved provider (--base-url for elsewhere)
+```
+
+It sends what a run sends (the agent's prompt, a test screenshot and the `computer` tool) and reports four things,
+each with its fix: the model answers, accepts images, makes tool calls, and where its click lands on the test image
+(pixels or the 0–1000 grid). `legato setup` runs the same check and saves what the model needs, so `legato run`,
+`legato mcp` and `legato.run()` use it:
+
+- **No tool calls** (the provider says "No endpoints found that support tool use", or a local server has no tool-call
+  parser): Legato asks for the actions as JSON in the reply. Saved as `"tool_calls": "json"`. A run does the same by
+  itself the first time a server refuses tool calls.
+- **Clicks in the other convention:** saved as `"coords"`. Set it by hand with `legato setup --coords pixels`.
+- **No images:** refused. Legato needs a vision model.
+
 ## On your own GPU
 
 Serve an open vision model with vLLM and point Legato at it. A local server needs no API key, and nothing leaves the
@@ -35,12 +53,14 @@ the same API and `legato setup` finds them, but we haven't tested them end to en
 - **Coordinates.** `coords="norm1000"` (default for non-Claude models) is `[x, y]` on a 0–1000 grid, the Qwen-VL
   convention. `coords="pixels"` (default for Claude) sends screenshots at Anthropic's recommended size (1024x768,
   1280x800 or 1366x768) and reads clicks in that image's pixels. For other models, check where "click the File menu"
-  lands (`result.actions`) and set `coords=` (and `model_size=(w, h)` for a fixed screenshot size).
+  lands (`legato doctor --model NAME` tries it) and set `coords=` (and `model_size=(w, h)` for a fixed screenshot
+  size).
 - **Thinking models.** Replies get 4,096 output tokens (`max_tokens`). If one hits the limit before acting, the next
   turn asks for a short reply. Raise `max_tokens` for models that reason at length.
 - **Tool calls.** `native_tools=True` (default) sends a `computer` function tool with Claude-style action names;
-  `native_tools=False` asks for JSON in the reply, for servers without tool-call parsing. Both accept common
-  open-model shapes such as `coordinate` lists and `"(x, y)"` text.
+  `native_tools=False` asks for JSON in the reply, for servers without tool-call parsing; Legato switches to it by
+  itself when a server refuses tool calls. Both accept common open-model shapes such as `coordinate` lists and
+  `"(x, y)"` text.
 - **Prompt caching.** Claude gets a top-level `cache_control`, read by OpenRouter and Anthropic-compatible APIs.
   Elsewhere, dropping screenshots 4 at a time keeps the automatic prefix cache hitting.
 

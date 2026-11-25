@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import re
+import sys
 from dataclasses import dataclass
 
 PLAN_SYSTEM = """You control a computer desktop ({w}x{h} pixels) to complete the user's task. Each turn you see the \
@@ -46,6 +47,80 @@ LABELLED = ("left_click", "right_click", "double_click", "triple_click")     # c
 MODIFIERS = {"shift", "cmd", "command", "ctrl", "control", "alt", "option", "super"}
 POINTER = ("click", "double_click", "triple_click", "right_click", "drag", "scroll")
 MAX_WAIT_S = 15.0
+
+
+# What PLAN_SYSTEM says of labels, checks and the example, and what it says instead where they are not there.
+_LABEL_CLICKS = ('(coordinate, and "text": the label of what you click, as it reads on the screen; left_click with keys '
+                 '"shift" or "cmd" holds that key). The click goes to that label where it is when the step runs, nearest '
+                 "your coordinate, so it still lands after earlier steps changed the screen; give the label whenever the "
+                 "target has one. ")
+_PLAIN_CLICKS = '(coordinate; left_click with keys "shift" or "ctrl" holds that key). '
+_STOPS = "(a label not found, a command or script that fails, a wait that times out)"
+_DONE_RULE = ("done counts in the same plan only right after a check that passed (wait_for, a shell command that exits "
+              "0, or an applescript step); otherwise look at the screen and call done in the next turn.")
+_EXAMPLE = ('for example open a menu, click its item by label, type in the dialog that opens, click "Save" by label, '
+            "wait_for what proves it worked, done.")
+_POWERSHELL = ("- shell (command): runs a PowerShell command on this computer and returns its output and exit code. It "
+               "is often much faster than the screen: open apps and links (Start-Process), read, make or move files.")
+
+
+def can_read() -> bool:
+    """Whether read_lines has a text reader on this computer (macOS Vision, or rapidocr-onnxruntime)."""
+    from importlib.util import find_spec
+    try:
+        return any(find_spec(m) is not None for m in ("Vision", "rapidocr_onnxruntime"))
+    except (ImportError, ValueError):
+        return False
+
+
+def step_actions(shell: str = "bash", applescript: bool = True, labels: bool = True) -> list[str]:
+    """STEP_ACTIONS without the steps that cannot run: shell with no shell tool, applescript with no applescript
+    tool, click_text and wait_for with no text reader."""
+    gone = ([] if shell else ["shell"]) + ([] if applescript else ["applescript"]) + \
+        ([] if labels else ["click_text", "wait_for"])
+    return [a for a in STEP_ACTIONS if a not in gone]
+
+
+def fit_system(text: str, shell: str = "bash", applescript: bool = True, labels: bool = True) -> str:
+    """A plan prompt (PLAN_SYSTEM, or one made from it) that promises only what can run: `shell` is what the shell
+    tool runs ("" for none), applescript whether there is an applescript tool, labels whether the screen's text can
+    be read (can_read). With all three it is returned as it is. Qwen3.8-27B given the full prompt on Windows with
+    no shell tool planned shell steps for 20 turns, none of which ran."""
+    if shell == "bash" and applescript and labels:
+        return text
+    lines = []
+    for line in text.split("\n"):
+        if line.startswith("- shell (") and shell != "bash":
+            if shell:
+                lines.append(_POWERSHELL if shell.lower() == "powershell" else line.replace("a bash command", f"a {shell} command"))
+            continue
+        if (line.startswith("- applescript (") and not applescript) or \
+                (line.startswith(("- click_text (", "- wait_for (")) and not labels):
+            continue
+        lines.append(line)
+    text = "\n".join(lines)
+    if sys.platform != "darwin":
+        text = text.replace('"cmd+s"', '"ctrl+s"')
+    if not labels:
+        text = text.replace(_LABEL_CLICKS, _PLAIN_CLICKS)
+    stops = [w for w, on in (("a label not found", labels), ("a command or script that fails", shell or applescript),
+                             ("a wait that times out", labels)) if on]
+    text = text.replace(_STOPS, f"({', '.join(stops)})" if stops else "(an action the screen no longer fits)")
+    checks = [w for w, on in (("wait_for", labels), ("a shell command that exits 0", shell),
+                              ("an applescript step", applescript)) if on]
+    if checks:
+        text = text.replace(_DONE_RULE, _DONE_RULE.replace(
+            "(wait_for, a shell command that exits 0, or an applescript step)", f"({', or '.join(checks)})"))
+        example = ("for example " + ("open a menu, click its item by label, type in the dialog that opens" if labels else
+                                     "click a field, type into it, press Return") + ", " +
+                   ("wait_for what proves it worked" if labels else "a shell command that reads back what changed") +
+                   ", done.")
+    else:
+        text = text.replace(_DONE_RULE, "done counts only in a plan of its own: after your steps you see the screen "
+                                        "they left, and call done alone in the next turn if it shows the task is complete.")
+        example = ("for example press a shortcut, type in the window that opens, press Return; then, in the next turn, "
+                   "check the screen and call done.")
+    return text.replace(_EXAMPLE, example)
 
 
 @dataclass
@@ -104,10 +179,11 @@ PROGRESS_NOTE = ("\nEach plan also carries `progress`: one line, what is done so
                  "screenshots are left out of what you see, so your progress lines are how you keep your place.")
 
 
-def plan_tool(max_steps: int, progress: bool = False) -> dict:
-    """The `plan` tool in OpenAI function format (progress: a required one-line `progress` beside the steps)."""
+def plan_tool(max_steps: int, progress: bool = False, actions: list[str] | None = None) -> dict:
+    """The `plan` tool in OpenAI function format (progress: a required one-line `progress` beside the steps; actions:
+    the steps it offers, as step_actions gives them, default all)."""
     step = {"type": "object", "required": ["action"], "properties": {
-        "action": {"type": "string", "enum": STEP_ACTIONS},
+        "action": {"type": "string", "enum": actions or STEP_ACTIONS},
         "coordinate": {"type": "array", "items": {"type": "number"}, "description": "[x, y] on the screenshot you see now"},
         "end_coordinate": {"type": "array", "items": {"type": "number"}, "description": "[x, y] for left_click_drag"},
         "text": {"type": "string", "description": "type: the text; click_text and wait_for: the label"},
@@ -121,6 +197,19 @@ def plan_tool(max_steps: int, progress: bool = False) -> dict:
         "name": "plan", "description": "Run steps in order: screen actions, click_text, shell, wait_for, then done.",
         "parameters": {"type": "object", "required": ["steps"], "properties": {
             "steps": {"type": "array", "items": step, "maxItems": max_steps}}}}}
+    if actions and len(actions) < len(STEP_ACTIONS):      # only what can run here is offered
+        gone = {"shell": ("command",), "applescript": ("script", "check"), "wait_for": ("timeout_s",),
+                "click_text": ("double", "right")}
+        for name, keys in gone.items():
+            if name not in actions:
+                for k in keys:
+                    step["properties"].pop(k, None)
+        if "click_text" not in actions:
+            step["properties"]["text"] = {"type": "string",
+                                          "description": "type: the text; done: the answer, if the task asks for one"}
+        tool["function"]["description"] = "Run steps in order: " + ", ".join(
+            ["screen actions"] + [a for a in ("click_text", "shell", "applescript", "wait_for") if a in actions]) + \
+            ", then done."
     if progress:
         params = tool["function"]["parameters"]
         params["properties"]["progress"] = {"type": "string",

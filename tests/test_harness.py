@@ -43,7 +43,7 @@ def server():
                 return
             out = json.dumps({"choices": [{"message": {"content": step.get("content", ""),
                                                        **({"tool_calls": step["tool_calls"]} if step.get("tool_calls") else {})}}],
-                              "usage": {"prompt_tokens": 10, "completion_tokens": 3}}).encode()
+                              "usage": {"prompt_tokens": 10, "completion_tokens": 3, **step.get("usage", {})}}).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(out)))
             self.end_headers()
@@ -446,10 +446,15 @@ def test_every_ending_has_a_status(server):
     assert (res.status, res.done, res.answer) == ("done", True, "42")
     server["script"] = [{"tool_calls": [tc({"action": "fail"})]}]
     res = legato.Harness("m", server["url"]).run("t", fake_env([]))
-    assert (res.status, res.failed, res.error) == ("failed", True, None)
+    assert (res.status, res.failed, res.error) == ("failed", True, "the model called fail and gave no reason")
     server["script"] = [CLICK] * 3
     res = legato.Harness("m", server["url"]).run("t", fake_env([]), max_steps=2)
-    assert (res.status, res.done, res.failed, res.error, res.steps) == ("max_steps", False, False, None, 2)
+    assert (res.status, res.done, res.failed, res.steps) == ("max_steps", False, False, 2)
+    assert res.error == "max_steps (2) ran out before the model called done" and res.report().startswith("out of steps in")
+    server["script"] = [{"tool_calls": [tc({"action": "fail", "text": "there is no such file"})]}]
+    r2 = legato.Harness("m", server["url"]).run("t", fake_env([]))         # why, in error for every status but done
+    assert (r2.status, r2.answer, r2.error) == ("failed", "there is no such file", "there is no such file")
+    assert r2.report().startswith("failed in")
     assert res.report().startswith("out of steps")
     server["script"] = [{"http": 401, "body": {"error": {"message": "No auth credentials found", "code": 401}}}]
     res = legato.Harness("m", server["url"], retries=0).run("t", fake_env([]))
@@ -471,7 +476,7 @@ def test_usage_is_a_typed_dict_and_a_plain_dict():
     assert type(res.usage) is dict and res.usage == {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0,
                                                      "complete": True}
     assert get_type_hints(legato.RunResult)["usage"] is Usage and set(Usage.__annotations__) == set(res.usage)
-    assert legato.Usage is Usage and set(legato.RunStatus.__args__) == {"done", "failed", "max_steps", "timeout",
+    assert legato.Usage is Usage and set(legato.RunStatus.__args__) == {"done", "failed", "max_steps", "timeout", "max_cost",
                                                                        "cancelled", "stopped", "error"}
 
 
@@ -757,3 +762,135 @@ def test_a_done_without_the_answer_gets_one_more_turn(server):
     assert (res.status, res.done) == ("max_steps", False)    # it went on acting: the first done no longer counts
     assert asks_for_information("Tell me the top headline") and asks_for_information("How many tabs are open?")
     assert not asks_for_information("Open TextEdit and type hello") and not asks_for_information("Reload the page")
+
+
+# ------------------------------------------------------------ a model without tool calls; checking a model
+NO_TOOLS = {"http": 404, "body": {"error": {"message": 'No endpoints found that support tool use. Try disabling "computer".'}}}
+NO_IMAGES = {"http": 404, "body": {"error": {"message": "No endpoints found that support image input"}}}
+
+
+def test_a_model_without_tool_calls_is_asked_for_json_instead(server):
+    from legato.harness import no_tool_calls
+    assert no_tool_calls('HTTP 404: No endpoints found that support tool use. Try disabling "computer".')
+    assert no_tool_calls('HTTP 400: "auto" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set')
+    assert no_tool_calls("HTTP 400: registry.ollama.ai/library/llava:latest does not support tools")
+    assert not no_tool_calls("HTTP 401: this key does not support tools") and not no_tool_calls("HTTP 500: overloaded")
+    server["script"] = [NO_TOOLS, {"content": '{"action": "left_click", "coordinate": [10, 20]}'},
+                        {"content": '{"action": "done"}'}]
+    log = []
+    h = legato.Harness("m", server["url"])
+    res = h.run("t", fake_env(log))
+    assert res.done and [a.type for a in log] == ["click"] and h.native_tools is False
+    first, second, third = server["bodies"]
+    assert "tools" in first and "tools" not in second and "tools" not in third        # refused once, never sent again
+    assert "JSON object" in second["messages"][0]["content"] and "JSON object" not in first["messages"][0]["content"]
+
+
+def test_check_model_tries_what_a_run_needs(server):
+    from legato import config
+    server["script"] = [{"tool_calls": [tc({"action": "left_click", "coordinate": [751, 248]})]}]
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["images"], r["tool_calls"], r["coords"], r["coords_default"]) == (True, True, "native", "norm1000", "norm1000")
+    body = server["bodies"][0]                      # one call, with the screenshot and the tool, as a run sends them
+    assert len(server["bodies"]) == 1 and body["tools"][0]["function"]["name"] == "computer"
+    assert any(p.get("type") == "image_url" for p in body["messages"][1]["content"])
+    assert any("clicks in the 0-1000 grid" in line for line in config.check_lines(r))
+
+    server["script"] = [NO_TOOLS, {"content": '{"action": "left_click", "coordinate": [955, 205]}'}]
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["tool_calls"], r["coords"]) == (True, "json", "pixels")
+    lines = "\n".join(config.check_lines(r))
+    assert "it takes no tool calls here" in lines and "--coords pixels" in lines
+
+    server["script"] = [{"content": "I would click the red square."}, {"content": '{"action": "left_click", "coordinate": [750, 250]}'}]
+    assert config.check_model("m", server["url"])["tool_calls"] == "json"       # words first, JSON when asked for it
+
+    server["script"] = [{"tool_calls": [tc({"action": "left_click", "coordinate": [100, 700]})]}]
+    r = config.check_model("m", server["url"])
+    assert r["ok"] and r["coords"] is None and r["images"] is None and "missed the test square" in r["fix"]
+
+
+def test_check_model_says_why_a_model_cannot_be_used(server, monkeypatch):
+    from legato import config
+    server["script"] = [NO_IMAGES, {"content": "ok"}]
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["answers"], r["images"]) == (False, True, False)
+    assert r["fix"] == "this model does not accept images; Legato needs a vision model"
+    monkeypatch.setitem(config.VISION_MODELS, "openrouter", ("a/one", "b/two"))
+    monkeypatch.setitem(config.PROVIDERS, "openrouter", config.PROVIDERS["openrouter"]._replace(base_url=server["url"]))
+    server["script"] = [NO_IMAGES, {"content": "ok"}]
+    assert config.check_model("m", server["url"])["fix"].endswith("for example a/one or b/two")
+
+    server["script"] = [{"http": 401, "body": {"error": {"message": "No auth credentials found"}}}]
+    n = len(server["bodies"])
+    r = config.check_model("m", server["url"])
+    assert (r["ok"], r["answers"], r["fix"]) == (False, False, "check the key") and len(server["bodies"]) == n + 1
+    assert config.check_lines(r)[0].startswith("no  answers: HTTP 401")
+
+    server["script"] = [{"content": "Sorry, I cannot help with that."}, {"content": "No."}]
+    r = config.check_model("m", server["url"])
+    assert r["ok"] is False and r["answers"] and "no action Legato can run" in r["error"]
+
+
+def test_the_report_is_ascii_where_stdout_is_not_utf8(monkeypatch):
+    res = legato.harness.RunResult("t", status="done", wall_s=1.0)
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
+    line = res.report()
+    assert line.isascii() and "model 0.0 s (0%) - actions" in line
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="utf-8"))
+    assert " · actions" in res.report()
+
+
+def test_a_question_gets_its_answer_by_default_and_other_tasks_are_as_before(server):
+    """Harness.run with nothing set: a task whose words ask for information is sent with the line asking for the
+    answer in done's text, and an empty done gets the one more turn. A task that asks nothing gets neither, and
+    ask_answer=False turns both off. (GPT-6.1 Terra and Claude Sonnet 5.5 returned done with answer '' for "Look at
+    the taskbar clock and tell me the date it shows" through Harness.run.)"""
+    from legato.harness import ANSWER_NOTE
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}, {"tool_calls": [tc({"action": "done", "text": "24 Nov"})]}]
+    res = legato.Harness("m", server["url"]).run("Look at the clock and tell me the date", fake_env([]))
+    assert (res.status, res.answer, res.steps, res.task) == ("done", "24 Nov", 2, "Look at the clock and tell me the date")
+    assert ANSWER_NOTE.strip() in json.dumps(server["bodies"][0]).replace("\\n", "\n")
+    assert "You called done without the answer" in json.dumps(server["bodies"][1])
+    server["bodies"].clear()
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}]
+    res = legato.Harness("m", server["url"]).run("Open Notepad and type hello", fake_env([]))
+    assert (res.status, res.steps) == ("done", 1) and "asks for information" not in json.dumps(server["bodies"][0])
+    server["bodies"].clear()
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}]
+    res = legato.Harness("m", server["url"], ask_answer=False).run("what is open?", fake_env([]))
+    assert (res.status, res.steps) == ("done", 1) and "asks for information" not in json.dumps(server["bodies"][0])
+    server["script"] = [{"tool_calls": [tc({"action": "done"})]}, {"tool_calls": [tc({"action": "done", "text": "x"})]}]
+    res = legato.Harness("m", server["url"]).run("what is open?" + ANSWER_NOTE, fake_env([]))     # as legato.run sends it
+    assert res.answer == "x" and json.dumps(server["bodies"][-1]).count("finish with done") == 1
+
+
+def test_max_cost_usd_ends_the_run_between_turns(server):
+    """The run ends with status max_cost once the cost the provider reports reaches the limit; a provider that
+    reports none never reaches it."""
+    server["script"] = [dict(CLICK, usage={"cost": 0.02}) for _ in range(5)]
+    res = legato.Harness("m", server["url"]).run("click on", fake_env([]), max_cost_usd=0.05)
+    assert (res.status, res.done, res.steps) == ("max_cost", False, 3) and len(res.actions) == 3
+    assert res.error == "the run's cost limit ($0.05) was reached: $0.0600 spent" and res.error in res.report()
+    server["script"] = [CLICK, CLICK]
+    res = legato.Harness("m", server["url"]).run("click on", fake_env([]), max_cost_usd=0.05, max_steps=3)
+    assert (res.status, res.steps) == ("done", 3)
+
+
+def test_on_step_gets_the_running_usage_and_every_run_has_a_trace_and_can_keep_its_screens(server, tmp_path):
+    server["script"] = [dict(CLICK, usage={"cost": 0.01}),
+                        {"content": "all set", "tool_calls": [tc({"action": "done", "text": "ok"})], "usage": {"cost": 0.01}}]
+    seen = []
+    res = legato.Harness("m", server["url"]).run("click it", fake_env([]), record_dir=tmp_path / "shots",
+                                                 on_step=lambda turn, actions, timing: seen.append(
+                                                     (turn, [a.type for a in actions], timing["usage"]["prompt"],
+                                                      round(timing["usage"]["cost_usd"], 2))))
+    assert seen == [(0, ["click"], 10, 0.01), (1, [], 20, 0.02)]
+    assert [(e["turn"], e["actions"], e["done"]) for e in res.trace] == [(0, ["click (500, 250)"], False), (1, [], True)]
+    assert "all set" in res.trace[1]["say"] and res.trace[0]["s"] >= 0
+    names = sorted(p.name for p in (tmp_path / "shots").iterdir())
+    assert names == ["start.png", "turn-001.png", "turn-002.png"]
+    assert [Path(e["screenshot"]).name for e in res.trace] == names[1:]
+    assert all(isinstance(v, (str, int, float, bool, list)) for e in res.trace for v in e.values())    # paths, not images
+    res = legato.Harness("m", server["url"]).run("click it", fake_env([]))
+    assert len(res.trace) == 1 and "screenshot" not in res.trace[0]

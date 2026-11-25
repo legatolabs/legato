@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import re
 import threading
 import time
@@ -115,8 +116,42 @@ END_NOTE = ("Your last reply had no action, so nothing happened. If the task is 
 ANSWER_ASK = ("You called done without the answer. This is the screen now: if the task asks for information, call done "
               "again with the answer itself in its text (the number, name or sentence asked for); if the page is not "
               "there yet, take the next step. If the task asks for no information, call done again.")
+# Added to a task that asks for information, so the answer comes back in done's text (legato.run, `legato run` and
+# desktop_run_task add it to every task; Harness.run to one whose words ask).
+ANSWER_NOTE = ("\n\nIf the task asks for information, finish with done and put the answer itself in done's text "
+               "(the number, name or sentence asked for). If any part of the task couldn't be done, finish with fail "
+               "and say what didn't work.")
+# words that ask for an answer: a done without one then gets one more turn (Harness(ask_answer=...))
+_ASKS = re.compile(r"\?|\b(tell me|what|which|who|whose|when|where|why|how (many|much|long|old|far|big)|find out|"
+                   r"look up|check (if|whether)|is there|are there)\b", re.I)
+
+
+def asks_for_information(task: str) -> bool:
+    """Does `task` ask for an answer ("what is ...", "tell me ...", "how many ...")? A guess from its words: a wrong
+    yes costs one more model call, and only after a done that came without text."""
+    return bool(_ASKS.search(task.replace(ANSWER_NOTE, "")))
+
+
 CUT_OFF_NOTE = ("Your last reply reached the token limit before you called the tool, so nothing happened. Keep your "
                 "reasoning short and call the tool now.")
+
+# Added to the system prompt for a model without tool calls (native_tools=False): how to write the call instead.
+JSON_NOTE = ("\nThis model has no tool calling here, so write each `computer` call as one JSON object in your reply "
+             'instead, for example {"action": "left_click", "coordinate": [x, y]} or {"action": "type", "text": "hello"} '
+             'or {"action": "done", "text": "the answer"}. Write nothing after the last object.')
+PLAN_JSON_NOTE = ("\nThis model has no tool calling here, so write the `plan` call as one JSON object in your reply "
+                  'instead: {"steps": [{"action": "left_click", "coordinate": [x, y], "text": "label"}, ...]}. Write '
+                  "nothing after it.")
+_NO_TOOLS = re.compile(r"support\w* (for )?(tool|function)|(tool|function)[\w \"'`-]{0,40}(not|un)\s?support|"
+                       r"enable-auto-tool-choice|tool-call-parser", re.I)
+
+
+def no_tool_calls(error: str) -> bool:
+    """Does a failed call's error say the model or server takes no tool calls (OpenRouter's "No endpoints found that
+    support tool use", vLLM without a tool-call parser, Ollama's "does not support tools")? Harness then asks for
+    the actions as JSON in the reply (native_tools=False) instead."""
+    return bool(_NO_TOOLS.search(error or "")) and not re.search(r"HTTP (401|403|429)\b", error or "")
+
 
 COORDS = {"norm1000": "Coordinates are [x, y] on a 0-1000 scale of the screenshot's width and height (origin top-left).",
           "pixels": "Coordinates are [x, y] in pixels of the screenshot (origin top-left)."}
@@ -281,14 +316,16 @@ class Plan:
     done: bool = False
     failed: bool = False
     cut_off: bool = False       # the reply hit the token limit before any action (a thinking model ran out of room)
+    invalid: str = ""           # plan mode: why a step could not be read; it and the steps after it did not run
 
 
-# How a run ended (RunResult.status); docs/python.md "When a run fails" says what to do about each:
+# How a run ended (RunResult.status); docs/python.md has the table of what to do about each:
 #   done       the model called done                     failed     the model called fail (the task cannot be done)
 #   max_steps  max_steps ran out first                   timeout    run(timeout_s=) ran out
 #   cancelled  run(cancel=) was set                      stopped    the person stopped it (legato.safety.Stopped)
-#   error      the model call or the desktop failed: `error` says which and why
-RunStatus = Literal["done", "failed", "max_steps", "timeout", "cancelled", "stopped", "error"]
+#   max_cost   run(max_cost_usd=) was passed             error      the model call or the desktop failed: `error`
+#                                                                   says which and why
+RunStatus = Literal["done", "failed", "max_steps", "timeout", "max_cost", "cancelled", "stopped", "error"]
 
 
 class Usage(TypedDict):
@@ -319,11 +356,14 @@ def _book(usage: Usage, rec: dict | None = None, error: Exception | None = None)
 
 @dataclass
 class RunResult:
-    """How a run went. status: how it ended (done, failed, max_steps, timeout, cancelled, stopped, error); done and
-    failed: the model called done or fail (failed also when the desktop refused the same action 3 times, or 6 in
-    all); answer: the text the model ended with (a question's answer); error: why, when it ended any other way, or the
-    refusals that ended it; steps: model turns; actions: what ran, as text; wall_s: seconds; timings: per turn;
-    usage: tokens and cost (legato.Usage); report(): one paragraph of all that."""
+    """How a run went. error: why, for every status but done (for failed, the model's reason, which is also in
+    answer). status: how it ended (done, failed, max_steps, timeout, max_cost, cancelled, stopped, error);
+    done and failed: the model called done or fail (failed also when the desktop refused the same action 3 times, or
+    6 in all); answer: the text the model ended with (a question's answer); error: why, when it ended any other way,
+    or the refusals that ended it; steps: model calls (with a planner: the planner's and the other model's); actions:
+    what ran, as text; wall_s: seconds; timings: per model call or turn; usage: tokens and cost of every model call
+    (legato.Usage); trace: one dict per turn (what the model said, what ran, seconds, and the screenshot's path with
+    run(record_dir=)); report(): one paragraph of all that."""
     task: str
     done: bool = False
     failed: bool = False
@@ -335,8 +375,8 @@ class RunResult:
     stopped: bool = False       # the person stopped the run (legato.safety.Stopped): `error` says how
     answer: str = ""            # what the model said when it ended (the answer to "find out ..." tasks)
     usage: Usage = field(default_factory=_no_usage)
-    planner: dict = field(default_factory=dict)   # with a planner: its calls, by trigger, seconds, tokens, cost
-    trace: list = field(default_factory=list)     # with a planner: each planner call and executor turn, in order
+    planner: dict = field(default_factory=dict)   # with a planner: its calls, by trigger, seconds, tokens, cost, notes
+    trace: list = field(default_factory=list)     # each turn, in order (with a planner: each planner call too)
     status: RunStatus = "error"  # how it ended (RunStatus above); every run sets it
 
     def report(self) -> str:
@@ -345,28 +385,52 @@ class RunResult:
         share = lambda v: f"{100 * v / self.wall_s:.0f}%" if self.wall_s else "-"  # noqa: E731
         cost = (self.usage or {}).get("cost_usd")
         counts = f"{self.steps} model turns, {len(self.actions)} actions" + (f", ${cost:.4f}" if cost else "")
-        if self.failed and self.error:                   # ended by the harness: why
+        if self.failed and self.error and self.error != self.answer:     # ended by the harness: why
             head = f"failed: {self.error} (after {self.wall_s:.1f} s, {counts})"
-        elif self.done or self.failed or not self.error:
+        elif self.done or self.failed or not self.error or self.error.startswith("max_steps ("):
             status = "done" if self.done else "failed" if self.failed else (
                 "out of steps" if self.status == "max_steps" else self.status)
             head = f"{status} in {self.wall_s:.1f} s, {counts}"
         else:                                            # the error first, then how long it took
             head = f"{self.error} (after {self.wall_s:.1f} s, {counts})"
-        return (f"{head}\n"
-                f"model {tot['model_s']:.1f} s ({share(tot['model_s'])}) · actions {tot['act_s']:.1f} s "
-                f"({share(tot['act_s'])}) · waiting for the screen {tot['settle_s']:.1f} s ({share(tot['settle_s'])}) · "
-                f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])}) · "
-                + (f"tools {tot['tool_s']:.1f} s ({share(tot['tool_s'])}) · " if tot["tool_s"] else "")
-                + f"other {other:.1f} s")
+        from legato.config import dot
+        parts = [f"model {tot['model_s']:.1f} s ({share(tot['model_s'])})",
+                 f"actions {tot['act_s']:.1f} s ({share(tot['act_s'])})",
+                 f"waiting for the screen {tot['settle_s']:.1f} s ({share(tot['settle_s'])})",
+                 f"screenshots {tot['obs_s']:.1f} s ({share(tot['obs_s'])})"]
+        if tot["tool_s"]:
+            parts.append(f"tools {tot['tool_s']:.1f} s ({share(tot['tool_s'])})")
+        return f"{head}\n" + dot().join(parts + [f"other {other:.1f} s"])
 
 
 class _Limits:
-    """A run's deadline (timeout_s) and cancel event, checked between model turns."""
+    """A run's deadline (timeout_s), cancel event and cost limit, checked between model turns, and where its
+    screenshots are kept (record_dir)."""
 
-    def __init__(self, timeout_s: float | None = None, cancel: threading.Event | None = None):
-        self.timeout_s, self.cancel = timeout_s, cancel
+    def __init__(self, timeout_s: float | None = None, cancel: threading.Event | None = None,
+                 max_cost_usd: float | None = None, record_dir: str | None = None):
+        self.timeout_s, self.cancel, self.max_cost_usd = timeout_s, cancel, max_cost_usd
         self.deadline = None if timeout_s is None else time.monotonic() + max(0.0, float(timeout_s))
+        self.record_dir, self.shots = (str(record_dir) if record_dir else None), 0
+        if self.record_dir:
+            os.makedirs(self.record_dir, exist_ok=True)
+
+    def shot(self, png: bytes | None, name: str | None = None) -> str | None:
+        """Save a screenshot under record_dir and return its path (None without record_dir)."""
+        if not self.record_dir or not png:
+            return None
+        self.shots += 0 if name else 1
+        path = os.path.join(self.record_dir, name or f"turn-{self.shots:03d}.png")
+        with open(path, "wb") as f:
+            f.write(png)
+        return path
+
+    def step(self, res: "RunResult", timing: dict, png: bytes | None = None) -> None:
+        """What on_step and the trace get for a turn: the run's usage so far, and the screenshot's path."""
+        timing["usage"] = dict(res.usage)
+        path = self.shot(png)
+        if path:
+            timing["screenshot"] = path
 
     def hit(self, res: RunResult) -> bool:
         """True, with the result's status and error saying why, when the run has to end now."""
@@ -374,6 +438,10 @@ class _Limits:
             res.status, res.error = "cancelled", "cancelled"
         elif self.deadline is not None and time.monotonic() >= self.deadline:
             res.status, res.error = "timeout", f"the run's time limit ({self.timeout_s:g} s) ran out"
+        elif self.max_cost_usd is not None and res.usage["cost_usd"] >= self.max_cost_usd:
+            res.status = "max_cost"
+            res.error = (f"the run's cost limit (${self.max_cost_usd:g}) was reached: "
+                         f"${res.usage['cost_usd']:.4f} spent")
         else:
             return False
         return True
@@ -402,7 +470,7 @@ class Harness:
                  plan_trust_first_click: bool = False, ocr_cache: bool = False,
                  ocr_near: bool = False, strict_done: bool = False, image_format: str = "jpeg", jpeg_quality: int = 85,
                  change_log_lines: int = 15, change_log_turns: int | None = None, progress_note: bool = False,
-                 history_scale: float | None = None, planner: "Planner | None" = None, ask_answer: bool = False):
+                 history_scale: float | None = None, planner: "Planner | None" = None, ask_answer: bool | None = None):
         """plan: one `plan` tool whose steps (screen actions, click_text, shell through the `bash` tool in `tools`,
         wait_for, done) run in order until one cannot go on (legato/plan.py). end_fix: a reply with no action gets
         a note to call done if the task is complete, and a second such reply in a row ends the task as done. coords: "norm1000" or "pixels" (default: pixels for Claude, norm1000 otherwise). image_max: screenshots kept
@@ -416,8 +484,14 @@ class Harness:
         3.11 s at median through OpenRouter, the next action unchanged; EXP-0053: on 27 Mac tasks a call 2.28 against
         3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless.
         ask_answer: a done with no text gets one more turn, with the screen its actions left and a note asking for the
-        answer in done's text (legato.run sets it for a task that asks for information; legato-research EXP-0102:
-        GPT-6.1 Terra ended 20 of 20 Safari questions with an empty done, a plan's done often before the page loaded)."""
+        answer in done's text (legato-research EXP-0102: GPT-6.1 Terra ended 20 of 20 Safari questions with an empty
+        done, a plan's done often before the page loaded). None (the default): for a task whose words ask for
+        information ("what", "tell me", "how many", a question mark: legato.harness.asks_for_information), which is
+        then also sent with a line asking for the answer in done's text; True: for every task; False: never. With a
+        planner, the planner gives the answer and is asked once more the same way.
+        plan: on a computer with no text reader (not macOS, no rapidocr-onnxruntime) the prompt leaves out click_text,
+        wait_for and labelled clicks, and without a `bash` tool in `tools` it leaves out shell steps: plans are then
+        screen actions, and done comes in a turn of its own."""
         key_source = "" if api_key is None else "the api_key passed to legato.Harness"
         if model is None or base_url is None or api_key is None:     # what `legato setup` saved
             from legato import config
@@ -444,6 +518,7 @@ class Harness:
         self.coords, self.image_max, self.fold = coords, image_max, max(1, fold)
         self.plan_mode, self.plan_max = plan, max(1, plan_max_steps)
         self.end_fix, self.ask_answer = end_fix, ask_answer
+        self._labels: bool | None = None              # plan mode: whether the screen's text can be read here
         self.image_format, self.jpeg_quality = image_format, jpeg_quality
         self._jpeg: dict[str, str] = {}               # PNG b64 -> JPEG b64: each kept screenshot is encoded once
         # change_log: each turn carries the text that appeared and went on the screen (macOS Vision), so the history
@@ -517,13 +592,17 @@ class Harness:
         """System + task, then one user turn per observation and one assistant turn per reply. Old screenshots are
         replaced by a placeholder `fold` at a time, so the prefix stays identical for several turns."""
         if self.plan_mode:
-            sys_text = (self.system or plans.PLAN_SYSTEM).format(w=w, h=h, coords=COORDS[self.coords], batch=self.plan_max)
+            sys_text = self.system or plans.PLAN_SYSTEM
             if self.strict_done:
                 sys_text = plans.strict_system(sys_text)
+            sys_text = plans.fit_system(sys_text, *self._plan_can()).format(
+                w=w, h=h, coords=COORDS[self.coords], batch=self.plan_max)
             if self.progress_note:
                 sys_text += plans.PROGRESS_NOTE
         else:
             sys_text = (self.system or SYSTEM).format(w=w, h=h, coords=COORDS[self.coords], batch=self.max_batch or "several")
+        if not self.native_tools:
+            sys_text += PLAN_JSON_NOTE if self.plan_mode else JSON_NOTE
         if self.tools and not self.plan_mode:
             sys_text += "\n" + self._tools_prompt()
         n_img = sum(len(t.get("pngs") or [t["png_b64"]]) for t in turns if t["role"] == "user")
@@ -561,6 +640,18 @@ class Harness:
             else:
                 msgs.append({"role": "assistant", "content": t["text"]})
         return msgs
+
+    def _plan_can(self) -> tuple[str, bool, bool]:
+        """What a plan's steps can use here: (what the shell runs, "" for no shell; applescript; labels read off the
+        screen for click_text, wait_for and labelled clicks)."""
+        if self._labels is None:
+            self._labels = plans.can_read()
+        shell = self.tools.get("bash")
+        return (shell.runs or "bash") if shell else "", "applescript" in self.tools, self._labels
+
+    def _asks(self, task: str) -> bool:
+        """Whether a done without an answer gets one more turn for `task` (ask_answer)."""
+        return asks_for_information(task) if self.ask_answer is None else bool(self.ask_answer)
 
     def _scaled_url(self, b64: str) -> str:
         """An older kept screenshot at history_scale of its size, in image_format."""
@@ -654,14 +745,22 @@ class Harness:
         msgs = self._messages(ep.task, ep.mw, ep.mh, ep.turns)
         names = CLAUDE_STYLE_ACTIONS + (["screenshot"] if self.screenshot_action else [])
         if self.plan_mode:
-            tools = [plans.plan_tool(self.plan_max, progress=self.progress_note)] if self.native_tools else None
+            tools = [plans.plan_tool(self.plan_max, progress=self.progress_note,
+                                     actions=plans.step_actions(*self._plan_can()))] if self.native_tools else None
         else:
             tools = [computer_tool(names)] + [t.spec() for t in self.tools.values()] if self.native_tools else None
         # Claude caches only where asked: OpenRouter's automatic caching (one top-level marker that follows the end of
         # the conversation) stands in for the reference implementation's per-turn breakpoints
-        rec = self._chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,
-                               tool_choice="auto" if tools else None,
-                               extra={"cache_control": {"type": "ephemeral"}} if self.cache else None)
+        try:
+            rec = self._chat(msgs, max_tokens=self.max_tokens, temperature=self.temperature, tools=tools,
+                             tool_choice="auto" if tools else None,
+                             extra={"cache_control": {"type": "ephemeral"}} if self.cache else None)
+        except PolicyError as e:
+            if not tools or not no_tool_calls(str(e)):
+                raise
+            # this model or server takes no tool calls: ask for the actions as JSON in the reply, from here on
+            self.native_tools = False
+            return self.decide(ep)
         if self.plan_mode:
             return self._decide_plan(rec, msgs, ep)
         calls = _named_calls(rec, tuple(self.tools))
@@ -736,6 +835,9 @@ class Harness:
                 plan.reply.append(f"Progress: {note[:300]}")
         steps = plans.plan_steps(rec) or []
         shell = next((t for t in self.tools.values() if t.name == "bash"), None)
+        labels = self._plan_can()[2]
+        no_reader = ("this computer has no text reader, so {kind} can't run: click by coordinate, and look at the "
+                     "screen in your next turn instead of waiting for a label")
         for st in steps[: self.plan_max]:
             kind = str(st.get("action", "")).lower().strip()
             plan.reply.append(json.dumps({k: v for k, v in st.items() if v is not None}, ensure_ascii=False))
@@ -743,30 +845,32 @@ class Harness:
                 plan.done, plan.failed = kind == "done", kind == "fail"
                 break
             label = st.get("text")
-            if kind in plans.LABELLED and isinstance(label, str) and label.strip() and \
+            if labels and kind in plans.LABELLED and isinstance(label, str) and label.strip() and \
                     label.strip().lower() not in plans.MODIFIERS:
                 a, why = self._parse(st, ep)       # a labelled click: found by its label when it runs
                 if a is None:
-                    plan.reply.append(f"(invalid step: {why})")
+                    plan.invalid = why
                     break
                 plan.actions.append(plans.FindClick(label.strip(), a.type, (a.x, a.y), fallback=(a.x, a.y)))
                 continue
             if kind == "applescript":
                 tool = self.tools.get("applescript")
                 if tool is None or not isinstance(st.get("script"), str):
-                    plan.reply.append("(invalid step: applescript needs a script, and the applescript tool)")
+                    plan.invalid = ("applescript needs a script" if tool is not None else
+                                    "there is no applescript step on this computer: use the screen")
                     break
                 plan.actions.append(ToolCall("applescript", {k: st[k] for k in ("script", "check") if st.get(k)}))
                 continue
             if kind == "shell":
                 if shell is None or not isinstance(st.get("command"), str):
-                    plan.reply.append("(invalid step: shell needs a command, and a shell)")
+                    plan.invalid = ("shell needs a command" if shell is not None else
+                                    "there is no shell step in this run: use the screen (keys, typing, clicks)")
                     break
                 plan.actions.append(ToolCall("bash", {"command": st["command"]}))
             elif kind in ("click_text", "wait_for"):
                 label = str(st.get("text") or "").strip()
-                if not label:
-                    plan.reply.append(f"(invalid step: {kind} needs text)")
+                if not label or not labels:
+                    plan.invalid = no_reader.format(kind=kind) if label else f"{kind} needs text"
                     break
                 if kind == "wait_for":
                     t = min(plans.MAX_WAIT_S, max(0.5, float(st.get("timeout_s") or 5.0)))
@@ -781,12 +885,14 @@ class Harness:
             else:
                 a, why = self._parse(st, ep)
                 if a is None:
-                    plan.reply.append(f"(invalid step: {why})")
+                    plan.invalid = why
                     break
                 if a.done:
                     plan.done, plan.failed = a.type == "done", a.type == "fail"
                     break
                 plan.actions.append(a)
+        if plan.invalid:
+            plan.reply.append(f"(invalid step: {plan.invalid})")
         if not steps:
             plan.cut_off = rec.get("finish_reason") == "length"
             plan.reply.append(text or ("(reply cut off at the token limit)" if plan.cut_off else "(no action)"))
@@ -886,12 +992,16 @@ class Harness:
             ran = i
         if stop:
             notes.append(f"The plan ran {ran} of {n} steps and stopped: {stop}. Nothing after it ran.")
+        elif plan.invalid:                      # the model is told, or it sends the same step again
+            notes.append(f"Step {n + 1} of your plan was not run, nor the steps after it: {plan.invalid}.")
         if plan.done and (stop or (n and check is not True)):
             if not stop:
                 notes.append(("done was not taken: it counts only right after a shell or applescript step that exits "
                               "0 and prints what it checked." if self.strict_done else
                               "done was not taken: it counts only right after a check that passed (wait_for, or a "
-                              "shell command that exits 0).") + " Look at the screen, then call done if it is finished.")
+                              "shell command that exits 0)." if any(self._plan_can()) else
+                              "done was not taken: it counts only in a plan of its own, once you have seen the "
+                              "screen your steps left.") + " Look at the screen, then call done if it is finished.")
             plan.done = False
         if plan.failed and stop:                # fail was never reached: the model sees why the plan stopped first
             plan.failed = False
@@ -932,9 +1042,18 @@ class Harness:
 
     def run(self, task: str, env: Env, max_steps: int = 40, on_step: Callable | None = None, *,
             timeout_s: float | None = None, cancel: threading.Event | None = None,
-            raise_desktop_errors: bool = True) -> RunResult:
-        """Run `task` on an attached desktop. on_step(turn, actions, timing) is called after each model turn.
-        result.status says how it ended (RunStatus).
+            raise_desktop_errors: bool = True, max_cost_usd: float | None = None,
+            record_dir: str | os.PathLike | None = None) -> RunResult:
+        """Run `task` on an attached desktop. on_step(turn, actions, timing) is called after each model turn: actions
+        are the Action and ToolCall objects it ran, and timing its seconds, with timing["usage"] the run's usage so
+        far (legato.Usage: tokens and cost) and timing["screenshot"] the saved screen's path with record_dir.
+        result.status says how it ended (RunStatus); result.trace has one dict per turn.
+
+        max_cost_usd: the run ends with status "max_cost" once the cost its model calls report reaches this. It is
+        checked between model turns, so the run can pass it by one turn, and it counts only what the provider reports
+        (OpenRouter does; a server that reports no cost never reaches it). record_dir: a folder (made if missing) that
+        gets start.png and the screen after each turn as turn-001.png, turn-002.png, ...; each trace entry's
+        "screenshot" is its path.
 
         timeout_s: a deadline for the whole run. It is checked between model turns, and each model call gets at most
         the time left; the result's status is then "timeout". cancel: a threading.Event; once it is set (from any
@@ -943,7 +1062,7 @@ class Harness:
         run(), as it always has; False returns it as a result with status "error" (what legato.run and `legato run`
         do). An exception raised by on_step is always raised."""
         res, t0 = RunResult(task), time.monotonic()
-        lim = _Limits(timeout_s, cancel)
+        lim = _Limits(timeout_s, cancel, max_cost_usd, os.fspath(record_dir) if record_dir else None)
         clients = [c for c in (self.client, getattr(self.planner, "client", None)) if isinstance(c, PolicyClient)]
         for c in clients:
             c.deadline = lim.deadline
@@ -975,13 +1094,22 @@ class Harness:
             for c in clients:
                 c.deadline = None
             res.wall_s = time.monotonic() - t0
+        if not res.error:                           # every run that is not done says why in `error`
+            if res.status == "failed":
+                res.error = res.answer or "the model called fail and gave no reason"
+            elif res.status == "max_steps":
+                res.error = f"max_steps ({max_steps}) ran out before the model called done"
         return res
 
     def _loop(self, task: str, env: Env, max_steps: int, on_step, res: RunResult, lim: _Limits) -> None:
         """run() without a planner: one model turn, then its actions, until done, fail or a limit."""
         res.status = "max_steps"                    # unless a turn ends it first
         obs = env.observe()
+        ask = self._asks(task)
+        if ask and self.ask_answer is None and ANSWER_NOTE not in task:
+            task += ANSWER_NOTE                     # a question: the answer is asked for in done's text
         ep = self.begin(task, obs.screenshot)
+        lim.shot(obs.screenshot, "start.png")
         seen = obs.screenshot                       # the screenshot the model plans on
         idle = 0                                    # replies in a row with no action (end_fix)
         refusals: dict[str, int] = {}               # how often each impossible action was refused this run
@@ -1071,6 +1199,15 @@ class Harness:
             if self.plan_mode and (plan.done or plan.failed):
                 res.actions.append("done" if plan.done else "fail")
             res.timings.append(timing)
+            lim.step(res, timing, (pngs or [obs.screenshot])[-1])
+            entry = {"turn": turn, "say": " | ".join(plan.reply)[:600],
+                     "actions": [a.describe() if a else "screenshot" for a in ran] + ([denied] if denied else []),
+                     "done": plan.done, "failed": plan.failed, "s": round(plan.rec["s"], 2)}
+            if results:
+                entry["results"] = [str(r)[:300] for r in results]
+            if timing.get("screenshot"):
+                entry["screenshot"] = timing["screenshot"]
+            res.trace.append(entry)
             if on_step:
                 on_step(turn, ran, timing)
             if res.stopped:
@@ -1086,7 +1223,7 @@ class Harness:
                     res.answer = _answer(plan.rec, plan.actions)
                     if plan.failed and not res.answer and refusals:    # it gave up without saying why: the refusal
                         res.error = f"not possible here: {list(refusals)[-1]}"
-                    if not (plan.done and not res.answer and self.ask_answer and asked < 0 and turn + 1 < max_steps):
+                    if not (plan.done and not res.answer and ask and asked < 0 and turn + 1 < max_steps):
                         break
                     asked, note = turn + 1, ANSWER_ASK       # one more turn to read the answer off the screen
             self.feed(ep, plan, pngs or [obs.screenshot], results, note)

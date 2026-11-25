@@ -25,6 +25,7 @@ print(agent.run("Create a folder named reports on the desktop", legato.local()).
   served Qwen3.5-9B with vLLM on one H100; local models are not yet benchmarked end to end with `legato.Harness`, and
   other servers (SGLang, LM Studio, Ollama, llama.cpp) are untested. See [models](../models.md) for coordinates and
   token budgets.
-- **No tool-call parser?** Pass `native_tools=False` and the model answers in JSON instead.
+- **No tool-call parser?** Legato asks for the actions as JSON by itself when the server refuses tool calls
+  (`native_tools=False` asks from the first call). `legato doctor --model` shows what your server does.
 - **Speed.** With a local model, the wait for the screen and the model call are most of each step. Legato replaces
   fixed sleeps with a wait for the screen to settle and runs up to 3 actions per turn.

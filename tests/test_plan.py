@@ -340,3 +340,40 @@ def test_the_rapidocr_reader_places_labels_and_matches_words_it_ran_together(mon
     monkeypatch.setattr(plans, "read_lines", lambda png: lines)
     assert plans.find_text(b"", "Document saved") == (670, 410)
     assert plans.find_text(b"", "View")[0] > 260
+
+
+def test_a_plan_with_no_shell_and_no_text_reader_is_promised_neither_and_runs_on_the_screen(server, monkeypatch):
+    """Windows, Harness(plan=True) with no tools: the prompt offered shell, click_text and wait_for, Qwen planned
+    them, none ran, and the run ended "out of steps ... 20 model turns, 0 actions". The prompt and the tool now offer
+    only what runs here; a labelled click goes to its coordinate; a step that still can't run is said to the model."""
+    monkeypatch.setattr(plans, "can_read", lambda: False)
+    server["script"] = [
+        {"tool_calls": [call("plan", {"steps": [{"action": "left_click", "coordinate": [500, 500], "text": "File"},
+                                                {"action": "type", "text": "alpha"},
+                                                {"action": "shell", "command": "notepad"}, {"action": "done"}]})]},
+        {"tool_calls": [call("plan", {"steps": [{"action": "wait_for", "text": "alpha"}]})]},
+        {"tool_calls": [call("plan", {"steps": [{"action": "done"}]})]}]
+    acts = []
+    res = legato.Harness("m", server["url"], plan=True).run("t", fake_env(acts))
+    assert (res.status, res.steps) == ("done", 3) and [a.type for a in acts] == ["click", "type"]
+    body = server["bodies"][0]
+    system = body["messages"][0]["content"]
+    for gone in ("shell", "applescript", "click_text", "wait_for", "label"):
+        assert gone not in system and gone not in json.dumps(body["tools"]), gone
+    assert "done counts only in a plan of its own" in system
+    told = json.dumps(server["bodies"][1]["messages"][-1])
+    assert "Step 3 of your plan was not run" in told and "there is no shell step in this run" in told
+    assert "no text reader" in json.dumps(server["bodies"][2]["messages"][-1])
+
+
+def test_the_plan_prompt_names_the_shell_that_runs_and_is_unchanged_with_everything():
+    assert plans.fit_system(plans.PLAN_SYSTEM, "bash", True, True) == plans.PLAN_SYSTEM
+    for part in (plans._LABEL_CLICKS, plans._STOPS, plans._DONE_RULE, plans._EXAMPLE):
+        assert part in plans.PLAN_SYSTEM                      # what fit_system rewrites is still in the prompt
+    win = plans.fit_system(plans.PLAN_SYSTEM, "PowerShell", False, False)
+    assert "runs a PowerShell command" in win and "open -a" not in win and "applescript" not in win
+    assert "(a shell command that exits 0)" in win and "wait_for" not in win
+    win.format(w=1, h=1, coords="", batch=3)                  # still a format string
+    assert plans.step_actions("", False, False) == ["left_click", "right_click", "double_click", "triple_click",
+                                                    "left_click_drag", "type", "key", "scroll", "wait", "done", "fail"]
+    assert plans.plan_tool(12) == plans.plan_tool(12, actions=plans.step_actions())

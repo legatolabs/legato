@@ -187,3 +187,30 @@ def test_background_without_the_mac_extras(monkeypatch):
     monkeypatch.setitem(sys.modules, "ApplicationServices", None)
     with pytest.raises(ImportError, match=r'pip install "legatolabs\[local\]"'):
         MacApp("Safari")
+
+
+def test_a_key_in_the_environment_is_not_called_set_up(tmp_path, quiet, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "Set up:" not in out and "legato setup saves a choice" in out
+    assert "using OPENROUTER_API_KEY from the environment with the default model (qwen/qwen3.8-27b)" in out
+    # legato init takes that default too, without asking which model
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("asked a question"))
+    agent = tmp_path / "agent.py"
+    assert main(["init", "--desktop", "docker", "--out", str(agent)]) == 0
+    src = agent.read_text()
+    assert 'model="qwen/qwen3.8-27b"' in src and 'os.environ.get("OPENROUTER_API_KEY", "")' in src
+    assert "Using OPENROUTER_API_KEY from the environment with the default model" in capsys.readouterr().out
+
+
+def test_init_writes_what_setup_found_the_model_needs(tmp_path, quiet):
+    from legato import config
+    config.save(config.Config(provider="openrouter", model="m/x", base_url="https://openrouter.ai/api/v1", api_key="k",
+                              coords="pixels", tool_calls="json"))
+    agent = tmp_path / "agent.py"
+    assert main(["init", "--yes", "--desktop", "docker", "--out", str(agent)]) == 0
+    src = agent.read_text()
+    assert 'coords="pixels",' in src and "native_tools=False," in src
+    compile(src, str(agent), "exec")

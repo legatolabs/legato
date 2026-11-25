@@ -129,3 +129,51 @@ def test_doctor_help_prints_help_and_checks_nothing(monkeypatch, capsys):
     from legato import doctor
     monkeypatch.setattr(doctor, "checks", lambda **k: pytest.fail("--help must not run the checks"))
     assert doctor.main(["--help"]) == 0 and "legato doctor" in capsys.readouterr().out
+
+
+@pytest.fixture()
+def plain(monkeypatch):
+    monkeypatch.setattr(doctor, "_docker", lambda: {"ok": False, "fix": "x"})
+    monkeypatch.setattr(doctor, "window_capture", lambda app, perms: {"ok": None, "state": "not checked", "fix": None})
+
+
+def test_doctor_says_when_nothing_is_saved_and_a_key_picks_the_default(plain, monkeypatch, capsys):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    doctor.main([])
+    out = capsys.readouterr().out
+    assert ("nothing saved yet; using OPENROUTER_API_KEY from the environment with the default model (qwen/qwen3.8-27b)"
+            in out and "legato setup saves a choice" in out)
+    assert "the model was not tried: legato doctor --model" in out
+    config.save(config.Config(provider="openrouter", model="m/x", base_url="https://openrouter.ai/api/v1", api_key="k",
+                              desktop="docker", tool_calls="json", coords="pixels"))
+    doctor.main([])
+    out = capsys.readouterr().out
+    assert "ok  setup: m/x · docker, coords: pixels, tool calls: json" in out and "nothing saved yet" not in out
+
+
+def test_doctor_model_tries_the_saved_or_a_named_model(plain, monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr(config, "check_model", lambda m, u, k: seen.append((m, u, k)) or {
+        "ok": False, "model": m, "answers": True, "images": False, "seconds": 0.4, "error": "HTTP 404: no image input",
+        "fix": "this model does not accept images; Legato needs a vision model"})
+    assert doctor.main(["--model"]) == 1                    # nothing set up: says so, and makes no call
+    assert "no  answers: no model to try" in capsys.readouterr().out and not seen
+    config.save(config.Config(provider="openrouter", model="m/x", base_url="https://openrouter.ai/api/v1", api_key="k"))
+    assert doctor.main(["--model"]) == 1
+    out = capsys.readouterr().out
+    assert seen == [("m/x", "https://openrouter.ai/api/v1", "k")]
+    assert "no  model: m/x" in out and "no  accepts images: HTTP 404: no image input. Fix: this model does not" in out
+    assert doctor.main(["--model", "other/y", "--json"]) == 1 and seen[-1][0] == "other/y"
+    assert json.loads(capsys.readouterr().out)["model_check"]["images"] is False
+    assert doctor.main(["--model", "z", "--base-url", "https://elsewhere.example/v1"]) == 1     # the saved key stays home
+    assert "LEGATO_API_KEY" in capsys.readouterr().out and len(seen) == 2
+
+
+def test_doctor_prints_ascii_where_stdout_is_not_utf8(plain, monkeypatch):
+    import io
+    config.save(config.Config(provider="openrouter", model="m/x", base_url="https://openrouter.ai/api/v1", api_key="k"))
+    buf = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(buf, encoding="cp1252"))
+    doctor.main([])
+    sys.stdout.flush()
+    assert buf.getvalue().isascii() and b"m/x - " in buf.getvalue()
