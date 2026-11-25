@@ -96,6 +96,18 @@ def test_a_run_reports_each_turn_and_saves_its_record(tmp_path):
     assert rec["usage"]["prompt"] == 20 and rec["usage"]["cost_usd"] == pytest.approx(0.001)
 
 
+def test_the_answer_is_the_done_steps_words_not_the_json_written_after_them(tmp_path):
+    class Wordy(FakeHarness):
+        def decide(self, ep):
+            reply = 'It is bold now, as the toolbar shows.\n{"action": "done", "text": "The text is bold."}'
+            return Plan({"content": reply, "s": 0.1, "usage": {"prompt": 10, "completion": 2}}, [], [], [], done=True)
+    link = FakeLink()
+    r = Run(link, {"id": "r1", "task": "make it bold", "model": "m", "base_url": "http://x/v1", "runs_dir": str(tmp_path)},
+            env_factory=lambda run: ScriptEnv(), harness=Wordy(["done"]))
+    rec = r()
+    assert rec["status"] == "done" and rec["message"] == "The text is bold."
+
+
 def test_a_run_stops_once_it_has_cost_the_most_the_app_allows(tmp_path):
     script = [[Action("click", x=1, y=2)], [Action("click", x=3, y=4)], [Action("click", x=5, y=6)], "done"]
     rec, link, h = run(script, tmp_path=tmp_path, max_cost_usd=0.0015)      # each turn costs 0.001

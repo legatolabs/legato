@@ -43,7 +43,7 @@ from typing import Any
 from legato import safety
 from legato.actions import Action
 from legato import plan as plans
-from legato.harness import DENIED_NOTE, END_NOTE, Harness
+from legato.harness import DENIED_NOTE, END_NOTE, Harness, _answer
 from legato.rl.policy import PolicyClient, PolicyConfig, PolicyError
 from legato.settle import LOCAL_RULES, Waiter
 from legato.tools import Tool, ToolCall, applescript, clip, local_shell
@@ -766,7 +766,8 @@ class Run:
                     status, message = "stopped", stopped
                     break
                 if not note and (plan.done or plan.failed):
-                    status, message = ("done" if plan.done else "failed"), text
+                    # the done step's own words, not the whole reply (which can carry the step's JSON too)
+                    status, message = ("done" if plan.done else "failed"), _answer(plan.rec, plan.actions) or text
                     break
                 cap = float(m.get("max_cost_usd") or 0)
                 if cap > 0 and self.record["usage"]["cost_usd"] >= cap:
