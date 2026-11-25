@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`legato run --screen` and `legato.run(desktop="screen")` on a Mac wait the way the Mac app does:** cells of
+  the screen that move on their own (a clock, a spinner in another app) no longer hold every action to the 2 s cap.
+  `legato.local()` keeps its default (`wait="screen"`); pass `wait="cells"` for the same.
 - **The plugins, the Gemini extension, the MCP Registry entry and the one-click installs start `legato mcp` with the
   desktop `legato setup` saved**, as `legato mcp` does by hand: with none saved, one app's window in the
   background on a Mac and the whole screen elsewhere. Before, they always started a Docker container.
