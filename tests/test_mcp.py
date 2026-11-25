@@ -207,9 +207,16 @@ def test_a_desktop_failure_reaches_the_client_with_its_reason():
     asyncio.run(go())
 
 
+def a_model(monkeypatch):
+    """A model set up for desktop_run_task: one on this machine, which needs no key."""
+    monkeypatch.setenv("LEGATO_MODEL", "m")
+    monkeypatch.setenv("LEGATO_BASE_URL", "http://localhost:1/v1")
+
+
 def test_run_task_reports_its_status_and_a_desktop_error(monkeypatch):
     """desktop_run_task leads with the run's status; a desktop that fails mid-run comes back as status error, not as
     an exception, even when the final screenshot cannot be taken either."""
+    a_model(monkeypatch)
     import json
     import legato.agent
     shots, sent = {"n": 0, "fail_after": 99}, []
@@ -250,6 +257,7 @@ def test_run_task_reports_its_status_and_a_desktop_error(monkeypatch):
 
 
 def test_run_task_passes_its_deadline_and_says_status_in_its_description(monkeypatch):
+    a_model(monkeypatch)
     import legato.agent
     from legato.harness import RunResult
     got = []
@@ -278,6 +286,7 @@ def test_run_task_passes_its_deadline_and_says_status_in_its_description(monkeyp
 
 
 def test_run_task_under_record_keeps_each_step(monkeypatch, tmp_path):
+    a_model(monkeypatch)
     import json
     import legato.agent
     sent = []
@@ -436,10 +445,13 @@ def test_run_task_opens_its_own_desktop_reports_cost_and_names_a_missing_key(mon
             return RunResult("t", done=True, steps=2, wall_s=1.0, status="done", answer="42", usage={"cost_usd": 0.0123})
 
     async def go():
-        for args in ({"task": "x"}, {"task": "x", "model": "some/model"}):
-            with pytest.raises(Exception, match="no model key in this server's environment: add it .* to your MCP "
-                                                "client's `env` for this server, or run `legato setup`"):
-                await srv.call_tool("desktop_run_task", args)
+        with pytest.raises(Exception, match="no model key in this server's environment: add it .* to your MCP "
+                                            "client's `env` for this server, or run `legato setup`"):
+            await srv.call_tool("desktop_run_task", {"task": "x"})
+        with pytest.raises(Exception, match=r"no key for OpenRouter \(some/model\) in this server's environment: add "
+                                            "OPENROUTER_API_KEY to your MCP client's `env` for this server, or run "
+                                            "`legato setup`"):
+            await srv.call_tool("desktop_run_task", {"task": "x", "model": "some/model"})
         assert closed == []                             # no desktop was opened to say so
         monkeypatch.setattr(agent_mod, "agent_for", lambda env, **kw: Agent())
         return await srv.call_tool("desktop_run_task", {"task": "what is 6 x 7?", "model": "some/model",
@@ -492,3 +504,47 @@ def test_desktop_shell_on_this_computer_refuses_risky_commands_unless_started_wi
         else:
             assert "deletes files" in err and "legato mcp --yes" in err and len(ran) == 1
     assert mcp_server.launch_command("win32", url="https://a.b/’;x") == "Start-Process 'https://a.b/’’;x'"
+
+
+def test_run_task_runs_a_named_model_with_its_own_providers_key(monkeypatch):
+    """desktop_run_task(model="claude-sonnet-5-5") runs on Anthropic's API with the Anthropic key, whatever the saved
+    provider; with no Anthropic key it says which key is missing, how to add it, and which keys the server has."""
+    import legato.agent as agent_mod
+    from legato import config
+    from legato.harness import RunResult
+    config.save(config.Config(provider="openrouter", model="qwen/qwen3.8-27b", base_url="https://openrouter.ai/api/v1",
+                              api_key="sk-or-saved"))
+    seen = []
+
+    class Agent:
+        model, client = "m", type("C", (), {"key_source": ""})()
+
+        def run(self, task, env, **kw):
+            return RunResult(task, done=True, steps=1, wall_s=0.5, status="done", answer="ok")
+
+    def agent_for(env, **kw):
+        seen.append(kw)
+        return Agent()
+    monkeypatch.setattr(agent_mod, "agent_for", agent_for)
+    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
+                                                        fixed_wait_s=0.0)))
+
+    async def go():
+        tool = next(t for t in await srv.list_tools() if t.name == "desktop_run_task")
+        assert "claude-..." in tool.description and "provider" in tool.input_schema["properties"]
+        with pytest.raises(Exception, match=r"no key for Claude \(Anthropic\) \(claude-sonnet-5-5\) in this server's "
+                                            r"environment: add ANTHROPIC_API_KEY .* or run `legato setup --add-key "
+                                            r"anthropic` to save one. It has a key for: openrouter"):
+            await srv.call_tool("desktop_run_task", {"task": "t", "model": "claude-sonnet-5-5"})
+        assert seen == []
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-env")
+        await srv.call_tool("desktop_run_task", {"task": "t", "model": "claude-sonnet-5-5"})
+        await srv.call_tool("desktop_run_task", {"task": "t", "model": "anthropic/claude-sonnet-5.5"})
+        await srv.call_tool("desktop_run_task", {"task": "t"})
+        with pytest.raises(Exception, match="unknown provider 'antropic'"):
+            await srv.call_tool("desktop_run_task", {"task": "t", "model": "x", "provider": "antropic"})
+    asyncio.run(go())
+    assert [(k["model"], k["base_url"], k["api_key"]) for k in seen] == [
+        ("claude-sonnet-5-5", "https://api.anthropic.com/v1", "sk-ant-env"),
+        ("anthropic/claude-sonnet-5.5", "https://openrouter.ai/api/v1", "sk-or-saved"),
+        ("qwen/qwen3.8-27b", "https://openrouter.ai/api/v1", "sk-or-saved")]

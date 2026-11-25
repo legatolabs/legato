@@ -24,7 +24,6 @@ Tools:
 """
 from __future__ import annotations
 
-import os
 import re
 import shlex
 import subprocess
@@ -176,12 +175,22 @@ def open_result(text: str, img: Any, out: dict) -> Any:
                                           "structuredContent": out, "isError": bool(out["start_error"])})
 
 
-def no_key(name: str) -> str:
+def no_key(choice: Any = None) -> str:
     """desktop_run_task's message when it has no model key: an MCP client starts the server with its own
-    environment, often without the shell's keys, so "run legato setup" alone misleads."""
-    which = name or "OPENROUTER_API_KEY, or another provider's key"   # no backslash in an f-string: Python 3.10, 3.11
-    return ("no model for desktop_run_task: no model key in this server's environment: add it "
-            f"({which}) to your MCP client's `env` for this server, or run `legato setup` to save one")
+    environment, often without the shell's keys, so "run legato setup" alone misleads. With the model that was
+    chosen (a legato.config.Choice): the key it needs, and the providers this server has a key for, by name."""
+    from legato import config
+    if choice is None or not choice.key_env:
+        return ("no model for desktop_run_task: no model key in this server's environment: add it (OPENROUTER_API_KEY, "
+                "ANTHROPIC_API_KEY, OPENAI_API_KEY or another provider's) to your MCP client's `env` for this server, "
+                "or run `legato setup` to save one")
+    name = config.provider_name(choice.provider) or choice.base_url
+    save = (f"legato setup --add-key {choice.provider}" if choice.provider in config.KEYED and choice.cfg.model
+            else "legato setup")
+    has = [p for p in choice.cfg.keys_found() if p != choice.provider]
+    return (f"no model for desktop_run_task: no key for {name} ({choice.model}) in this server's environment: add "
+            f"{choice.key_env} to your MCP client's `env` for this server, or run `{save}` to save one"
+            + (f". It has a key for: {', '.join(has)}" if has else ""))
 
 
 def windows_screen(env: Any) -> bool:
@@ -480,51 +489,50 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         return out
 
     def desktop_run_task(task: str, desktop_id: str | None = None, model: str | None = None,
-                         base_url: str | None = None, api_key_env: str | None = None, max_steps: int = 40,
-                         timeout_s: float | None = None) -> Any:
+                         provider: str | None = None, base_url: str | None = None, api_key_env: str | None = None,
+                         max_steps: int = 40, timeout_s: float | None = None) -> Any:
         """Hand a whole task to Legato's own agent and get back what it found, its report and the final screen (also
         as structured content: status, answer, seconds, steps, error, cost_usd). desktop_id: the desktop to work on;
-        without one, a desktop is opened for the run and closed after it. It
-        uses the model saved by `legato setup` unless you name one (model, base_url: any OpenAI-compatible endpoint;
-        the key is read from the environment variable api_key_env). Good for long GUI chores while you keep working.
+        without one, a desktop is opened for the run and closed after it. Good for long GUI chores while you keep
+        working. It uses the model saved by `legato setup` unless you name one. model: its name says where it runs:
+        claude-... on Anthropic's API, gpt-... and o3... on OpenAI's, gemini-... on Google's, grok-... on xAI's,
+        vendor/model (anthropic/claude-sonnet-5.5) on OpenRouter, each with that provider's key (saved with `legato
+        setup --add-key PROVIDER`, or ANTHROPIC_API_KEY, OPENAI_API_KEY, ... in this server's environment). provider:
+        name it instead (openrouter, anthropic, openai, gemini, xai, together, fireworks, groq, cerebras). base_url:
+        any other OpenAI-compatible server, with its key in the environment variable api_key_env.
         The reply starts with `status:`, how the run ended: done, failed, max_steps, timeout, cancelled, stopped or
         error; only done means the agent says it finished, so check the result before relying on it. timeout_s: a
         deadline for the whole run in seconds (status timeout, with what was done so far)."""
         from legato import config
-        from legato.agent import agent_for
         if desktop_id:
             get(desktop_id)
-        key = os.environ.get(api_key_env, "") if api_key_env else None
-        source = f"the key in ${api_key_env}" if api_key_env else None
-        cfg = config.load()
-        if model and not base_url and not cfg.base_url:
-            base_url = "https://openrouter.ai/api/v1"
-            key = key if key is not None else os.environ.get("OPENROUTER_API_KEY", "")
-            source = source or "the key in $OPENROUTER_API_KEY"
-        if key == "" or (key is None and not base_url and cfg.model and cfg.base_url and cfg.missing()):
-            raise ToolError(no_key(api_key_env or ("OPENROUTER_API_KEY" if key == "" else cfg.api_key_env)))
+        try:
+            choice = config.resolve(model or None, provider=provider or None, base_url=base_url or None,
+                                    api_key_env=api_key_env or None)
+        except ValueError as e:                 # nothing set up, an unknown provider, a server with no model named
+            raise ToolError(no_key() if "legato setup" in str(e) else f"no model for desktop_run_task: {e}") from None
+        if choice.missing():
+            raise ToolError(no_key(choice))
         own = not desktop_id
         if own:                                 # a desktop for this run only, once there is a model to run it
-            if not ((model or cfg.model) and (base_url or cfg.base_url)):
-                raise ToolError(no_key(""))
             first = open_background(None, None) if background is not None else desktop_open()
             desktop_id = (first.content[0].text if NEW_MCP else first[0]).split()[1].rstrip(":")
         try:
-            return run_task(desktop_id, task, model, base_url, key, source, max_steps, timeout_s)
+            return run_task(desktop_id, task, choice, max_steps, timeout_s)
         finally:
             if own:
                 desktop_close(desktop_id)
 
-    def run_task(desktop_id: str, task: str, model: str | None, base_url: str | None, key: str | None,
-                 source: str | None, max_steps: int, timeout_s: float | None) -> Any:
+    def run_task(desktop_id: str, task: str, choice: Any, max_steps: int, timeout_s: float | None) -> Any:
         from legato.agent import agent_for
         d = get(desktop_id)
         try:
-            agent = agent_for(d["env"], model=model, base_url=base_url, api_key=key)
-        except ValueError as e:                 # no model saved, and no key in the environment to pick one by
-            raise ToolError(no_key("") if "legato setup" in str(e) else f"no model for desktop_run_task: {e}") from None
-        if source and hasattr(agent.client, "key_source"):  # named if the server refuses the key
-            agent.client.key_source = source
+            agent = agent_for(d["env"], model=choice.model, base_url=choice.base_url, api_key=choice.key,
+                              cfg=choice.cfg)
+        except ValueError as e:
+            raise ToolError(f"no model for desktop_run_task: {e}") from None
+        if choice.key_source and hasattr(agent.client, "key_source"):  # named if the server refuses the key
+            agent.client.key_source = choice.key_source
         from legato.agent import ANSWER_NOTE
         env, last = d["env"], {}
         on_step = None

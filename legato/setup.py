@@ -147,11 +147,50 @@ def state() -> dict:
     out = {"config": str(C.path()), "model": cfg.model, "base_url": cfg.base_url, "has_key": bool(cfg.key),
            "desktop": cfg.desktop or C.default_desktop(), "app": cfg.app, "ready": cfg.ready,
            "missing": [m for m in [cfg.missing()] if m], "coding_agents_found": coding_agents(),
+           "keys": cfg.keys_found(),
            "legato": " ".join(legato_command())}
     if (cfg.desktop or C.default_desktop()) in ("background", "screen"):
         out["missing"] += permission_lines()
     out["ready"] = not out["missing"]
     return out
+
+
+def add_key(a, cfg: C.Config, say, asking: bool) -> int:
+    """`legato setup --add-key PROVIDER`: save a key for one more provider, for a run that names one of its models
+    (legato run --model claude-sonnet-5-5, desktop_run_task's model). The default model, desktop and coding agents
+    stay as they are. With the provider's usual model (or --model), it tries the key first, as setup does."""
+    p, pv = a.add_key, C.PROVIDERS[a.add_key]
+    name = C.provider_name(p)
+    key = sys.stdin.readline().strip() if a.api_key == "-" else (a.api_key or "")
+    if not key and asking:
+        where = f" (get one at {pv.keys_url})" if pv.keys_url else ""
+        key = getpass.getpass(f"Paste your {name} key{where}: ").strip()
+    if not key:
+        print(f"legato setup: no {name} key: pass --api-key - with the key on stdin", file=sys.stderr)
+        return 2
+    model = a.model or pv.model
+    if model and not a.no_check:
+        say(f"checking {model} with it ...", end=" ", flush=True)
+        r = C.check_model(model, pv.base_url, key)
+        if not r["ok"]:
+            fix = r.get("fix") or "check the key and the model name"
+            print(f"\nlegato setup: nothing was saved: {fix} (what it said: {r['error']}). --no-check saves it "
+                  "without trying it.", file=sys.stderr)
+            return 1
+        say(f"ok, {r['seconds']} s a call")
+    if p == cfg.provider and (cfg.base_url or "").rstrip("/") == pv.base_url:
+        cfg.api_key, cfg.api_key_env = key, ""  # the default model's own provider: its key
+    else:
+        cfg.keys[p] = key
+    where = C.save(cfg)
+    example = model or "MODEL"
+    say(f"Saved your {name} key in {where}, readable by you only. A run that names one of its models uses it:\n"
+        f'  legato run --model {example} "..."     desktop_run_task(model="{example}")\n'
+        + (f"Your default model is still {cfg.model}." if cfg.model and p != cfg.provider
+           else "" if cfg.model else "No default model yet: run legato setup to choose one."))
+    if a.json:
+        print(json.dumps(state()))
+    return 0
 
 
 # ------------------------------------------------------------ the first task
@@ -193,6 +232,10 @@ def _main(argv) -> int:
     ap.add_argument("--base-url")
     ap.add_argument("--api-key", help="the model key, or - to read it from stdin (it is saved readable by you only)")
     ap.add_argument("--api-key-env", help="read the key from this environment variable instead of saving it")
+    ap.add_argument("--add-key", choices=C.KEYED, metavar="PROVIDER",
+                    help="save a key for one more provider (anthropic, openai, gemini, xai, ...), for runs that name "
+                         "one of its models; the default model and desktop stay as they are. With --api-key - to "
+                         "read it from stdin")
     ap.add_argument("--desktop", help="where it works: background (macOS), screen, docker, e2b, or your own sandbox as "
                                       "path/to/file.py:function (docs/sandboxes.md)")
     ap.add_argument("--app", help="background mode: always work in this app (default: the app the task names, else "
@@ -211,7 +254,7 @@ def _main(argv) -> int:
     a = ap.parse_args(argv)
     asking = not a.yes and not a.json and sys.stdin.isatty()
     only_show = a.json and not any([a.provider, a.model, a.base_url, a.api_key, a.api_key_env, a.desktop, a.app,
-                                    a.mcp, a.yes, a.coords])
+                                    a.mcp, a.yes, a.coords, a.add_key])
     if only_show:
         print(json.dumps(state()))
         return 0
@@ -219,6 +262,8 @@ def _main(argv) -> int:
         if not a.json:
             print(*args, **kw)
     cfg = C.load(use_env=False)
+    if a.add_key:
+        return add_key(a, cfg, say, asking)
     from legato import __version__
     say(f"Legato {__version__} setup: your model, where it works, and your coding agents "
         f"(kept in {C.path()}).\n")
@@ -261,6 +306,8 @@ def _main(argv) -> int:
     elif a.api_key_env is None and provider == cfg.provider and cfg.api_key and \
             (base_url or "").rstrip("/") == (cfg.base_url or base_url or "").rstrip("/"):
         key = cfg.api_key                       # the saved key, only for the server it was saved for
+    elif a.api_key_env is None and cfg.keys.get(provider) and (base_url or "").rstrip("/") == pv.base_url:
+        key = cfg.keys[provider]                # the key --add-key saved for this provider
     in_env = bool(key_env and os.environ.get(key_env))
     needs_key = not C.is_local_url(base_url) and (provider != "custom" or asking)
     if not key and needs_key and not in_env:
@@ -287,6 +334,11 @@ def _main(argv) -> int:
         return 2
     if (model, base_url) != (cfg.model, cfg.base_url):       # what the check found belongs to the model it tried
         cfg.coords = cfg.tool_calls = ""
+    if cfg.api_key and cfg.provider in C.KEYED and cfg.provider != provider and \
+            (cfg.base_url or "").rstrip("/") == C.PROVIDERS[cfg.provider].base_url:
+        cfg.keys[cfg.provider] = cfg.api_key    # the old default's key stays, for runs that name one of its models
+    if key:
+        cfg.keys.pop(provider, None)            # it is the default's own key now
     cfg.provider, cfg.model, cfg.base_url = provider, model, base_url
     cfg.api_key, cfg.api_key_env = key, ("" if key else key_env)
     if a.coords:

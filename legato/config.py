@@ -82,6 +82,12 @@ PROVIDERS: dict[str, Provider] = {
                       "http://localhost:8000/v1", "", "", ""),
     "custom": Provider("Any other OpenAI-compatible server", "", "", "", ""),
 }
+KEYED = [p for p, v in PROVIDERS.items() if v.key_env]       # the providers a key can be saved for
+# A model's own provider, by how its name starts, when it is named without a vendor/ prefix (claude-sonnet-5-5 is
+# Anthropic's name for it; anthropic/claude-sonnet-5.5 is OpenRouter's)
+OWN_PROVIDER = (("claude-", "anthropic"), ("gpt-", "openai"), ("chatgpt-", "openai"), ("computer-use-", "openai"),
+                ("gemini-", "gemini"), ("grok-", "xai"))
+OWN_APIS = ("anthropic", "openai", "gemini", "xai")   # a provider's own API: it serves only its own models' names
 LOCAL_SERVERS = ("http://localhost:8000/v1", "http://localhost:11434/v1", "http://localhost:1234/v1")  # vLLM, Ollama, LM Studio
 
 DESKTOPS: dict[str, str] = {
@@ -128,6 +134,9 @@ class Config:
     app: str = ""
     coords: str = ""            # "pixels" or "norm1000" when setup found the model needs it; "": by the model's name
     tool_calls: str = ""        # "json": the model takes no tool calls, so actions are asked for as JSON in the reply
+    # keys saved for other providers (`legato setup --add-key anthropic`), by provider: for a run that names one of
+    # their models ({"anthropic": "sk-ant-..."}). Each goes only to its own provider's server.
+    keys: dict = field(default_factory=dict)
     default_from: str = ""      # not saved: the environment variable whose key picked the default model (no setup yet)
     extra: dict = field(default_factory=dict)       # keys this version does not know, kept as they were
 
@@ -135,7 +144,7 @@ class Config:
     def key(self) -> str:
         """The model key: LEGATO_API_KEY, else the one saved by setup, else the variable named by api_key_env."""
         return (os.environ.get("LEGATO_API_KEY") or self.api_key
-                or (os.environ.get(self.api_key_env, "") if self.api_key_env else ""))
+                or (_env(self.api_key_env) if self.api_key_env else ""))
 
     @property
     def key_source(self) -> str:
@@ -145,9 +154,27 @@ class Config:
             return f"the key in {env_name('LEGATO_API_KEY')}"
         if self.api_key:
             return f"the key legato setup saved in {path()}"
-        if self.api_key_env and os.environ.get(self.api_key_env):
+        if self.api_key_env and _env(self.api_key_env):
             return f"the key in {env_name(self.api_key_env)}"
         return ""
+
+    def key_for(self, provider: str) -> tuple[str, str]:
+        """(key, where it comes from, by name) for a provider's own server: the key setup saved for it, else its
+        usual environment variable (ANTHROPIC_API_KEY, ...); ("", "") for none. Never another provider's key."""
+        pv = PROVIDERS.get(provider)
+        if not pv or not pv.key_env:
+            return "", ""
+        if provider == self.provider and self.api_key and self.base_url.rstrip("/") == pv.base_url:
+            return self.api_key, f"the key legato setup saved in {path()}"
+        if self.keys.get(provider):
+            return str(self.keys[provider]), f"the {provider} key legato setup saved in {path()}"
+        if _env(pv.key_env):
+            return _env(pv.key_env), f"the key in {env_name(pv.key_env)}"
+        return "", ""
+
+    def keys_found(self) -> list[str]:
+        """The providers this computer has a key for (saved, or in the environment), by name, never the keys."""
+        return [p for p in KEYED if self.key_for(p)[0] or (p == self.provider and self.key)]
 
     @property
     def ready(self) -> bool:
@@ -175,6 +202,29 @@ def is_local_url(url: str) -> bool:
     return any(h in (url or "") for h in ("://localhost", "://127.0.0.1", "://0.0.0.0", "://[::1]"))
 
 
+def _env(var: str) -> str:
+    """An environment variable's value, "" for none, and "" for a host's placeholder left unfilled (a Claude Desktop
+    extension's optional setting that was left empty can arrive as "${user_config.anthropic_api_key}")."""
+    v = os.environ.get(var, "").strip()
+    return "" if v.startswith("${") else v
+
+
+def provider_for_model(model: str) -> str:
+    """The provider whose own API serves a model by this name: "anthropic" for claude-..., "openai" for gpt-... and
+    o3..., "gemini" for gemini-..., "xai" for grok-...; "" for any other name, such as OpenRouter's vendor/model."""
+    m = (model or "").strip().lower()
+    if "/" in m or m.startswith("gpt-oss"):          # gpt-oss is open: other providers serve it by that name
+        return ""
+    if re.match(r"o\d", m):
+        return "openai"
+    return next((p for start, p in OWN_PROVIDER if m.startswith(start)), "")
+
+
+def provider_name(provider: str) -> str:
+    """A provider's short name ("Claude (Anthropic)"), or "" for none."""
+    return PROVIDERS[provider].name.split(":")[0] if provider in PROVIDERS else ""
+
+
 def load(use_env: bool = True) -> Config:
     """The saved choice, with the LEGATO_* environment variables on top. With no file and no variables, a model key
     already in the environment (OPENROUTER_API_KEY, ANTHROPIC_API_KEY) picks that provider's defaults, so
@@ -186,9 +236,11 @@ def load(use_env: bool = True) -> Config:
             data = json.loads(p.read_text())
         except (OSError, json.JSONDecodeError):
             data = {}
-    known = {f for f in Config.__dataclass_fields__ if f not in ("extra", "default_from")}
+    known = {f for f in Config.__dataclass_fields__ if f not in ("extra", "default_from", "keys")}
+    keys = data.get("keys") if isinstance(data.get("keys"), dict) else {}
     cfg = Config(**{k: str(v) for k, v in data.items() if k in known and v is not None},
-                 extra={k: v for k, v in data.items() if k not in known})
+                 keys={str(p): str(k) for p, k in keys.items() if p in PROVIDERS and isinstance(k, str) and k},
+                 extra={k: v for k, v in data.items() if k not in known and k != "keys"})
     saved_url = cfg.base_url or (PROVIDERS[cfg.provider].base_url if cfg.provider in PROVIDERS else "")
     other = os.environ.get("LEGATO_BASE_URL", "") if use_env else ""
     if other and saved_url and other.rstrip("/") != saved_url.rstrip("/"):
@@ -203,7 +255,7 @@ def load(use_env: bool = True) -> Config:
     if use_env and not cfg.model and not cfg.base_url:
         for pid in ("openrouter", "anthropic"):            # a key in the environment, and a model we know works
             pv = PROVIDERS[pid]
-            if os.environ.get(pv.key_env):
+            if _env(pv.key_env):
                 cfg.provider, cfg.model, cfg.base_url, cfg.api_key_env = pid, pv.model, pv.base_url, pv.key_env
                 cfg.default_from = pv.key_env
                 break
@@ -213,6 +265,82 @@ def load(use_env: bool = True) -> Config:
         cfg.api_key_env = PROVIDERS[cfg.provider].key_env
     cfg.desktop = ALIASES.get(cfg.desktop, cfg.desktop)
     return cfg
+
+
+@dataclass
+class Choice:
+    """The model a run uses, the server it runs on and the key it sends: what `resolve` picks."""
+    provider: str           # an id of PROVIDERS ("custom" for a server that is none of them)
+    model: str
+    base_url: str
+    key: str
+    key_source: str         # where the key comes from, by name ("the key in $ANTHROPIC_API_KEY"), never by value
+    key_env: str            # the environment variable that holds (or would hold) the key, "" for none
+    saved: bool             # the saved model at the saved server: what setup's check found applies to it
+    cfg: Config = field(repr=False, default_factory=Config)
+
+    def missing(self) -> str | None:
+        """What is missing before a model call can work, as one line with the fix, or None."""
+        if self.key or is_local_url(self.base_url):
+            return None
+        if self.saved and self.key_env == self.cfg.api_key_env:
+            return self.cfg.missing()
+        name = provider_name(self.provider) if self.provider not in ("custom", "") else self.base_url
+        save = (f"legato setup --add-key {self.provider}" if self.provider in KEYED and self.cfg.model
+                else "legato setup")
+        return f"no key for {name}: {set_env(self.key_env or 'LEGATO_API_KEY')}, or run {save}"
+
+
+def resolve(model: str | None = None, provider: str | None = None, base_url: str | None = None,
+            api_key_env: str | None = None, cfg: Config | None = None) -> Choice:
+    """The model, server and key for a run that names a model, a provider or a server, the saved choice for what it
+    doesn't name. With no provider or server named, the model's name picks one: claude-... runs on Anthropic's API,
+    gpt-... and o3... on OpenAI's, gemini-... on Google's, grok-... on xAI's (unless the saved server is your own,
+    which may serve them under those names), and a vendor/model name on the saved server, or on OpenRouter when the
+    saved one is a provider's own API. The key: api_key_env's, else for the saved server its saved key, else the
+    provider's own (`legato setup --add-key`, else its usual environment variable); a key goes only to the provider
+    it is for. A server of your own gets LEGATO_API_KEY. ValueError when there is no model or server to run."""
+    cfg = cfg or load()
+    saved_url = (cfg.base_url or "").rstrip("/")
+    if provider and provider not in PROVIDERS:
+        raise ValueError(f"unknown provider {provider!r}: one of {', '.join(PROVIDERS)}")
+    if not (model or provider or base_url):
+        if not cfg.model or not saved_url:
+            raise ValueError(cfg.missing() or "pass model= and base_url=")
+        prov, url = cfg.provider, saved_url
+    elif base_url:
+        url = base_url.rstrip("/")
+        prov = provider or (cfg.provider if url == saved_url and cfg.provider
+                            else next((p for p, v in PROVIDERS.items() if v.base_url and v.base_url == url), "custom"))
+    elif provider:
+        prov = provider
+        url = saved_url if provider == cfg.provider and saved_url else PROVIDERS[provider].base_url
+        if not url:
+            raise ValueError(f"{provider}: pass base_url, the server's address (ends in /v1)")
+    else:
+        own = provider_for_model(model or "")
+        yours = cfg.provider in ("custom", "local") or (saved_url and cfg.provider not in PROVIDERS)
+        if own and not yours:
+            prov, url = own, PROVIDERS[own].base_url
+        elif saved_url and not (own == "" and "/" in (model or "") and cfg.provider in OWN_APIS):
+            prov, url = cfg.provider or "custom", saved_url
+        else:                                   # nothing saved, or a vendor/model name and a provider's own API saved
+            prov, url = "openrouter", PROVIDERS["openrouter"].base_url
+    same = url == saved_url
+    model = model or (cfg.model if same else PROVIDERS[prov].model if prov in PROVIDERS else "")
+    if not model:
+        where = provider_name(prov) if prov in PROVIDERS and prov not in ("custom", "local") else url
+        raise ValueError(f"pass model: the model's name at {where}")
+    if api_key_env:
+        key, source, var = _env(api_key_env), f"the key in {env_name(api_key_env)}", api_key_env
+    elif same and cfg.key:
+        key, source, var = cfg.key, cfg.key_source, cfg.api_key_env
+    elif prov in KEYED and (same or url == PROVIDERS[prov].base_url):
+        (key, source), var = cfg.key_for(prov), PROVIDERS[prov].key_env
+    else:                                       # a server of your own: the key for a server you name
+        key = os.environ.get("LEGATO_API_KEY", "")
+        source, var = (f"the key in {env_name('LEGATO_API_KEY')}" if key else ""), "LEGATO_API_KEY"
+    return Choice(prov, model, url, key, source, var, same and model == cfg.model, cfg)
 
 
 def save(cfg: Config) -> Path:

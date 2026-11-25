@@ -31,7 +31,10 @@
         "${user_config.sandbox}"
       ],
       "env": {
-        "E2B_API_KEY": "${user_config.e2b_api_key}"
+        "E2B_API_KEY": "${user_config.e2b_api_key}",
+        "OPENROUTER_API_KEY": "${user_config.openrouter_api_key}",
+        "ANTHROPIC_API_KEY": "${user_config.anthropic_api_key}",
+        "OPENAI_API_KEY": "${user_config.openai_api_key}"
       }
     }
   },
@@ -58,7 +61,7 @@
     },
     {
       "name": "desktop_run_task",
-      "description": "Hand a whole task to another model (any OpenAI-compatible endpoint)"
+      "description": "Hand a whole task to Legato's own agent, with any model: Claude, GPT, Gemini or an open model, with your key"
     },
     {
       "name": "desktop_close",
@@ -77,6 +80,27 @@
       "type": "string",
       "title": "E2B API key",
       "description": "Only for e2b cloud desktops (e2b.dev).",
+      "sensitive": true,
+      "required": false
+    },
+    "openrouter_api_key": {
+      "type": "string",
+      "title": "OpenRouter API key",
+      "description": "Optional, for desktop_run_task: open models and others named vendor/model (openrouter.ai/keys).",
+      "sensitive": true,
+      "required": false
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key",
+      "description": "Optional, for desktop_run_task with a Claude model, such as claude-sonnet-5-5 (console.anthropic.com).",
+      "sensitive": true,
+      "required": false
+    },
+    "openai_api_key": {
+      "type": "string",
+      "title": "OpenAI API key",
+      "description": "Optional, for desktop_run_task with a GPT model (platform.openai.com/api-keys).",
       "sensitive": true,
       "required": false
     }
