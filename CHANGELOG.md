@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- **Legato describes itself as a computer-use runtime**: the package description on PyPI, the CLI banner, the README,
+  the setup page, the FAQ and llms.txt.
+- The benchmarks page's Windows section shows Legato's own runs, with the rule each task had.
+
 ## 0.3.1
 
 - **Bring any model, checked the way a run uses it.** `legato setup` now tries the model with the agent's own prompt,
