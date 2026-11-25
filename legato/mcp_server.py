@@ -155,9 +155,9 @@ def open_result(text: str, img: Any, out: dict) -> Any:
 def no_key(name: str) -> str:
     """desktop_run_task's message when it has no model key: an MCP client starts the server with its own
     environment, often without the shell's keys, so "run legato setup" alone misleads."""
+    which = name or "OPENROUTER_API_KEY, or another provider's key"   # no backslash in an f-string: Python 3.10, 3.11
     return ("no model for desktop_run_task: no model key in this server's environment: add it "
-            f"({name or 'OPENROUTER_API_KEY, or another provider\'s key'}) to your MCP client's `env` for this "
-            "server, or run `legato setup` to save one")
+            f"({which}) to your MCP client's `env` for this server, or run `legato setup` to save one")
 
 
 def windows_screen(env: Any) -> bool:
