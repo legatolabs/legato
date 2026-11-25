@@ -31,7 +31,6 @@ Follow https://legato.computer/setup.md (the steps for coding agents). In short:
 - [Terminal and Python](https://legato.computer/docs/python.md)
 - [Desktops](https://legato.computer/docs/sandboxes.md): background on a Mac, this screen, Docker, E2B, any sandbox
 - [Models](https://legato.computer/docs/models.md): coordinates, thinking models, settings
-- [RL rollouts](https://legato.computer/docs/rl.md)
 - [Benchmarks](https://legato.computer/docs/benchmarks.md): results, method, raw data
 - [FAQ](https://legato.computer/docs/faq.md)
 - [All docs in one file](https://legato.computer/llms-full.txt)

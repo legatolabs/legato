@@ -164,6 +164,6 @@ never longer than the 2 s sleep it replaces.
 
 ## OSWorld VMs
 
-`legato rl collect --backend osworld --osworld PATH_TO_OSWORLD`, on a Linux host with KVM. Legato replaces OSWorld's
-fixed waits with a ready signal and adds a fast reset that keeps the VM up and restores the task state. See
-[rl.md](rl.md).
+On a Linux host with KVM, Legato drives OSWorld's VMs for our benchmarks: it replaces their fixed waits with a ready
+signal and adds a fast reset that keeps the VM up and restores the task state. RL rollouts on them at scale are part
+of Legato Cloud, in beta ([rl.md](rl.md)).

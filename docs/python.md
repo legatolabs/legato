@@ -185,7 +185,7 @@ the other built-in desktops raise `legato.DesktopStartError` when they can't sta
 `legato init` writes `agent.py`, a working agent with your saved model and desktop, to run as it is or copy into your
 own code: `python agent.py "your task"`.
 
-## RL rollouts and benchmarks
+## Benchmarks
 
-`legato rl collect` runs graded rollouts with token logprobs and GRPO groups ([RL rollouts](rl.md)); `legato bench`
-runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)).
+`legato bench` runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)). RL rollouts at
+scale are part of Legato Cloud, in beta ([rl.md](rl.md)).

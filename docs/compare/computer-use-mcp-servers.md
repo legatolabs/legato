@@ -30,8 +30,8 @@ the desktop runs and how they see the screen. Checked against each project's own
   your real mouse.
 - **Accessibility-tree control on Linux as well as macOS and Windows:** Hybrid Computer Use.
 - **Native Windows automation:** Windows-MCP or Terminator.
-- **Hand a long GUI task to a cheaper model,** or measure and train agents: Legato (`desktop_run_task`,
-  [benchmarks](../benchmarks.md), [RL rollouts](../rl.md)).
+- **Hand a long GUI task to a cheaper model,** or measure agents: Legato (`desktop_run_task`,
+  [benchmarks](../benchmarks.md)). RL rollouts at scale are part of Legato Cloud, in beta ([rl.md](../rl.md)).
 - **No install, on a Claude plan, on a Mac:** Claude Code's built-in computer use. On Linux, a Team plan, Bedrock, in
   `claude -p` or in parallel sessions, it isn't available; Legato is ([guide](../guides/claude-code-computer-use-anywhere.md)).
 

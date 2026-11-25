@@ -32,7 +32,7 @@ Choose your model once. Every way in runs the same agent with it.
 | **Mac app** | Hold Fn, say the task | Your own apps, no code ([docs](https://legato.computer/docs/mac)) |
 | **Terminal** | `legato run "Find the next Caltrain from SF to Palo Alto"` | One task at a time, scripts, cron |
 | **Your coding agent** | Claude Code, Codex or Cursor gets a computer (MCP); `legato setup` adds it | Test the app you are building, do the GUI part of a task ([docs](https://legato.computer/docs/mcp)) |
-| **Python** | `legato.run("...")`, or `legato.Harness(...).run(task, desktop)` | Your own agent, RL rollouts ([docs](https://legato.computer/docs/python)) |
+| **Python** | `legato.run("...")`, or `legato.Harness(...).run(task, desktop)` | Your own agent ([docs](https://legato.computer/docs/python)) |
 
 **Any model** with an OpenAI-compatible API and vision: Qwen, Claude, GPT, Gemini, Grok, through OpenRouter or the
 maker's own API, or on your own GPU with vLLM (Ollama and LM Studio serve the same API; untested so far), where nothing leaves your machine
@@ -95,7 +95,7 @@ Most of a computer-use agent's time goes to waiting: on the model, and on the sc
 [Set up](https://legato.computer/setup) · [Mac app](https://legato.computer/docs/mac) ·
 [Coding agents (MCP)](https://legato.computer/docs/mcp) · [Terminal and Python](https://legato.computer/docs/python) ·
 [Desktops](https://legato.computer/docs/sandboxes) · [Models](https://legato.computer/docs/models) ·
-[RL rollouts](https://legato.computer/docs/rl) · [Benchmarks](https://legato.computer/docs/benchmarks) ·
+[Benchmarks](https://legato.computer/docs/benchmarks) ·
 [FAQ](https://legato.computer/docs/faq) · [Guides](https://legato.computer/docs/guides) ·
 [Comparisons](https://legato.computer/docs/compare)
 
