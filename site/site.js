@@ -142,6 +142,14 @@
     }
   }
 
+  /* ---------- "read the memo": hide once the reader has scrolled ---------- */
+  const cue = document.querySelector(".memo-cue");
+  if (cue) {
+    const update = () => cue.classList.toggle("gone", window.scrollY > 40);
+    window.addEventListener("scroll", update, { passive: true });
+    update();
+  }
+
   /* ---------- copy ---------- */
   for (const b of document.querySelectorAll("[data-copy]")) {
     b.addEventListener("click", async () => {

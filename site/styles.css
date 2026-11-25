@@ -542,3 +542,13 @@ footer a:hover { color: var(--fg); }
 .way-prompt { max-width: 560px; }
 .way-prompt code { font-size: 14px; }
 .ways p code { font: 13px var(--mono); }
+
+/* "read the memo": pinned to the bottom of the first screen, gone once the reader scrolls (site.js) */
+.memo-cue { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5;
+  font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--fg-2);
+  text-decoration: none; padding: 10px 14px; transition: opacity .3s, color .15s; }
+.memo-cue:hover { color: var(--fg); }
+.memo-cue span { display: inline-block; margin-left: 6px; animation: cue 2.4s ease-in-out infinite; }
+.memo-cue.gone { opacity: 0; pointer-events: none; }
+@keyframes cue { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .memo-cue span { animation: none; } }
