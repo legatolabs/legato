@@ -142,12 +142,32 @@
     }
   }
 
-  /* ---------- "read the memo": hide once the reader has scrolled ---------- */
+  /* ---------- "read the memo": pinned to the bottom only where it would cover nothing in the hero ---------- */
   const cue = document.querySelector(".memo-cue");
-  if (cue) {
-    const update = () => cue.classList.toggle("gone", window.scrollY > 40);
-    window.addEventListener("scroll", update, { passive: true });
-    update();
+  const heroParts = [...document.querySelectorAll(".x-hero h1, .x-hero p, .x-hero a, .x-hero pre, .x-hero button, .x-hero .install, .x-hero .loopfig")];
+  if (cue && heroParts.length) {
+    // Load and resize re-check freely (fonts and the figure move things while the page loads). Once the reader
+    // scrolls with it unpinned, it stays above the memo for good, so it never blinks into a gap mid-scroll.
+    let mayPin = true;
+    const place = () => {
+      if (!mayPin) return;
+      const w = cue.offsetWidth, h = cue.offsetHeight, gap = 8, inset = parseFloat(getComputedStyle(cue).bottom) || 16;
+      const box = { left: (window.innerWidth - w) / 2 - gap, right: (window.innerWidth + w) / 2 + gap,
+                    top: window.innerHeight - inset - h - gap, bottom: window.innerHeight };   // where a pinned cue would be
+      const blocked = heroParts.some((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width && r.height && r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top;
+      });
+      cue.classList.toggle("nopin", blocked);
+    };
+    window.addEventListener("scroll", () => {                         // a few rect reads: cheap enough per scroll
+      if (cue.classList.contains("nopin")) mayPin = false;
+      place();
+    }, { passive: true });
+    window.addEventListener("resize", () => { mayPin = true; place(); });
+    window.addEventListener("load", place);
+    document.fonts?.ready.then(place);
+    place();
   }
 
   /* ---------- copy ---------- */

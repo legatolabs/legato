@@ -195,3 +195,20 @@ writeFileSync(join(WK, "ai-catalog.json"), JSON.stringify({
   ],
 }, null, 2));
 console.log(`built ${files.length} docs pages into ${relative(ROOT, DIST)}`);
+
+// Cache-busting: pages ask for /styles.css?v=<hash> (and the scripts likewise), so a browser holding an older
+// stylesheet (it may keep one for up to a day, see vercel.json) never pairs new HTML with old CSS.
+{
+  const { createHash } = await import("node:crypto");
+  const v = (f) => createHash("sha256").update(readFileSync(join(DIST, f))).digest("hex").slice(0, 10);
+  const assets = Object.fromEntries(["styles.css", "site.js", "demo.js"].map((f) => [f, v(f)]));
+  const walk = (dir) => readdirSync(dir).flatMap((n) => {
+    const p = join(dir, n);
+    return statSync(p).isDirectory() ? walk(p) : p.endsWith(".html") ? [p] : [];
+  });
+  for (const p of walk(DIST)) {
+    let html = readFileSync(p, "utf8");
+    for (const [f, h] of Object.entries(assets)) html = html.replaceAll(`"/${f}"`, `"/${f}?v=${h}"`);
+    writeFileSync(p, html);
+  }
+}
