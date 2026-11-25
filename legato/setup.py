@@ -28,12 +28,28 @@ CLIENTS = ("claude", "codex", "cursor", "claude-desktop")
 
 
 # ------------------------------------------------------------ asking
+_nobody = False   # a question met the end of input (a closed or empty stdin): no more are asked
+
+
+def _input(prompt: str, secret: bool = False) -> str:
+    """One answer, or "" (the question's default) when nobody is there to give one: the rest goes as --yes does."""
+    global _nobody
+    if _nobody:
+        return ""
+    try:
+        return (getpass.getpass if secret else input)(prompt)
+    except EOFError:
+        _nobody = True
+        print("\n(no answer: taking the defaults from here on, as --yes does)")
+        return ""
+
+
 def _ask(prompt: str, choices: list[str], default: str, describe=lambda c: "") -> str:
     print(prompt)
     for i, c in enumerate(choices, 1):
         print(f"  {i}. {c}" + (f": {describe(c)}" if describe(c) else "") + ("  (default)" if c == default else ""))
     while True:
-        got = input(f"[{choices.index(default) + 1}] ").strip()
+        got = _input(f"[{choices.index(default) + 1}] ").strip()
         if not got:
             return default
         if got.isdigit() and 1 <= int(got) <= len(choices):
@@ -44,12 +60,12 @@ def _ask(prompt: str, choices: list[str], default: str, describe=lambda c: "") -
 
 
 def _text(prompt: str, default: str = "") -> str:
-    got = input(f"{prompt}" + (f" [{default}]" if default else "") + ": ").strip()
+    got = _input(f"{prompt}" + (f" [{default}]" if default else "") + ": ").strip()
     return got or default
 
 
 def _yes(prompt: str, default: bool = True) -> bool:
-    got = input(f"{prompt} [{'Y/n' if default else 'y/N'}] ").strip().lower()
+    got = _input(f"{prompt} [{'Y/n' if default else 'y/N'}] ").strip().lower()
     return default if not got else got.startswith("y")
 
 
@@ -164,7 +180,7 @@ def add_key(a, cfg: C.Config, say, asking: bool) -> int:
     key = sys.stdin.readline().strip() if a.api_key == "-" else (a.api_key or "")
     if not key and asking:
         where = f" (get one at {pv.keys_url})" if pv.keys_url else ""
-        key = getpass.getpass(f"Paste your {name} key{where}: ").strip()
+        key = _input(f"Paste your {name} key{where}: ", secret=True).strip()
     if not key:
         print(f"legato setup: no {name} key: pass --api-key - with the key on stdin", file=sys.stderr)
         return 2
@@ -252,7 +268,14 @@ def _main(argv) -> int:
     ap.add_argument("--json", action="store_true", help="print what is set up as one JSON object and change nothing "
                                                         "(with other flags: set up, then print it)")
     a = ap.parse_args(argv)
-    asking = not a.yes and not a.json and sys.stdin.isatty()
+    global _nobody
+    _nobody = False
+    from legato import safety
+    cfg = C.load(use_env=False)
+    # one thing changed by its flag, with a model already saved: that change only, no questions
+    one = bool(cfg.model) and (a.mcp is not None or bool(a.coords) or a.api_key_env is not None) and not any(
+        [a.provider, a.model, a.base_url, a.api_key, a.desktop, a.app, a.try_task])
+    asking = not a.yes and not a.json and not one and safety.at_terminal()
     only_show = a.json and not any([a.provider, a.model, a.base_url, a.api_key, a.api_key_env, a.desktop, a.app,
                                     a.mcp, a.yes, a.coords, a.add_key])
     if only_show:
@@ -261,7 +284,6 @@ def _main(argv) -> int:
     def say(*args, **kw) -> None:
         if not a.json:
             print(*args, **kw)
-    cfg = C.load(use_env=False)
     if a.add_key:
         return add_key(a, cfg, say, asking)
     from legato import __version__
@@ -313,7 +335,7 @@ def _main(argv) -> int:
     if not key and needs_key and not in_env:
         if asking:
             where = f" (get one at {pv.keys_url})" if pv.keys_url else ""
-            key = getpass.getpass(f"   Paste your {pv.name.split(':')[0]} key{where}, or Enter for none: ").strip()
+            key = _input(f"   Paste your {pv.name.split(':')[0]} key{where}, or Enter for none: ", secret=True).strip()
         elif not C.is_local_url(base_url):
             say(f"   no key yet: {C.set_env(key_env or 'LEGATO_API_KEY')}, or run legato setup --api-key -")
     elif in_env and not key:
@@ -344,7 +366,8 @@ def _main(argv) -> int:
     if a.coords:
         cfg.coords = a.coords
 
-    if not a.no_check and (cfg.key or C.is_local_url(base_url)):
+    only_mcp = one and not a.coords and a.api_key_env is None     # the model is as it was: not tried again
+    if not a.no_check and not only_mcp and (cfg.key or C.is_local_url(base_url)):
         say(f"   checking {model} ...", end=" ", flush=True)
         r = C.check_model(model, base_url, cfg.key)
         if not r["ok"]:
@@ -445,13 +468,17 @@ def _main(argv) -> int:
             say(f"   {line}")
         except (RuntimeError, ValueError, OSError) as e:
             say(f"   {c}: {e}")
+    if added and cfg.api_key_env and not cfg.api_key:      # only the variable's name is saved, not the key
+        save = f"--add-key {cfg.provider}" if cfg.provider in C.KEYED else "--api-key -"
+        say(f"   Your key is read from {C.env_name(cfg.api_key_env)}, which a coding agent may not pass on to Legato. "
+            f"If a task there says the key is missing, save it: legato setup {save}")
 
     if a.json:
         print(json.dumps({**state(), "mcp_added": added}))
         return 0
     # 4. a first task
     task = a.try_task
-    if task is None and asking and cfg.ready:
+    if task is None and asking and cfg.ready and not _nobody:
         say("")
         if _yes(f'4. Try it now? Task: "{FIRST_TASK}"'):
             task = FIRST_TASK
@@ -461,6 +488,6 @@ def _main(argv) -> int:
     if todo:                                  # saved, but a run would stop on this
         say(f"\nBefore a task can run: {todo}")
     else:
-        say('\nNext: legato run "your task"' + ("   (or ask your coding agent to use its legato desktop)" if added else ""))
+        say(f'\nNext: legato run "{FIRST_TASK}"' + ("   (or ask your coding agent to use its legato desktop)" if added else ""))
     say(f"Docs: {DOCS}")
     return 0

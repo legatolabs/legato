@@ -37,8 +37,7 @@ machine.
 
 ```bash
 vllm serve Qwen/Qwen3.5-9B --enable-auto-tool-choice --tool-call-parser hermes --max-model-len 32768
-legato run "On Wikipedia, look up the Eiffel Tower and tell me how tall it is" --app Safari \
-    --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
+legato run "On Wikipedia, look up the Eiffel Tower and tell me how tall it is" --model Qwen/Qwen3.5-9B --base-url http://localhost:8000/v1
 ```
 
 vLLM is the server we test with. Ollama (`http://localhost:11434/v1`) and LM Studio (`http://localhost:1234/v1`) serve

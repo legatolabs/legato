@@ -20,7 +20,7 @@ the task is done, 2 when it could not run (a setup, model or desktop error) and 
 | `--max-steps N` | model turns before it gives up (default 40) |
 | `--timeout S` | end the run after S seconds |
 | `--json` | one JSON object at the end (`status`, `done`, `answer`, `error`, `actions`, `wall_s`, `usage`), for scripts and agents |
-| `--yes` | on this computer, do not ask before risky actions (a typed `rm`, Cmd+Q...) |
+| `--yes` | on this computer, do not ask before risky actions (a typed `rm` or `Remove-Item`, Cmd+Q, Alt+F4...) |
 
 With no flag, on a Mac it works in the background in the app the task names ("... in Notes", "... on Spotify"),
 else in Safari; elsewhere on the whole screen. `legato setup --desktop docker` (or `screen`) changes that
@@ -72,7 +72,7 @@ but `done`, `result.error` says why.
   server that reports none never reaches the limit, so pair it with `max_steps` or `timeout_s`).
 - **`record_dir`** is a folder (made if missing) that gets `start.png` and the screen after each turn as
   `turn-001.png`, `turn-002.png`, ...; `result.trace` names each one.
-- **`confirm`** decides risky actions (keys such as Cmd+Delete or Cmd+Q, a typed `rm` or `sudo`:
+- **`confirm`** decides risky actions (keys such as Cmd+Delete, Cmd+Q or Alt+F4, a typed `rm`, `sudo` or `Remove-Item`:
   [the list](sandboxes.md#this-computer)) on this computer (`"background"`, `"screen"`); other desktops ignore it.
   `"auto"` asks yes/no in the terminal when there is one; **in an unattended run (a server, a job) `legato.run`
   refuses them**, and the model is told they were not allowed. A function `confirm(description) -> bool` decides each
@@ -97,6 +97,7 @@ def on_step(turn, actions, timing):           # after each model turn
 
 result = agent.run("Open example.com and tell me the page title", desk, max_steps=40, on_step=on_step,
                    max_cost_usd=0.50, record_dir="run-1")
+print(result.answer)
 ```
 
 `agent.run(task, desk, max_steps=40, on_step=None, *, timeout_s=None, cancel=None, raise_desktop_errors=True,
@@ -105,13 +106,14 @@ that fails raises out of `agent.run`; pass `raise_desktop_errors=False` to get i
 does.
 
 - **`on_step(turn, actions, timing)`** is called after each model turn. `actions` are objects (`legato.Action`, and
-  `ToolCall` for a tool), unlike `result.actions`, which are strings. `timing` has the turn's seconds (`model_s`,
+  `legato.tools.ToolCall` for a tool), unlike `result.actions`, which are strings. `timing` has the turn's seconds (`model_s`,
   `act_s`, `settle_s`, `obs_s`), `timing["usage"]` (the run's tokens and cost so far, as `result.usage`) and, with
   `record_dir`, `timing["screenshot"]` (the saved screen's path).
 - **`result.trace`** has one dict per turn: `say` (what the model wrote and called), `actions`, `done`, `s` (the
   model call's seconds), `results` (tool output, cut short) and, with `record_dir`, `screenshot` (a path; images are
   never kept in the result).
-- **Desktops:** `legato.local()` (this screen), `legato.local(background="App")` (macOS),
+- **Desktops:** `legato.local()` (this screen; on Windows it minimises the console window your script runs in
+  until the script ends, so the agent does not click and type into it: `hide_terminal=False` leaves it in front), `legato.local(background="App")` (macOS),
   `legato.providers.docker(1280, 800)` (returns `(stop, env)`), `legato.attach(Sandbox.create())` (E2B, with
   `pip install "legatolabs[e2b]"`), `legato.attach(shell=run)` (any Linux sandbox you can run a command in),
   `legato.attach(screenshot=..., execute=...)` (anything else). [Desktops](sandboxes.md) has each.
@@ -123,14 +125,16 @@ does.
 - **Two models:** a strong model plans each action and a small one finds it on the screen. It is how our Windows
   runs work (GPT-6.1 Terra with UI-TARS-1.5-7B):
   `legato.Harness("bytedance/ui-tars-1.5-7b", url, key, coords="pixels", native_tools=False,
-  planner=legato.Planner("openai/gpt-6.1-terra", url, key, style="point"))`.
+  planner=legato.Planner("openai/gpt-6.1-terra", url, key, style="point"))`,
+  where `url` and `key` are the provider's, such as `"https://openrouter.ai/api/v1"` and
+  `os.environ["OPENROUTER_API_KEY"]`.
   `steps`, `usage`, `timings` and `report()` count both models' calls; `result.planner` is the planner's share
   (`calls`, `s`, tokens, `cost_usd`) and its final `notes`, and `result.trace` has each planner call with the
   actions it named and its notes then. `on_step` is called after each batch of actions.
 - **Tools beside the screen:** `legato.Harness(..., tools=[legato.tools.bash(env)])` gives the model a shell in that
-  desktop. The tool is named `bash` everywhere; on this computer under Windows it runs PowerShell, and the model
-  is told so. `legato.Tool(name, description, json_schema, handler)` wraps your own function, whose text result
-  goes back to the model.
+  desktop (`env` is the desktop you pass to `agent.run`, such as `env = legato.local()`). The tool is named `bash` everywhere; on this computer under Windows it runs PowerShell, and the model
+  is told so. `legato.Tool(name, description, json_schema, handler)` wraps your own function,
+  `handler(args: dict) -> str`, whose text result goes back to the model.
 - **Plans:** `legato.Harness(..., plan=True)` lets one model call carry up to `plan_max_steps=12` steps that run in
   order and stop at the first that cannot go on. It is offered only what can run: shell steps with
   `tools=[legato.tools.bash(env)]`, and steps that find a label on the screen (`click_text`, `wait_for`) where there
@@ -139,8 +143,8 @@ does.
   text), `actions`, `steps` (model calls), `wall_s`, `timings` (per turn: model, actions, waiting for the screen,
   screenshots), `usage`, `trace`, `error` (why, for every status but `done`), `stopped`, and `report()`.
   - `actions` are strings, one per action that ran, such as `"click (29, 316)"`, `"type 'hello'"` or
-    `"not allowed: key cmd+q"`, then `"done"` or `"fail"`. For `legato.Action` objects, collect them in `on_step`,
-    whose `actions` are the Actions (and `ToolCall`s) each turn ran.
+    `"not allowed: key cmd+q"` (with a planner or `plan=True`, then `"done"` or `"fail"`). For `legato.Action`
+    objects, collect them in `on_step`, whose `actions` are the Actions (and `legato.tools.ToolCall`s) each turn ran.
   - `usage` (a dict, typed as `legato.Usage`: read it as `usage["complete"]`) counts the model calls that answered: `prompt`, `completion` and `cached` tokens, and
     `cost_usd` when the provider reports it. `complete` is `False` when a call was sent and cut off before its reply
     (a timeout, `timeout_s`) or sent twice: the provider may still bill it, and it is not in the counts.
@@ -183,7 +187,8 @@ the other built-in desktops raise `legato.DesktopStartError` when they can't sta
 ### Write a starting point
 
 `legato init` writes `agent.py`, a working agent with your saved model and desktop, to run as it is or copy into your
-own code: `python agent.py "your task"`.
+own code: `python agent.py "Open example.com and tell me the page's heading"`. It prints each turn, the answer and
+the report.
 
 ## RL rollouts and benchmarks
 

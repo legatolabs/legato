@@ -18,13 +18,14 @@ your yes in the terminal. On macOS, give the terminal Screen Recording and Acces
 """
 from __future__ import annotations
 
+import atexit
 import hashlib
 import io
 import re
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 
 from legato import safety
 from legato.actions import Action
@@ -152,18 +153,38 @@ def front_windows(quartz: Any) -> tuple[int | None, list[dict]]:
     return pid, [w for w in info if pid is not None and w.get("kCGWindowOwnerPID") == pid]
 
 
+def hide_console() -> Callable[[], None]:
+    """Windows: minimise the console window this program runs in, and give back a function that restores it. The
+    agent sees and uses the whole screen, and a terminal left in front is the first thing it clicks and types into
+    (first-time users' runs typed commands, and once Ctrl+C, into the terminal that launched them). No console
+    window (a pipe, a terminal emulator's pseudo-console), or another OS: nothing to do."""
+    if sys.platform != "win32":
+        return lambda: None
+    try:
+        import ctypes
+        user32, hwnd = ctypes.windll.user32, ctypes.windll.kernel32.GetConsoleWindow()
+        if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+            return lambda: None
+        user32.ShowWindow(hwnd, 6)                      # SW_MINIMIZE
+        return lambda: user32.ShowWindow(hwnd, 9)       # SW_RESTORE
+    except Exception:  # noqa: BLE001 - never a reason not to run the task
+        return lambda: None
+
+
 class LocalEnv(Env):
     """This computer's primary screen. `mac_cmd` sends Ctrl shortcuts as Cmd on macOS, since models learn Linux and
     Windows shortcuts (ctrl+c, ctrl+s). `confirm(description) -> bool` is asked before a risky action
     (`legato.safety`): "auto" asks in the terminal when there is one, None never asks. `wait_scope` is what the wait
     for the screen watches: "screen" (all of it) or, on macOS, "app" (only the front app's windows; elsewhere it falls
-    back to the screen)."""
+    back to the screen). `hide_terminal` (Windows): the console window this program runs in is minimised while the
+    agent has the screen, so it does not click and type into it; `show_terminal()` brings it back, as the program's
+    exit does. False leaves it in front."""
 
     shell = staticmethod(local_shell)
 
     def __init__(self, mac_cmd: bool = True, fixed_wait_s: float | None = None, *, gui: Any = None, grabber: Any = None,
                  paste: Any = "auto", confirm: safety.Confirm | str | None = "auto", wait_scope: str = "screen",
-                 quartz: Any = None, wait: str = "screen"):
+                 quartz: Any = None, wait: str = "screen", hide_terminal: bool = True):
         if wait_scope not in ("screen", "app"):
             raise ValueError('wait_scope must be "screen" or "app"')
         self.wait_scope = wait_scope
@@ -178,6 +199,10 @@ class LocalEnv(Env):
             except Exception as e:                # no display to capture (Linux without X, a headless session)
                 raise DesktopStartError(f"this screen can't be captured: {e}") from e
         self.sct = grabber
+        self.show_terminal: Callable[[], None] = lambda: None
+        if hide_terminal and gui is None and sys.platform == "win32":
+            self.show_terminal = hide_console()
+            atexit.register(self.show_terminal)
         self.mon = self.sct.monitors[1]           # the primary screen, where pyautogui's (0, 0) is
         self.size = tuple(self.gui.size())        # logical size: what pyautogui clicks in
         self.mac = sys.platform == "darwin"
@@ -302,7 +327,7 @@ class LocalEnv(Env):
 
         def quote(s: str) -> str:
             s = s.strip()
-            return f'"{s[:120]}{"…" if len(s) > 120 else ""}"'
+            return f'"{s[:120]}{"..." if len(s) > 120 else ""}"'
         if t == "type":
             typed = (typed + (a.text or "").replace("\r", "\n"))[-4000:]
             if "\n" not in typed:
@@ -361,15 +386,33 @@ class LocalEnv(Env):
         ask, typed = self._risk(action)
         if ask and self.confirm is not None:
             front = self._front()
-            if not self.confirm(ask):
-                raise safety.Denied(ask)
+            try:
+                allowed = self.confirm(ask)
+            except safety.NeedsYes:
+                self._clear_line(ask)
+                raise
             self._refocus(front)                  # answering put the terminal in front: the action is not for it
+            if not allowed:
+                self._clear_line(ask)
+                raise safety.Denied(ask)
         self._typed = typed
         try:
             return super().act(action)
         except self._failsafe:
             self._restore_clipboard()
             raise safety.Stopped("the mouse was moved into a corner of the screen") from None
+
+    def _clear_line(self, refused: str) -> None:
+        """A refused Return leaves its command typed at the prompt, where a later Return (the model's, the person's,
+        the next run's) would run it: clear the line. Escape does in PowerShell and cmd, Ctrl+U in a macOS or Linux
+        shell."""
+        if not self._typed or not refused.startswith(("press Return after typing", "type and run")):
+            return
+        try:
+            self._chord(["esc"] if sys.platform == "win32" else ["ctrl", "u"])
+            self._typed = ""
+        except Exception:  # noqa: BLE001 - the refusal matters more than the tidying
+            pass
 
     def key(self, name: str) -> str:
         if name == "super":
@@ -517,7 +560,8 @@ def local(mac_cmd: bool = True, fixed_wait_s: float | None = None, *,
     a risky action (the list is in `legato.safety`). The default, "auto", asks in the terminal when stdin is one and
     asks nothing in an unattended run; `confirm=None` never asks; `confirm=legato.safety.deny` refuses them all.
     wait_scope="app" (macOS): the wait for the screen watches only the front app's windows. `options` go to LocalEnv
-    (wait="screen" | "cells" | "ax" | "ax|cells": what decides that the screen has settled).
+    (wait="screen" | "cells" | "ax" | "ax|cells": what decides that the screen has settled; hide_terminal=False:
+    on Windows, leave this program's console window in front instead of minimising it until the program ends).
     background="TextEdit" (macOS): work in that app's window only, without moving the mouse or taking the screen, so
     the person can keep using the Mac (`legato.background`). Raises legato.DesktopStartError when it can't be opened
     (an app that is not installed, no screen to capture), legato.DesktopError when it fails later."""

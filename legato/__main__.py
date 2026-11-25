@@ -24,25 +24,6 @@ import os
 import sys
 
 
-def _hide_console():
-    """Windows, on this computer's own screen: minimise the console window this command runs in for the length of the
-    task, and give back a function that restores it. The agent sees and uses the whole screen, and a terminal left
-    in front is the first thing it clicks and types into (three first-time users' runs typed commands, and once
-    Ctrl+C, into the terminal that launched them). No console window (a pipe, a terminal emulator's pseudo-console):
-    nothing to do."""
-    if sys.platform != "win32":
-        return lambda: None
-    try:
-        import ctypes
-        user32, hwnd = ctypes.windll.user32, ctypes.windll.kernel32.GetConsoleWindow()
-        if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
-            return lambda: None
-        user32.ShowWindow(hwnd, 6)                      # SW_MINIMIZE
-        return lambda: user32.ShowWindow(hwnd, 9)       # SW_RESTORE
-    except Exception:  # noqa: BLE001 - never a reason not to run the task
-        return lambda: None
-
-
 def _safe_output() -> None:
     """A character the terminal's encoding lacks (an arrow on a Windows pipe in cp1252) is replaced, not a crash."""
     for stream in (sys.stdout, sys.stderr):
@@ -139,7 +120,7 @@ def run_main(argv) -> int:
                     help="Windows, on this screen: keep this terminal window in front (it is minimised while the "
                          "task runs, so the agent does not type into it)")
     ap.add_argument("--yes", action="store_true",
-                    help="on this computer: do not ask before risky actions (cmd+Delete, a typed rm or sudo...)")
+                    help="on this computer: do not ask before risky actions (cmd+Delete, alt+F4, a typed rm, sudo or Remove-Item...)")
     ap.add_argument("--json", action="store_true", help="print one JSON object (for scripts and agents) instead of text")
     a = ap.parse_args(argv)
     fail = lambda msg: _fail(msg, a.json)                # with --json, the error as JSON too
@@ -178,8 +159,9 @@ def run_main(argv) -> int:
     except (RuntimeError, OSError, ValueError, AttributeError) as e:     # Docker stopped, no screen permission, ...
         return fail(f"cannot start {label}: {e}")
     say = (lambda *_: None) if a.json else print
-    restore = _hide_console() if (not a.show_terminal and "background" not in what
-                                  and (desktop or cfg.desktop or "screen") in ("screen", "local")) else (lambda: None)
+    restore = getattr(env, "show_terminal", lambda: None)     # Windows, this screen: legato.local minimised it
+    if a.show_terminal:
+        restore()
     t0 = time.monotonic()
     say(f"{choice.model}{config.dot()}{what}" + (" (your mouse and keyboard stay yours)" if "background" in what else ""))
     if "background" not in what and (desktop or cfg.desktop or "") in ("", "screen", "local"):

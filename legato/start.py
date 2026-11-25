@@ -27,6 +27,7 @@ TESTED_APPS = ("Safari", "TextEdit")   # background mode is tested on these (tes
 DOCS = "https://legato.computer/docs"
 SETUP_URL = "https://legato.computer/setup"
 AGENT_PROMPT = f"Set up Legato for me: {SETUP_URL}"
+EXAMPLE_TASK = "Open example.com and tell me the page's heading"   # a real, harmless task to paste as it is
 
 
 def welcome() -> str:
@@ -84,7 +85,7 @@ def agent_source(model: str, base_url: str, key_env: str, desktop: str, app: str
         open_desk, close_desk = "stop, desk = legato.providers.docker(1280, 800)   # a fresh Linux desktop container", \
             "\nstop()"
     where = f"in {app}" if desktop == "background" else "in the browser"
-    return f'''"""A computer-use agent, written by `legato init`. Run it:  python agent.py "your task"
+    return f'''"""A computer-use agent, written by `legato init`. Run it:  python agent.py "{EXAMPLE_TASK}"
 
 The whole loop is agent.run(task, desk): copy these lines into your own code. Docs: {DOCS}
 """
@@ -107,28 +108,10 @@ def show(turn, actions, timing):
 
 
 result = agent.run(task, desk, max_steps=40, on_step=show)
+if result.answer:
+    print(result.answer)        # what it found or did, in the model's words
 print(result.report())          # done or failed, the steps, and where the time went{close_desk}
 '''
-
-
-def _ask(prompt: str, choices: list[str], default: str, describe=lambda c: "") -> str:
-    print(prompt)
-    for i, c in enumerate(choices, 1):
-        print(f"  {i}. {c}" + (f": {describe(c)}" if describe(c) else "") + ("  (default)" if c == default else ""))
-    while True:
-        got = input(f"[{choices.index(default) + 1}] ").strip()
-        if not got:
-            return default
-        if got.isdigit() and 1 <= int(got) <= len(choices):
-            return choices[int(got) - 1]
-        if got in choices:
-            return got
-        print(f"  type 1 to {len(choices)}")
-
-
-def _text(prompt: str, default: str) -> str:
-    got = input(f"{prompt}" + (f" [{default}]" if default else "") + ": ").strip()
-    return got or default
 
 
 def missing(desktop: str, key_env: str) -> list[str]:
@@ -174,7 +157,10 @@ def _init(argv) -> int:
     ap.add_argument("--force", action="store_true", help="overwrite --out if it exists")
     ap.add_argument("--yes", action="store_true", help="ask nothing: use the flags and the defaults")
     a = ap.parse_args(argv)
-    asking = not a.yes and sys.stdin.isatty()
+    from legato import safety, setup
+    from legato.setup import _ask, _text
+    setup._nobody = False
+    asking = not a.yes and safety.at_terminal()
     out = Path(a.out)
     if out.exists() and not a.force:
         print(f"legato: {out} exists; pass --force to overwrite it, or --out another.py", file=sys.stderr)
@@ -214,7 +200,8 @@ def _init(argv) -> int:
     desktop = a.desktop or {"screen": "local"}.get(saved.desktop, saved.desktop) or ("background" if mac else "local")
     if desktop not in DESKTOPS:
         desktop = "local"
-    if asking and not a.desktop:
+    kept = not a.desktop and {"screen": "local"}.get(saved.desktop, saved.desktop) in choices   # legato setup's choice
+    if asking and not a.desktop and not kept:
         desktop = _ask("Which desktop?", choices, desktop, lambda d: DESKTOPS[d])
     if desktop == "background" and not mac:
         print("legato: --desktop background is macOS only; use local or docker", file=sys.stderr)
@@ -224,7 +211,7 @@ def _init(argv) -> int:
         from legato.config import BROWSERS_TESTED
         browser = default_browser()
         app = a.app or saved.app or (browser if browser in BROWSERS_TESTED else "Safari")
-        if asking and not a.app:
+        if asking and not a.app and not (kept and saved.app):
             app = _text("Which app should it work in? (any app, by name)", app)
         from legato.background import other_browser
         if other_browser(app):
@@ -244,6 +231,6 @@ def _init(argv) -> int:
         print("\nBefore it runs:")
         for t in todo:
             print(f"  - {t}")
-    print(f'\nThen: python {out} "your task"')
+    print(f'\nThen: python {out} "{EXAMPLE_TASK}"')
     print(f"To use it in your own code, copy the lines in {out}. Docs: {DOCS}")
     return 0

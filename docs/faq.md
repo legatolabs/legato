@@ -5,7 +5,7 @@ runs the actions it picks on a desktop, and decides when the screen is ready for
 
 **How do I start?**
 Tell Claude Code, Codex or Cursor "Set up Legato for me: https://legato.computer/setup", or run
-`pip install legatolabs && legato setup`, or download the Mac app ([setup](setup.md)).
+`pip install legatolabs` and then `legato setup`, or download the Mac app ([setup](setup.md)).
 
 **What are the Mac app, the terminal, the MCP server and the Python package?**
 Four ways into the same agent. The Mac app is for people (hold Fn, say a task); `legato run` is for one task from a
@@ -47,7 +47,7 @@ desktops are Linux today; managed Windows and macOS desktops are planned for Leg
 **Is it safe to let an agent use my computer?**
 Use a desktop container (`--sandbox docker`) or a cloud desktop when you can: the agent then never touches your own
 screen or files. On your own screen, move the mouse into a corner to stop it. Risky keys and typed commands (Cmd+Q,
-`rm`, `sudo`...) wait for your yes, and the Mac app also asks before clicking Send, Delete or Pay.
+Alt+F4, `rm`, `sudo`, `Remove-Item`...) wait for your yes, and the Mac app also asks before clicking Send, Delete or Pay.
 
 **Where does my data go?**
 Screenshots and the task go to the model you chose, and nowhere else. With a model on your own machine, nothing

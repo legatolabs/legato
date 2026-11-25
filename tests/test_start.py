@@ -43,7 +43,9 @@ def test_init_writes_an_agent_that_compiles(tmp_path, quiet, monkeypatch, capsys
     assert 'model="qwen/qwen3.8-27b"' in src and 'base_url="https://openrouter.ai/api/v1"' in src
     assert 'os.environ.get("OPENROUTER_API_KEY", "")' in src
     assert 'legato.local(background="Safari")' in src     # Chrome is the default browser, but background mode is Safari's
-    assert f'python {out} "your task"' in capsys.readouterr().out
+    said = capsys.readouterr().out
+    assert f'python {out} "{start.EXAMPLE_TASK}"' in said and "your task" not in said + src   # nothing to paste as a task
+    assert "print(result.answer)" in src
 
 
 def test_the_written_agent_runs_the_loop(tmp_path, quiet, monkeypatch):
@@ -214,3 +216,24 @@ def test_init_writes_what_setup_found_the_model_needs(tmp_path, quiet):
     src = agent.read_text()
     assert 'coords="pixels",' in src and "native_tools=False," in src
     compile(src, str(agent), "exec")
+
+
+def test_init_uses_the_saved_desktop_without_asking_and_no_answer_is_the_default(tmp_path, monkeypatch, capsys):
+    """`legato init` asked "Which desktop?" with one saved, and an empty stdin ended it with nothing written."""
+    from legato import config
+    monkeypatch.setattr(start, "missing", lambda desktop, key_env: [])
+    monkeypatch.setattr("legato.safety.at_terminal", lambda: True)
+    config.save(config.Config(provider="openrouter", model="m", base_url="https://openrouter.ai/api/v1", api_key="k",
+                              desktop="docker"))
+    monkeypatch.setattr("builtins.input", lambda *a: pytest.fail("asked a question"))
+    assert main(["init", "--out", str(tmp_path / "a.py")]) == 0
+    assert "legato.providers.docker(" in (tmp_path / "a.py").read_text()
+
+    def no_answer(prompt=""):
+        raise EOFError
+    monkeypatch.setattr("builtins.input", no_answer)
+    config.path().unlink()                                   # nothing saved: the questions, each with no answer
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert main(["init", "--out", str(tmp_path / "b.py")]) == 0
+    assert "legato.local()" in (tmp_path / "b.py").read_text() and "no answer: taking the defaults" in capsys.readouterr().out

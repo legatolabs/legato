@@ -621,3 +621,44 @@ def test_agent_for_runs_a_named_model_at_its_own_provider(monkeypatch):
     assert "$ANTHROPIC_API_KEY" in h.client.key_source
     h = agent_for()
     assert (h.client.cfg.base_url, h.client.cfg.api_key, h.coords) == (OR, "sk-or-saved", "norm1000")
+
+
+# ------------------------------------------------------------ nobody at the keyboard
+def at_a_terminal(monkeypatch, answer):
+    monkeypatch.setattr("legato.safety.at_terminal", lambda: True)
+    monkeypatch.setattr("builtins.input", answer)
+    monkeypatch.setattr(setup.getpass, "getpass", answer)
+
+
+def no_answer(prompt=""):
+    raise EOFError
+
+
+def test_setup_with_no_answer_takes_the_defaults_as_yes_does(no_machine, monkeypatch, own_config, capsys):
+    """An empty stdin that calls itself a terminal: the menu, `[1]`, then "stopped; nothing more was changed"."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setattr(setup, "first_task", lambda *a: pytest.fail("ran a first task nobody said yes to"))
+    at_a_terminal(monkeypatch, no_answer)
+    assert main(["setup", "--no-check"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("no answer: taking the defaults") == 1 and "Saved to" in out
+    cfg = config.load()
+    assert (cfg.provider, cfg.model, cfg.desktop) == ("openrouter", "qwen/qwen3.8-27b", "screen")
+
+
+def test_setup_flags_that_change_one_thing_ask_nothing(no_machine, monkeypatch, own_config, tmp_path, capsys):
+    saved(api_key="", api_key_env="OPENROUTER_API_KEY", desktop="docker")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
+    monkeypatch.setattr(setup, "_cursor_file", lambda: tmp_path / ".cursor" / "mcp.json")
+    monkeypatch.setattr(config, "check_model", lambda *a: pytest.fail("--mcp alone does not try the model again"))
+    at_a_terminal(monkeypatch, lambda *a: pytest.fail("asked a question"))
+    assert main(["setup", "--mcp", "cursor"]) == 0
+    out = capsys.readouterr().out
+    assert "cursor: added" in out and (tmp_path / ".cursor" / "mcp.json").exists()
+    # only the variable's name is saved, and the coding agent may not pass the variable on
+    assert "OPENROUTER_API_KEY, which a coding agent may not pass on" in out and "--add-key openrouter" in out
+    assert main(["setup", "--coords", "pixels", "--no-check"]) == 0
+    assert main(["setup", "--api-key-env", "MY_KEY", "--no-check"]) == 0
+    cfg = config.load(use_env=False)
+    assert (cfg.coords, cfg.api_key_env, cfg.desktop, cfg.model) == ("pixels", "MY_KEY", "docker", "qwen/qwen3.8-27b")
