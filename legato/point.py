@@ -174,8 +174,8 @@ def _args(rec: dict) -> dict:
 
 
 def _actions(a: dict) -> list:
-    """The actions in a planner's reply. Tool calling through some hosts is loose (Qwen3.8-27B through OpenRouter,
-    legato-research EXP-0109): one action as an object, or under "action", "actions.1", "actions[0]"."""
+    """The actions in a planner's reply. Tool calling through some hosts is loose (Qwen3.8-27B through OpenRouter):
+    one action as an object, or under "action", "actions.1", "actions[0]"."""
     acts = a.get("actions")
     if isinstance(acts, dict):
         acts = [acts]

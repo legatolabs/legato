@@ -204,8 +204,8 @@ def e2b_factory(resolution: tuple[int, int]):
 
 
 def to_image(png: bytes, image_format: str = "jpeg", quality: int = 85) -> Image:
-    """A screenshot for the agent: JPEG by default (the same pixels in about a fifth of the bytes, as the harness sends
-    since EXP-0053), PNG as it came with image_format="png" or when Pillow can't read it."""
+    """A screenshot for the agent: JPEG by default (the same pixels in about a fifth of the bytes, as the harness
+    sends), PNG as it came with image_format="png" or when Pillow can't read it."""
     if image_format == "jpeg":
         try:
             import io

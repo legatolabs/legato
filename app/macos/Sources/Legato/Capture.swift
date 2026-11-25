@@ -59,7 +59,7 @@ actor ScreenCapturer {
     // ---------------------------------------------------------------- waiting for the screen
     // Legato's exact wait: the engine waits until consecutive digests of the full frame match. A wait that ignores
     // caret- or spinner-sized changes was measured and rejected (x0.844 time, -6.8 points on 245 held-out OSWorld
-    // tasks, legato-research KNOWLEDGE.md), so the digest stays exact. The tolerance helpers below are only for
+    // tasks), so the digest stays exact. The tolerance helpers below are only for
     // `--capture-check`, which measures how often a real desktop changes.
     static let quietFraction = 0.002
     static let pixelDelta: Int = 12

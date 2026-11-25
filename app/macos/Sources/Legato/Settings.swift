@@ -106,12 +106,12 @@ final class AppSettings: ObservableObject {
     /// The most one task may cost in USD (0: no limit). Only providers that report a cost (OpenRouter) count.
     @Published var maxCost: Double { didSet { d.set(maxCost, forKey: "maxCost") } }
     /// Screenshots the model keeps in its prompt. 4: 32% less time and 25% less cost a task than 8, and 5 points
-    /// lower on held-out Mac tasks (legato-research EXP-0030). 8 is Legato's default.
+    /// lower on held-out Mac tasks. 8 is Legato's default.
     @Published var imageMax: Int { didSet { d.set(imageMax, forKey: "imageMax") } }
     @Published var guardClicks: Bool { didSet { d.set(guardClicks, forKey: "guardClicks") } }
     /// Offer the model a shell beside the screen (the engine's `bash` tool, AppleScript included). What can be undone
     /// runs at once; deleting, overwriting, sending, quitting apps, system settings and private data wait for the
-    /// person's yes (app_engine.command_risk). On by default: legato-research EXP-0037 measured it 43% faster a task
+    /// person's yes (app_engine.command_risk). On by default: we measured it 43% faster a task
     /// (118 s -> 67 s on hard-dev) with more passes (87.5% against 66.7%).
     @Published var allowShell: Bool { didSet { d.set(allowShell, forKey: "allowShell") } }
     @Published var ghostCursor: Bool { didSet { d.set(ghostCursor, forKey: "ghostCursor") } }

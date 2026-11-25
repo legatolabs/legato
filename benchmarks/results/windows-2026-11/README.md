@@ -1,7 +1,6 @@
 # Windows desktop apps (23 Nov 2026)
 
-Raw data for [Windows desktop apps](../../../docs/benchmarks.md#windows-desktop-apps) (legato-research
-EXP-0094).
+Raw data for [Windows desktop apps](../../../docs/benchmarks.md#windows-desktop-apps).
 
 | file | what |
 |---|---|

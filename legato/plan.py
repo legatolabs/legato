@@ -147,7 +147,7 @@ class WaitFor:
 
 
 # Harness(strict_done=True): what counts as the check before a done in the same plan, and the prompt that says so.
-# In legato-research EXP-0048, 8 of 25 such dones ended failed tasks: all 3 after a wait_for (the text was already on
+# In our tests, 8 of 25 such dones ended failed tasks: all 3 after a wait_for (the text was already on
 # the screen) and 5 after a shell step, one of them `open -a Reminders; sleep 2`, which checks nothing.
 STRICT_DONE_SWAPS = (
     ("done counts in the same plan only right after a check that passed (wait_for, a shell command that exits 0, or an "

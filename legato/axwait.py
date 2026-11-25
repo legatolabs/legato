@@ -41,7 +41,7 @@ class AXWaiter:
         self.rules, self.pixels, self.quiet_s, self.replaced, self.clock = rules, pixels, quiet_s, replaced_sleep_s, clock
         self.observe_s, self.prime_s = observe_s, 0.0
         # pixels_always=False ("ax|cells"): the pixels decide only when the app sent no event or the front app
-        # changed (EXP-0047: Accessibility alone ended too early exactly when the app sent nothing)
+        # changed (Accessibility alone ended too early exactly when the app sent nothing)
         self.pixels_always = pixels_always
         self.background = True                    # Env.act records `last`
         self.n, self.waited, self.baseline, self.grabs, self.capped = 0, 0.0, 0.0, 0, 0

@@ -35,6 +35,9 @@ Legato is a fast computer-use runtime for any model, with four ways in that shar
   - Keep public APIs typed.
   - Keep docs short.
   - Every number in the docs comes from `docs/benchmarks.md`, which has its raw data in `benchmarks/results/`.
+  - This repo is public, and so are its commit messages, PR descriptions and comments. Write them for an outside
+    reader: what changed, why, and how it was checked. Leave out private repos and run ids, machine and account
+    details, plans and who decided what. Commit with a GitHub noreply address.
 
 ## Use Legato from another project
 

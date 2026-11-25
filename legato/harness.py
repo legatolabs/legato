@@ -210,7 +210,7 @@ def _text_calls(text: str, names: tuple = (), _retry: bool = False) -> list:
     if depth and start is not None and not _retry:
         # An object left open before the model's own closing tags, e.g. Qwen3.8-27B's
         # '{"action": "left_click", "coordinate": [806, 155] </parameter> </function> </tool_call>': the action is
-        # complete but for its braces (legato-research EXP-0075: 12 of 866 executor turns did nothing for this).
+        # complete but for its braces (12 of 866 executor turns did nothing for this).
         tail = text[start:]
         cut = min((tail.find(t) for t in ("</parameter>", "</function>", "</tool_call>") if t in tail), default=-1)
         if cut > 0:
@@ -480,11 +480,11 @@ class Harness:
         Claude; OpenRouter and Anthropic-compatible APIs read it). tools: more tools beside `computer`, such as
         `legato.tools.bash(env)`; each result goes back to the model as text. image_format: "jpeg" (default,
         jpeg_quality) or "png": screenshots go to the model as JPEG, the same pixels in about a fifth of the bytes; the
-        upload is most of a hosted call's wait for its first token (legato-research EXP-0052: a call 1.57 s against
-        3.11 s at median through OpenRouter, the next action unchanged; EXP-0053: on 27 Mac tasks a call 2.28 against
+        upload is most of a hosted call's wait for its first token (a call 1.57 s against
+        3.11 s at median through OpenRouter, the next action unchanged; on 27 Mac tasks a call 2.28 against
         3.80 s and a median task 18.5 against 23.7 s with passes held). "png" sends the screenshots lossless.
         ask_answer: a done with no text gets one more turn, with the screen its actions left and a note asking for the
-        answer in done's text (legato-research EXP-0102: GPT-6.1 Terra ended 20 of 20 Safari questions with an empty
+        answer in done's text (GPT-6.1 Terra ended 20 of 20 Safari questions with an empty
         done, a plan's done often before the page loaded). None (the default): for a task whose words ask for
         information ("what", "tell me", "how many", a question mark: legato.harness.asks_for_information), which is
         then also sent with a line asking for the answer in done's text; True: for every task; False: never. With a
@@ -539,7 +539,7 @@ class Harness:
         self.planner = planner
         self.on_usage = None                  # called with each pointer call's usage (legato/point.py), for a cost meter
         # hedge_after_s: a call with no reply after this many seconds is sent again, and the first reply wins (the
-        # provider stalls now and then: 25 calls of 12-66 s with short replies in legato-research EXP-0044/0046)
+        # provider stalls now and then: 25 calls of 12-66 s with short replies in our tests)
         self.hedge_after_s = hedge_after_s
         # plan_trust_first_click: a labelled click before any step of its plan has acted clicks where the model
         # aimed, without reading the screen (it is the screen the model just saw)

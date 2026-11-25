@@ -4,7 +4,7 @@
 # On a pull request that changes the app, the same build runs as a dry run: the files are kept as the run's artifact,
 # nothing is published.
 #
-# Secrets (Settings -> Secrets and variables -> Actions), added by the founder:
+# Secrets (Settings -> Secrets and variables -> Actions), added by a maintainer:
 #   MACOS_CERT_P12        base64 of the Developer ID Application certificate exported from Keychain (.p12):
 #                         base64 -i DeveloperID.p12 | pbcopy
 #   MACOS_CERT_PASSWORD   the password of that export

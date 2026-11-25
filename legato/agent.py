@@ -6,8 +6,8 @@ desktop_run_task and `legato.run()` all call.
     print(result.answer, result.report())
 
 Every way of running Legato gets the same agent for the same desktop: `agent_for(env)` sets the harness up the way
-it was measured best there (legato-research tracks/mac/champion.json for a Mac's screen, the Mac app's own setup;
-Harness's defaults elsewhere, where the one-action loop was faster: KNOWLEDGE.md, EXP-0055).
+it was measured best there (our Mac test runs for a Mac's screen, the Mac app's own setup;
+Harness's defaults elsewhere, where the one-action loop was faster).
 """
 from __future__ import annotations
 
