@@ -311,8 +311,9 @@ def test_a_question_nobody_answers_is_a_no(monkeypatch, capsys):
 
 
 def test_with_nobody_to_ask_the_command_line_refuses_and_says_so(capsys):
-    assert safety.deny_and_say("press ctrl+a then Delete") is False
-    assert "--yes" in capsys.readouterr().err
+    with pytest.raises(safety.NeedsYes, match="nobody to ask"):       # the run ends there: it is a Stopped
+        safety.deny_and_say("press ctrl+a then Delete")
+    assert "--yes" in capsys.readouterr().err and issubclass(safety.NeedsYes, safety.Stopped)
 
 
 def test_a_risky_line_is_still_asked_about_after_a_click():

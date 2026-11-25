@@ -72,6 +72,9 @@
   back to it in full at every call, so what it read on one screen is not lost at the next. A planner whose harness has
   the `bash` (or `applescript`) tool can name commands as actions and reads their output at its next call
   (`shell_name` says which shell that is).
+- **The Mac app starts from `legato setup`'s model.** With no model chosen in the app yet, it reads the provider,
+  model and base URL from `~/.config/legato/config.json` (and a key pasted into `legato setup`, if the Keychain has
+  none for that provider). Choosing a model in the app makes that the app's own.
 - `legato setup --desktop path/to/file.py:function` (or `module:function`) saves your own sandbox as the default, so
   `legato run`, `legato mcp` and `legato.run()` use it with no flags. Setup checks the function exists without
   starting it, and keeps the path absolute.
@@ -192,7 +195,10 @@ From the persona tests (six simulated launch users on a real Mac):
 - **Safer on your own screen, on Windows too.** Typed `Remove-Item`, `del`, `rd`, `format`, `reg delete`, a shutdown and
   a downloaded script piped to `iex` wait for a yes, as `rm` and `sudo` do; so does Delete right after selecting
   everything. With nobody to ask (`legato run` with its output piped, or run by a coding agent) a risky action is
-  refused and said on stderr, not run unseen; `--yes` allows them. A question nobody answers in two minutes is a no, and `legato run --json` never asks: it refuses and says so. A typed delete is
+  refused and said on stderr, not run unseen; `--yes` allows them. A question nobody answers in two minutes is a no, and `legato run --json` never asks. With nobody to ask, the run stops at the risky action
+  (status `stopped`, the action in `error`): it used to refuse and carry on, and the model then reached the same end
+  through a menu. On Windows the terminal that runs `legato run` is minimised while a task uses the screen
+  (`--show-terminal` keeps it), so the agent does not type into it. A typed delete is
   still asked about when a click comes between the typing and Return.
   `legato run` says how to stop it, and no longer crashes when its output is piped on Windows (an arrow the console's
   encoding lacks).

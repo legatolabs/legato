@@ -1,6 +1,6 @@
 """Your model and your desktop, chosen once with `legato setup` and used by every way of running Legato:
-`legato run`, `legato mcp`, and `legato.run()` or `legato.Harness()` in Python. (The Mac app keeps its own choice,
-in its Settings.)
+`legato run`, `legato mcp`, and `legato.run()` or `legato.Harness()` in Python. The Mac app starts from it too,
+until a model is chosen in the app's own Settings.
 
     ~/.config/legato/config.json        ($LEGATO_CONFIG, or $XDG_CONFIG_HOME/legato/config.json)
     {"provider": "openrouter", "model": "qwen/qwen3.8-27b", "base_url": "https://openrouter.ai/api/v1",
