@@ -117,6 +117,17 @@ _PRIVATE = re.compile(r"\.ssh\b|\.aws\b|\.gnupg|\.netrc|keychains?\b|\.env\b|id_
                       r"login data|\.kube\b|\.docker/config|passwords?\b|\.pem\b|\.p12\b", re.I)
 _RUNS_HIDDEN = re.compile(r"\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|python3?|perl|ruby|node)\b|base64\s+(?:-d|-D|--decode)"
                           r"|xxd\s+-r")
+# commands inside a command: `...` and $(...), and what sh/bash/zsh -c runs (checked like the outer command)
+_INNER = re.compile(r"`([^`]*)`|\$\(([^()]*)\)")
+_SHELL_C = re.compile(r"(?:^|[\s;&|(`'\"])(?:/bin/|/usr/bin/)?(?:sh|bash|zsh|dash|ksh|fish)\s+(?:-\w+\s+)*-\w*c\w*\s+"
+                      r"(?:'([^']*)'|\"((?:[^\"\\]|\\.)*)\"|(\S+))")
+# a program written inline (python3 -c "...", node -e "...") that deletes, writes, runs programs or uses the network
+_INLINE = re.compile(r"(?:^|[\s;&|(`'\"])(?:python3?|perl|ruby|node|php)\s+(?:-\w+\s+)*-[ce]\b", re.I)
+_INLINE_RISK = re.compile(r"remove|unlink|rmtree|rmdir|truncate|subprocess|\bsystem\s*\(|popen|\bexec|\beval|spawn|"
+                          r"open\s*\([^)]*['\"][wax+]|write|urllib|requests|socket|http|fetch|child_process|\bfs\.", re.I)
+# the environment's secrets, which a command's output would carry to the model's provider
+_SECRET_ENV = re.compile(r"(?:^|[\s;&|(`'\"])(?:printenv|export\s+-p|set)\s*(?:$|[;&|)`'\"]|\s\w)|(?:^|[\s;&|(])env\s*(?:$|[;&|)])"
+                         r"|\$\{?\w*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\w*\}?", re.I)
 _EXECUTABLE = re.compile(r"\.(?:command|sh|tool|pkg|mpkg|workflow|terminal|scpt|scptd)$|\.app/?$", re.I)
 _SEPARATORS = {";", "&&", "||", "|", "&", "\n", "(", ")", "$(", "`"}
 # AppleScript (or JavaScript for Automation) the model wrote; matched case-insensitively on the script text
@@ -192,6 +203,14 @@ def command_risk(cmd: str) -> str | None:
     cmd = cmd.strip()
     if not cmd:
         return "is empty"
+    for m in list(_INNER.finditer(cmd)) + list(_SHELL_C.finditer(cmd)):    # bash -c "rm -rf ~/x", `rm -rf ~/x`
+        inner = next((g for g in m.groups() if g), "")
+        if inner.strip() and inner.strip() != cmd and (why := command_risk(inner)):
+            return why
+    if _SECRET_ENV.search(cmd):
+        return "reads private data, which would go to the model's provider"
+    if _INLINE.search(cmd) and _INLINE_RISK.search(cmd):
+        return "runs a program inline that deletes, writes, runs commands or uses the network"
     if _PRIVATE.search(cmd):
         return "reads private data, which would go to the model's provider"
     if _RUNS_HIDDEN.search(cmd):
@@ -283,7 +302,7 @@ def opened_app(cmd: str) -> dict | None:
     return found
 
 
-_OSASCRIPT = re.compile(r"(?:^|[\s;&|(`$])(?:/usr/bin/)?osascript\b")
+_OSASCRIPT = re.compile(r"(?:^|[\s;&|(`$'\"])(?:/usr/bin/)?osascript\b")   # also inside sh -c "osascript ..."
 
 
 def shell_tool(ask, timeout_s: float = 30.0, max_chars: int = 4000, focus=None) -> Tool:

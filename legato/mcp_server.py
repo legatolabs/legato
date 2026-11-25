@@ -25,6 +25,7 @@ Tools:
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -81,12 +82,35 @@ def launch_command(platform: str, url: str | None = None, app: str | None = None
     if platform == "darwin":
         return f"open -a {shlex.quote(app)}" + (f" {shlex.quote(url)}" if url else "") if app else f"open {shlex.quote(url or '')}"
     if platform == "win32":
-        q = "'" + (url or "").replace("'", "''") + "'"           # PowerShell: Start-Process, as cmd's `start` is not there
+        # PowerShell: Start-Process, as cmd's `start` is not there. Its single quotes are ' and the curly ‘ ’ ‚ ‛,
+        # and any of them doubled is a literal one, so each is doubled
+        q = "'" + re.sub("([\u0027\u2018\u2019\u201a\u201b])", r"\1\1", url or "") + "'"
         return f"Start-Process {app}" + (f" {q}" if url else "") if app else f"Start-Process {q}"
     if app:
         return f"nohup {app}" + (f" {shlex.quote(url)}" if url else "") + " >/dev/null 2>&1 &"
     q = shlex.quote(url or "")
     return f"(xdg-open {q} || firefox-esr {q} || firefox {q}) >/dev/null 2>&1 &"
+
+
+def shell_risk(command: str) -> str | None:
+    """Why a command for this computer's shell waits for a yes (rm, sudo, a command inside bash -c, an inline
+    program that deletes or uses the network, printing a key; PowerShell's Remove-Item and the like), or None."""
+    from legato import safety
+    from legato.app_engine import command_risk
+    return command_risk(command) or safety.text_risk(command + "\n")
+
+
+def ask_first(env: Any, command: str) -> None:
+    """On this computer, a risky command runs only with the yes of the desktop's confirm: under `legato mcp`
+    nobody can answer, so it is refused unless the server was started with --yes. Other desktops run it."""
+    from legato.local import LocalEnv
+    if not isinstance(env, LocalEnv):
+        return
+    why = shell_risk(command)
+    confirm = getattr(env, "confirm", None)
+    if why and confirm is not None and not confirm(f"run this command, which {why}: {command}"):
+        raise ToolError(f"Not run: this command {why}, and risky commands are refused here, since nobody at this "
+                        "computer can be asked. Ask the user: they can allow them by starting `legato mcp --yes`.")
 
 
 def wait_for_launch(screenshot, before: str, appear_s: float = 10.0) -> None:
@@ -265,7 +289,9 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                 platform = sys.platform if env.shell is local_shell else "linux"
                 before = digest(env.observe().screenshot)
                 t = time.monotonic()
-                out = env.shell(launch_command(platform, url, app), 30.0)
+                launch = launch_command(platform, url, app)
+                ask_first(env, launch)                       # `app` is a command line on Windows and Linux
+                out = env.shell(launch, 30.0)
                 if not out.rstrip().endswith("[exit 0]"):
                     failed = " ".join(out.split())           # PowerShell says why first, bash last
                     failed = failed if len(failed) <= 500 else failed[:300] + " ... " + failed[-150:]
@@ -447,6 +473,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
             tool = bash(d["env"], timeout_s=min(max(float(timeout_s), 1.0), 300.0))
         except TypeError:
             raise ToolError("this desktop has no shell") from None
+        ask_first(d["env"], command)
         t = time.monotonic()
         out = tool.handler({"command": command})
         keep(desktop_id, "shell", None, command=command, seconds=round(time.monotonic() - t, 3))

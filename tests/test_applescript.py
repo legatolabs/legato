@@ -20,10 +20,13 @@ class Desk:
 
     def shell(self, cmd, timeout_s):
         self.cmds.append(cmd)
-        if cmd.startswith("cat > "):                  # remember each file's script, as the real shell would
-            path = cmd.split()[2]
+        if cmd.startswith("printf %s "):              # remember each file's script, as the real shell would
+            import base64
+            import shlex
+            parts = shlex.split(cmd.split(" && ", 1)[0].replace(" | base64 --decode > ", " "))
             self.files = getattr(self, "files", {})
-            self.files[path] = cmd.split("<<'LEGATO_AS_EOF'\n", 1)[1].split("\nLEGATO_AS_EOF", 1)[0]
+            self.files[parts[3]] = base64.b64decode(parts[2]).decode()
+            cmd = cmd + " " + self.files[parts[3]]
         if cmd.startswith("osascript "):
             cmd = cmd + " " + self.files.get(cmd.split()[1].removesuffix(".scpt"), "")
         if cmd.startswith("for p in"):
@@ -70,3 +73,20 @@ def test_the_summary_keeps_the_apps_own_suites():
     s = dictionary_summary(SDEF)
     assert "class list" in s and "command show (in)" in s and "class item" not in s and "command make" not in s
     assert dictionary_summary("not xml") == ""
+
+
+def test_a_script_cannot_end_the_file_and_run_shell_commands():
+    """The script went to the shell in a heredoc ending at a line LEGATO_AS_EOF: a script with that line ran the
+    lines after it as shell commands. It goes as base64 now, so the shell sees no script text at all."""
+    import base64
+    import shlex
+
+    from legato.tools import applescript
+    sent = []
+    t = applescript(type("D", (), {"shell": lambda self, c, s: sent.append(c) or "[exit 0]"})())
+    evil = 'tell application "Notes" to get name\nLEGATO_AS_EOF\ntouch /tmp/pwned\ncat <<\'LEGATO_AS_EOF\''
+    t.handler({"script": evil})
+    first = sent[0]
+    assert "\n" not in first and "pwned" not in first and first.startswith("printf %s ")
+    data = shlex.split(first.split(" | ", 1)[0])[2]
+    assert base64.b64decode(data).decode() == evil
