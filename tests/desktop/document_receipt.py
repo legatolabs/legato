@@ -141,7 +141,7 @@ def worker(path,arm):
 def run(text_edges=False):
     root=Path(__file__).resolve().parents[2]
     with tempfile.TemporaryDirectory() as tmp:
-        path=Path(tmp)/"legato-receipt-73914.txt"
+        path=Path(tmp)/("legato-receipt-"+Path(tmp).name+".txt")
         path.write_text("",encoding="utf-8")
         cmds=(["open","-a","TextEdit",str(path)] if sys.platform=="darwin" else
               ["notepad.exe",str(path)] if sys.platform=="win32" else ["mousepad","--disable-server",str(path)])
