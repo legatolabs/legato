@@ -41,7 +41,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from legato import safety
-from legato.env import FramePredicate, Obs
 from legato.actions import Action
 from legato import plan as plans
 from legato.harness import DENIED_NOTE, END_NOTE, Harness
@@ -546,9 +545,9 @@ def app_env(link: Link, run: "Run", gui: Any = None, wait_scope: str = "screen")
                 return "stopped from the Legato app"
             return super().stop_requested()
 
-        def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs:
+        def _act(self, action: Action, *, until, timeout_s: float, read):
             if action.done:
-                return super().act(action, until=until, timeout_s=timeout_s)
+                return super()._act(action, until=until, timeout_s=timeout_s, read=read)
             if run.stopping:
                 raise safety.Stopped("stopped from the Legato app")
             r = link.request("will_act", action=action.to_dict(), describe=action.describe(), screen=list(self.size))
@@ -558,7 +557,7 @@ def app_env(link: Link, run: "Run", gui: Any = None, wait_scope: str = "screen")
                 raise safety.Denied(r["deny"])
             if r.get("replan"):
                 raise Replan(r["replan"])
-            return super().act(action, until=until, timeout_s=timeout_s)
+            return super()._act(action, until=until, timeout_s=timeout_s, read=read)
 
         def _exec(self, a: Action) -> None:
             try:

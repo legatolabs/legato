@@ -366,7 +366,9 @@ class LocalEnv(Env):
 
     def _checked_frame(self, until: FramePredicate, png: bytes | None) -> Obs | None:
         # Window-scoped, app-supplied and overridden observations must always use their own capture surface.
-        if png is not None or self._shot != self._png or type(self)._png is not LocalEnv._png or type(self).observe is not Env.observe:
+        native_frame = (self._shot == self._png and type(self)._png is LocalEnv._png
+                        and type(self).observe is Env.observe)
+        if png is not None or not native_frame:
             return super()._checked_frame(until, png)
         image = self._screen_image()
         if not until(image.copy()):  # callers may transform their copy while examining it
@@ -444,10 +446,10 @@ class LocalEnv(Env):
             except (OSError, subprocess.SubprocessError):
                 pass
 
-    def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs:
+    def _act(self, action: Action, *, until, timeout_s: float, read):
         """Run `action`, unless the person has asked to stop (`safety.Stopped`) or says no to it (`safety.Denied`)."""
         if action.done:
-            return super().act(action, until=until, timeout_s=timeout_s)
+            return super()._act(action, until=until, timeout_s=timeout_s, read=read)
         if why := self.stop_requested():
             self._restore_clipboard()
             raise safety.Stopped(why)
@@ -465,7 +467,7 @@ class LocalEnv(Env):
                 raise safety.Denied(ask)
         self._typed = typed
         try:
-            return super().act(action, until=until, timeout_s=timeout_s)
+            return super()._act(action, until=until, timeout_s=timeout_s, read=read)
         except self._failsafe:
             self._restore_clipboard()
             raise safety.Stopped("the mouse was moved into a corner of the screen") from None
@@ -559,7 +561,13 @@ class LocalEnv(Env):
                 pass
             self._clip = None
 
-    def _exec(self, a: Action) -> None:
+    def _dispatch_for_check(self, action: Action) -> None:
+        if self._execute == LocalEnv._exec.__get__(self):
+            self._exec(action, verified=True)
+        else:  # an app, background window or custom driver owns dispatch
+            super()._dispatch_for_check(action)
+
+    def _exec(self, a: Action, *, verified: bool = False) -> None:
         g, t = self.gui, a.type
         if t != "type":
             self._restore_clipboard()
@@ -589,10 +597,10 @@ class LocalEnv(Env):
                         g.keyUp(k)
                     g.FAILSAFE = was
         elif t == "click":
-            if self.macmouse is not None and a.x is not None and a.y is not None:
+            if verified and self.macmouse is not None and a.x is not None and a.y is not None:
                 g.failSafeCheck()
                 self.macmouse.click(a.x, a.y, 1)
-            elif self._native_gui:
+            elif verified and self._native_gui:
                 g.click(a.x, a.y, _pause=False)
             else:
                 g.click(a.x, a.y)

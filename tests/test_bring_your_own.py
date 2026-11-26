@@ -145,3 +145,25 @@ def test_verified_step_uses_remote_helpers_frame_once():
     click = Action("click", x=2, y=1)
     assert desk.act(click, until=lambda image: image.size == (2, 1)).screenshot == _test_png()
     assert calls == [click] and desk.last["helper"] and desk.last["settle_s"] >= .3
+
+
+def test_native_receipt_can_be_falsey_and_never_takes_a_screen_or_repeats_input():
+    actions = []
+    desk = legato.attach(screenshot=lambda: pytest.fail("receipt should not need a screenshot"), execute=actions.append)
+    click = Action("click", x=2, y=3)
+    values = iter((4, 0))
+    assert desk.act(click, read=values.__next__, until=lambda count: count == 0) == 0
+    assert actions == [click]
+    with pytest.raises(TypeError):
+        desk.act(click, read=lambda: 0)
+    assert actions == [click]
+
+
+def test_reader_error_is_reported_without_automatic_redispatch():
+    actions = []
+    desk = legato.attach(screenshot=_test_png, execute=actions.append)
+    def lost():
+        raise RuntimeError("owned window closed")
+    with pytest.raises(RuntimeError, match="owned window closed"):
+        desk.act(Action("key", keys="Return"), read=lost, until=bool)
+    assert len(actions) == 1
