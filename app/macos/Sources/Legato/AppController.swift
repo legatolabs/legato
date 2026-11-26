@@ -166,6 +166,7 @@ final class AppController: NSObject {
     @objc private func menuUpdates() { updater.check() }
 
     func toggleCommandBar() {
+        perms.hotkeyTried = true                    // onboarding's "Tap Fn" step moves on
         if model.phase == .finished { hud.hide(); model.phase = .idle }
         bar.toggle()
     }
@@ -634,6 +635,7 @@ final class AppController: NSObject {
 
     func showOnboarding() {
         perms.startPolling()
+        perms.hotkeyTried = false
         let w = window("onboarding", title: "Welcome to Legato", view: OnboardingView(
             perms: perms, settings: settings,
             openSettings: { [weak self] in self?.showSettings() },
@@ -650,6 +652,7 @@ final class AppController: NSObject {
     }
 
     private func finishOnboarding() {
+        windows["onboarding"] = nil                 // the next Permissions… starts from the steps left then
         settings.onboarded = true
         perms.stopPolling()
         refreshMenu()
