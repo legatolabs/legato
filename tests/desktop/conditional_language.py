@@ -1,0 +1,72 @@
+"""Held-out natural-language rules, classified in advance. Labels are used only by the grader."""
+REQUESTS = (
+(
+"An item gets fast-tracked exactly when it is urgent. File it otherwise. Flags have no bearing here.",
+"Use the expedite lane for every urgent arrival, even a flagged one. File any nonurgent arrival.",
+"Everything goes to file unless urgency is set, in which case expedite it.",
+"Keep flagged and unflagged items on the same footing. Expedite urgent items only and file all others.",
+"If urgent is false, file the item. If true, expedite it, regardless of its flag.",
+"Process my queue by urgency alone. File an ordinary item and expedite an urgent one.",
+"Leave review unused. File the nonurgent records and fast-track the urgent records.",
+"Two destinations today: expedite for urgent, file for the rest.",
+"For this run the flag is informational. Urgency sends a record to expedite; all other records go to file.",
+"Whether it has a flag or not, route an urgent job to expedite. Send any other job to file.",
+"Urgent and flagged together still means expedite. File if nonurgent and expedite if urgent.",
+"Priority handling is enabled only for urgent rows. Expedite those rows, file the rest and ignore flags."
+),
+(
+"Send a flagged item for review even when urgent. File anything without a flag.",
+"Use review whenever the flag is on. Everything else should be filed, including urgent items without a flag.",
+"Urgency is informational. Route flagged records to review and unflagged records to file.",
+"Never expedite in this queue. Give flagged items review and file the rest.",
+"An unflagged arrival is filed. A flagged arrival goes to review. No other field matters.",
+"File unless flagged. If flagged, review the record.",
+"Flags alone determine the destination. Review a flagged record and file an unflagged record.",
+"Urgent or ordinary makes no difference today. Review all and only flagged items, and file the others.",
+"Treat a flag as a request for review. File documents without one, even if urgent.",
+"Use two trays, file and review. Review the flagged records and file the others.",
+"File all records except those marked with a flag, which go to review.",
+"All flagged entries get reviewed. All entries with no flag get filed."
+),
+(
+"For items with both markers, review wins. Expedite urgent-only items, review flagged-only items, and file items with neither marker.",
+"Check flagged first and route a match to review. Otherwise expedite if urgent and file if ordinary.",
+"A flag always requires review, including an urgent flag. Expedite every other urgent item and file the rest.",
+"File an unflagged ordinary record. Expedite an unflagged urgent record. Review all flagged records.",
+"Priority order: flagged to review, then urgent to expedite, otherwise file.",
+"Expedite urgent work unless it is flagged. Any flag requires review. File whatever remains.",
+"Review flagged records before considering urgency. After that, expedite urgent items and file other items.",
+"Nothing may bypass review when a flag is set. Without a flag, expedite urgent work or file ordinary work.",
+"An item with neither marker should be filed. With urgency alone expedite it. With any flag review it.",
+"Urgent work normally gets expedited. Override that with review for any flag. File ordinary unflagged work.",
+"Review is the destination of every flagged row. Use expedite for other urgent rows and file for other nonurgent rows.",
+"Give a flag precedence over urgency. Its route is review. The remaining urgent route is expedite and the default is file."
+),
+(
+"For items with both markers, expedite wins. Expedite urgent-only items, review flagged-only items, and file items with neither marker.",
+"Check urgent first and route a match to expedite. Otherwise review if flagged and file if ordinary.",
+"An urgent record always gets expedited, including a flagged one. Review every other flagged item and file the rest.",
+"File an unflagged ordinary record. Review a flagged ordinary record. Expedite all urgent records.",
+"Priority order: urgent to expedite, then flagged to review, otherwise file.",
+"Review flagged work unless it is urgent. Any urgency requires expedite. File whatever remains.",
+"Expedite urgent records before considering flags. After that, review flagged items and file other items.",
+"Nothing may delay expedite when urgency is set. Without urgency, review flagged work or file unflagged work.",
+"An item with neither marker should be filed. With a flag alone review it. With any urgency expedite it.",
+"Flagged work normally gets reviewed. Override that with expedite for any urgent item. File ordinary unflagged work.",
+"Expedite is the destination of every urgent row. Use review for other flagged rows and file for other unflagged rows.",
+"Give urgency precedence over a flag. Its route is expedite. The remaining flagged route is review and the default is file."
+),
+(
+"Only draft a routing recommendation. Do not submit any queue item.",
+"Read the records and summarize how many are urgent. Leave all routing untouched.",
+"Use the sender's department to select the route. I have not supplied the department mapping.",
+"Send every item to the legal team by email.",
+"Delete flagged records permanently and return the rest to the author.",
+"Wait for my approval before routing anything, including urgent work.",
+"Choose between file and review based on the unread attachment.",
+"Route by customer account balance. That field is absent from this queue.",
+"Translate the descriptions to Spanish, then close the queue with no routing changes.",
+"Expedite records having a signed waiver. The queue does not include a waiver field.",
+"List the items that would go to review and leave their present destinations alone.",
+"Assign each record to the person named in its private case notes."
+))
