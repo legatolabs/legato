@@ -67,3 +67,18 @@ def test_the_script_travels_as_one_argument_and_read_runs_it():
     sent = []
     assert winread.read(lambda cmd, t: sent.append((cmd, t)) or PAGE, 500).startswith('page "Counter"')
     assert sent == [(s, 20.0)]
+
+
+def test_outline_lookahead_skips_junk_and_keeps_the_last_visible_row():
+    raw = ("#window\tInspector\n0\tButton\t\t\t\nnot an element\n"
+           "1\tText\t\tBuild\t\n0\tScrollBar\t\tHidden\t\n1\tText\t\tHidden child\t\n"
+           "0\tEdit\tf\tOutput path\tC:\\\\src\\tline\\nend\\\n#stopped\t5\n"
+           "0\tText\t\tAfter the stop marker\t")
+    assert winread.outline(raw).splitlines() == [
+        'window "Inspector"', '- button', '  - text "Build"',
+        r'- textbox "Output path": "C:\\src\tline\nend\\" [focused]', '[stopped after 5 elements]']
+
+
+def test_escaped_text_includes_unknown_escape_and_trailing_backslash():
+    assert winread._unesc("plain") == "plain"
+    assert winread._unesc(r"a\qb\\c\n\t" + "\\") == "aqb\\c\n\t\\"
