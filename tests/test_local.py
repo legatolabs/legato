@@ -351,3 +351,46 @@ def test_the_console_is_only_minimised_on_windows_with_the_real_screen(monkeypat
     assert hidden == [] and L.hide_console.__doc__ is None
     monkeypatch.undo()
     assert L.hide_console()() is None or sys.platform == "win32"      # elsewhere: nothing to do
+
+
+def test_windows_captures_the_display_that_receives_pointer_coordinates(monkeypatch):
+    import io
+    from PIL import Image
+    import importlib
+    local_module = importlib.import_module("legato.local")
+
+    class TwoDisplays(Screen):
+        primary = {"left": 0, "top": 0, "width": 200, "height": 100}
+        other = {"left": -200, "top": 0, "width": 200, "height": 100}
+        monitors = [{}, other, primary]             # MSS 9 metadata has no "is_primary"
+
+        def grab(self, monitor):
+            color = (0, 90, 10) if monitor is self.primary else (190, 0, 10)
+            return Grab((monitor["width"], monitor["height"]), color)
+
+    monkeypatch.setattr(local_module.sys, "platform", "win32")
+    gui = Gui()
+    env = LocalEnv(gui=gui, grabber=TwoDisplays(), fixed_wait_s=0)
+    obs = env.act(Action("click", x=25, y=10))
+    assert gui.calls == [("click", (25, 10))]
+    assert (obs.width, obs.height) == (100, 50)
+    assert Image.open(io.BytesIO(obs.screenshot)).getpixel((25, 10)) == (0, 90, 10)
+
+
+def test_windows_scroll_dispatches_wheel_notches_on_the_requested_axis(monkeypatch):
+    import ctypes
+    import importlib
+    from types import SimpleNamespace
+    local_module = importlib.import_module("legato.local")
+    gui, wheel = Gui(), []
+    monkeypatch.setattr(local_module.sys, "platform", "win32")
+    monkeypatch.setattr(local_module, "_need", lambda name: gui)
+    user32 = SimpleNamespace(mouse_event=lambda *event: wheel.append(event))
+    monkeypatch.setattr(ctypes, "windll", SimpleNamespace(user32=user32), raising=False)
+    env = LocalEnv(grabber=Screen(), hide_terminal=False, confirm=None, fixed_wait_s=0)
+    for direction in ("right", "left", "up", "down"):
+        env.act(Action("scroll", direction=direction, amount=3, x=20, y=10))
+    assert wheel == [(0x1000, 0, 0, 360, 0), (0x1000, 0, 0, -360, 0),
+                     (0x0800, 0, 0, 360, 0), (0x0800, 0, 0, -360, 0)]
+    assert gui.calls == [(name, args) for _ in range(4)
+                         for name, args in (("moveTo", (20, 10)), ("failSafeCheck", ()))]

@@ -24,7 +24,9 @@ import io
 import re
 import subprocess
 import sys
+import threading
 import time
+from contextlib import ExitStack
 from typing import Any, Callable
 
 from legato import safety
@@ -153,6 +155,10 @@ def front_windows(quartz: Any) -> tuple[int | None, list[dict]]:
     return pid, [w for w in info if pid is not None and w.get("kCGWindowOwnerPID") == pid]
 
 
+_console_users: dict[int, int] = {}
+_console_lock = threading.Lock()
+
+
 def hide_console() -> Callable[[], None]:
     """Windows: minimise the console window this program runs in, and give back a function that restores it. The
     agent sees and uses the whole screen, and a terminal left in front is the first thing it clicks and types into
@@ -163,10 +169,26 @@ def hide_console() -> Callable[[], None]:
     try:
         import ctypes
         user32, hwnd = ctypes.windll.user32, ctypes.windll.kernel32.GetConsoleWindow()
-        if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
-            return lambda: None
-        user32.ShowWindow(hwnd, 6)                      # SW_MINIMIZE
-        return lambda: user32.ShowWindow(hwnd, 9)       # SW_RESTORE
+        with _console_lock:
+            if hwnd not in _console_users:
+                if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+                    return lambda: None
+                user32.ShowWindow(hwnd, 6)                # SW_MINIMIZE
+            _console_users[hwnd] = _console_users.get(hwnd, 0) + 1
+        released = False
+
+        def restore() -> None:
+            nonlocal released
+            with _console_lock:
+                if released:
+                    return
+                released = True
+                _console_users[hwnd] -= 1
+                if not _console_users[hwnd]:
+                    del _console_users[hwnd]
+                    user32.ShowWindow(hwnd, 9)            # SW_RESTORE for the last screen using this console
+
+        return restore
     except Exception:  # noqa: BLE001 - never a reason not to run the task
         return lambda: None
 
@@ -190,21 +212,9 @@ class LocalEnv(Env):
         self.wait_scope = wait_scope
         if sys.platform == "darwin" and gui is None:
             no_dock_icon()
+        self._windows_gui = sys.platform == "win32" and gui is None
         self.gui = gui or _need("pyautogui")
         self.gui.PAUSE = 0.02                     # pyautogui sleeps 0.1 s after every call by default
-        if grabber is None:
-            mss = _need("mss")
-            try:
-                grabber = mss.mss()
-            except Exception as e:                # no display to capture (Linux without X, a headless session)
-                raise DesktopStartError(f"this screen can't be captured: {e}") from e
-        self.sct = grabber
-        self.show_terminal: Callable[[], None] = lambda: None
-        if hide_terminal and gui is None and sys.platform == "win32":
-            self.show_terminal = hide_console()
-            atexit.register(self.show_terminal)
-        self.mon = self.sct.monitors[1]           # the primary screen, where pyautogui's (0, 0) is
-        self.size = tuple(self.gui.size())        # logical size: what pyautogui clicks in
         self.mac = sys.platform == "darwin"
         self.mac_cmd = mac_cmd
         # how text is typed on macOS: pasted (the default), or key by key with paste=None
@@ -239,6 +249,37 @@ class LocalEnv(Env):
             self.waiter = AXWaiter(LOCAL_RULES, pixels=cells, pixels_always=wait != "ax|cells")
         else:
             self.waiter = cells or Waiter(self._digest, rules=LOCAL_RULES)
+
+        # Acquire the screen last. Release anything we opened if even the monitor lookup fails.
+        with ExitStack() as opening:
+            if grabber is None:
+                mss = _need("mss")
+                try:
+                    grabber = mss.mss()
+                except Exception as e:
+                    raise DesktopStartError(f"this screen can't be captured: {e}") from e
+                opening.callback(grabber.close)
+            self.sct = grabber
+            monitors = grabber.monitors[1:]               # entry zero spans the virtual desktop
+            self.mon = monitors[0]
+            if sys.platform == "win32":
+                # MSS 9 has no primary flag. Windows' primary display starts at (0, 0).
+                self.mon = next((m for m in monitors if (m.get("left"), m.get("top")) == (0, 0)), self.mon)
+            self.size = tuple(self.gui.size())            # the coordinates pyautogui clicks in
+            self.show_terminal: Callable[[], None] = lambda: None
+            if hide_terminal and self._windows_gui:
+                self.show_terminal = hide_console()
+                atexit.register(self.show_terminal)
+                opening.callback(atexit.unregister, self.show_terminal)
+                opening.callback(self.show_terminal)
+            if callable(close_waiter := getattr(self.waiter, "close", None)):
+                opening.callback(close_waiter)
+            opening.callback(self._restore_clipboard)
+            self._resources = opening.pop_all()
+
+    def close(self) -> None:
+        """Release this screen's capture and wait resources, and restore the console and clipboard it changed."""
+        self._resources.close()
 
     def _cells(self, cell: int = 32) -> tuple:
         """A digest for each `cell`-point square of the screen, row by row (Waiter(background=True))."""
@@ -542,7 +583,15 @@ class LocalEnv(Env):
             n, d = a.amount or 3, a.direction or "down"
             if a.x is not None and a.y is not None:
                 g.moveTo(a.x, a.y)
-            if d in ("up", "down"):
+            if self._windows_gui:
+                # PyAutoGUI 0.9.54 sends raw deltas and implements hscroll as a vertical event on Windows.
+                import ctypes
+                g.failSafeCheck()
+                axis = 0x0800 if d in ("up", "down") else 0x1000  # MOUSEEVENTF_WHEEL / MOUSEEVENTF_HWHEEL
+                delta = 120 * n if d in ("up", "right") else -120 * n  # WHEEL_DELTA per notch
+                ctypes.windll.user32.mouse_event(axis, 0, 0, delta, 0)
+                time.sleep(g.PAUSE)
+            elif d in ("up", "down"):
                 g.scroll(n if d == "up" else -n)
             else:
                 g.hscroll(n if d == "right" else -n)

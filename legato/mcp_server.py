@@ -30,6 +30,7 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import ExitStack
 from typing import Any, Callable
 
 from typing_extensions import TypedDict
@@ -243,12 +244,12 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
             low.version = __version__             # serverInfo.version, which the library leaves empty
     desks: dict[str, dict] = {}
 
-    def keep(did: str, event: str, png: bytes | None, **detail: Any) -> None:
+    def keep(did: str, event: str, png: bytes | None, *, state: dict | None = None, **detail: Any) -> None:
         if not record:
             return
         import json
         from pathlib import Path
-        d = desks[did]
+        d = desks[did] if state is None else state
         d["n"] = d.get("n", 0) + 1
         folder = Path(record) / did
         folder.mkdir(parents=True, exist_ok=True)
@@ -287,35 +288,41 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         asked = (width, height) if width or height else None
         width, height = width or 1280, height or 800
         sb, env = factory((width, height))
-        did = uuid.uuid4().hex[:12]
-        desks[did] = {"sb": sb, "env": env, "wh": (width, height), "opened": time.time()}
-        note, started, failed = "", None, None
-        if url or app:
-            if not callable(getattr(env, "shell", None)):
-                note = " (this desktop has no shell, so url and app were not opened)"
-                failed = "this desktop has no shell, so url and app were not opened"
-            else:
-                platform = sys.platform if env.shell is local_shell else "linux"
-                before = digest(env.observe().screenshot)
-                t = time.monotonic()
-                launch = launch_command(platform, url, app)
-                ask_first(env, launch)                       # `app` is a command line on Windows and Linux
-                out = env.shell(launch, 30.0)
-                if not out.rstrip().endswith("[exit 0]"):
-                    failed = " ".join(out.split())           # PowerShell says why first, bash last
-                    failed = failed if len(failed) <= 500 else failed[:300] + " ... " + failed[-150:]
-                    note = f" (NOT started: starting {app or url} failed, so the desktop is as it was: {failed})"
+        from legato import providers
+        with ExitStack() as opening:
+            opening.callback(providers.close, sb)
+            did = uuid.uuid4().hex[:12]
+            d = {"sb": sb, "env": env, "wh": (width, height), "opened": time.time()}
+            note, started, failed = "", None, None
+            if url or app:
+                if not callable(getattr(env, "shell", None)):
+                    note = " (this desktop has no shell, so url and app were not opened)"
+                    failed = "this desktop has no shell, so url and app were not opened"
                 else:
-                    wait_for_launch(lambda: env.observe().screenshot, before)
-                    note = f" (started {app or url} in {time.monotonic() - t:.1f} s)"
-                    started = app or url
-        img = shot(desks[did])
-        w, h = desks[did]["wh"]
-        if asked and (w, h) != (width, height):
-            note += f" (its size is {w}x{h}, not the {width}x{height} asked for: this desktop's size is its own)"
-        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app)
-        return open_result(f"desktop_id: {did} ({w}x{h}){note}", img,
-                           {"desktop_id": did, "width": w, "height": h, "started": started, "start_error": failed})
+                    platform = sys.platform if env.shell is local_shell else "linux"
+                    before = digest(env.observe().screenshot)
+                    t = time.monotonic()
+                    launch = launch_command(platform, url, app)
+                    ask_first(env, launch)                       # `app` is a command line on Windows and Linux
+                    out = env.shell(launch, 30.0)
+                    if not out.rstrip().endswith("[exit 0]"):
+                        failed = " ".join(out.split())           # PowerShell says why first, bash last
+                        failed = failed if len(failed) <= 500 else failed[:300] + " ... " + failed[-150:]
+                        note = f" (NOT started: starting {app or url} failed, so the desktop is as it was: {failed})"
+                    else:
+                        wait_for_launch(lambda: env.observe().screenshot, before)
+                        note = f" (started {app or url} in {time.monotonic() - t:.1f} s)"
+                        started = app or url
+            img = shot(d)
+            w, h = d["wh"]
+            if asked and (w, h) != (width, height):
+                note += f" (its size is {w}x{h}, not the {width}x{height} asked for: this desktop's size is its own)"
+            keep(did, "open", d["png"], state=d, width=w, height=h, url=url, app=app)
+            result = open_result(f"desktop_id: {did} ({w}x{h}){note}", img,
+                               {"desktop_id": did, "width": w, "height": h, "started": started, "start_error": failed})
+            desks[did] = d
+            opening.pop_all()
+            return result
 
     desktop_open.__annotations__["return"] = OPEN_RETURN
     srv.tool()(_said(desktop_open))
@@ -573,31 +580,36 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
     desktop_run_task.__annotations__["return"] = RUN_RETURN
     srv.tool()(_said(desktop_run_task))
 
+    def release(d: dict) -> None:
+        from legato import providers
+        from legato.background import BackgroundEnv
+        try:
+            providers.close(d["sb"])                     # only the handle its factory gave us
+        finally:
+            if isinstance(d["env"], BackgroundEnv) and d["sb"] is not d["env"]:
+                d["env"].close()
+
     @srv.tool()
     @_said
     def desktop_close(desktop_id: str) -> str:
         """Stop a desktop. In the background, the window desktop_open(url=...) opened is closed; the app stays."""
-        if desktop_id not in desks:
+        d = desks.pop(desktop_id, None)
+        if d is None:
             return f"no open desktop {desktop_id!r}"
-        keep(desktop_id, "close", None)
-        d = desks.pop(desktop_id)
-        from legato import providers
-        providers.close(d["sb"])
-        from legato.background import BackgroundEnv
-        if isinstance(d["env"], BackgroundEnv):           # the window desktop_open(url=...) opened
-            try:
-                d["env"].close()
-            except Exception:  # noqa: BLE001 - the desktop is gone from the list either way
-                pass
+        try:
+            keep(desktop_id, "close", None, state=d)
+        finally:
+            release(d)
         return f"closed {desktop_id} after {time.time() - d['opened']:.0f} s"
 
-    def close_left() -> None:                   # the client went without desktop_close: its windows go with the server
+    def close_left() -> None:                   # the client went without closing its local desktops
         from legato.background import BackgroundEnv
-        for d in list(desks.values()):
-            if isinstance(d["env"], BackgroundEnv):
+        from legato.local import LocalEnv
+        for did, d in list(desks.items()):
+            if isinstance(d["env"], (BackgroundEnv, LocalEnv)) and desks.pop(did, None) is not None:
                 try:
-                    d["env"].close()
-                except Exception:  # noqa: BLE001 - exiting anyway
+                    release(d)
+                except Exception:  # noqa: BLE001 - continue closing the other screens
                     pass
     import atexit
     atexit.register(close_left)
@@ -643,8 +655,7 @@ def main(argv=None) -> int:
     make = providers.load(spec)
     if spec == "local" and a.wait_scope != "screen":
         def make(w, h):  # noqa: F811 - the same desktop, with the wait on the front app's windows
-            from legato.local import local
-            return None, local(wait_scope=a.wait_scope)
+            return providers.local(w, h, wait_scope=a.wait_scope)
     providers.warm(spec)                       # e.g. pull the desktop image while the agent gets going
     from legato import safety
     from legato.local import LocalEnv
