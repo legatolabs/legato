@@ -25,6 +25,10 @@ jobs:
         run: xvfb-run -a -s '-screen 0 1280x800x24' python tests/desktop/verified_readiness.py results.json
       - if: runner.os != 'Linux'
         run: python tests/desktop/verified_readiness.py results.json
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a -s '-screen 0 1280x800x24' python tests/desktop/verified_file_task.py
+      - if: runner.os != 'Linux'
+        run: python tests/desktop/verified_file_task.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
