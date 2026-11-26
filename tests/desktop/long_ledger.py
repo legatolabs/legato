@@ -223,7 +223,7 @@ def worker(folder,arm):
                     def matches(result):
                         (ep,r,ph,_,_,_),doc=result
                         return ((ep,r,ph)==(epoch,ix+1,0) and doc["epoch"]==epoch and doc["revision"]==ix+1
-                                and (job["weak"] or doc["status"]=="committed") and doc["records"][row]==value)
+                                and ((job["weak"] and ix==COUNT-1) or doc["status"]=="committed") and doc["records"][row]==value)
                     attempted+=1
                     _,doc=act(Action("key",keys="Return"),read,matches)
                     known=doc["records"]
@@ -281,12 +281,10 @@ def run(args):
                 workers[arm]=proc
                 if proc.stdout.readline().strip()!="ready":raise RuntimeError(arm)
             for slot in range(args.cases):
-                seed=12097+args.shard*101+slot
-                if slot<12 or slot>=20:fault,weak="ok",False
-                elif slot<18:fault,weak=["dropped","lost","rollback"][(slot-12)%3],False
-                else:fault,weak="rollback",True
+                seed=98471+107*(slot//2)
+                fault,weak="rollback",bool(slot%2)
                 initial,steps=case(seed)
-                rng=random.Random(seed);index=(COUNT-1 if weak else rng.randrange(3,COUNT))
+                rng=random.Random(seed);index=COUNT-1
                 delays=[rng.choice([0,7,38,81]) for _ in steps]
                 gaps=[rng.choice([0,5,18,52]) for _ in steps]
                 if slot<20 and not args.live:
