@@ -1,6 +1,5 @@
 """Time real edits and saves in an unmodified platform editor on a disposable native desktop."""
 import codecs
-import csv
 import hashlib
 import itertools
 import json
@@ -84,7 +83,9 @@ def scoped_text(path):
             queue=[win]
             while queue:
                 node=queue.pop()
-                if node.getRole() in (at.ROLE_TEXT,at.ROLE_ENTRY) and node.getState().contains(at.STATE_EDITABLE):
+                if (node.getRole()==at.ROLE_TEXT and node.getState().contains(at.STATE_EDITABLE)
+                        and node.getState().contains(at.STATE_MULTI_LINE) and node.getState().contains(at.STATE_SHOWING)):
+                    node.queryComponent().grabFocus()
                     iface=node.queryText()
                     return lambda:iface.getText(0,-1)
                 queue.extend(child for child in node if child is not None)
@@ -148,6 +149,11 @@ def run():
         workers={}
         try:
             get_reader(path)
+            if sys.platform.startswith("linux"):
+                windows=subprocess.check_output(["xdotool","search","--onlyvisible","--name",path.stem],text=True).splitlines()
+                if len(windows)!=1:
+                    raise RuntimeError("expected one owned Mousepad window")
+                subprocess.run(["xdotool","windowactivate","--sync",windows[0]],check=True,timeout=5)
             for arm in ("default","manual","sdk"):
                 repo=root if arm=="sdk" else root/"baseline"
                 proc=subprocess.Popen([sys.executable,"-u",__file__,str(path),arm],cwd=repo,
