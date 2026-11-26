@@ -35,10 +35,13 @@ def fixture(folder):
     bits = [canvas.create_rectangle(30+i*15, 65, 44+i*15, 87, fill="white", outline="") for i in range(12)]
     marks = [canvas.create_rectangle(x, 65, x+10, 87, fill=color, outline="")
              for x, color in [(12, "black"), (220, "black"), (235, "white")]]
+    prefix = "Legato "+folder.name+" order "
+    publish(folder/"owner.json", {"prefix":prefix, "pid":os.getpid()})
     sequence = 0
     clicks = 0
 
     def draw(serial):
+        root.title(prefix+str(serial))
         canvas.itemconfigure(title, text=f"Order {serial}")
         for i, block in enumerate(bits):
             canvas.itemconfigure(block, fill="black" if serial & (1 << i) else "white")
@@ -95,6 +98,10 @@ def worker(folder, arm):
         with Image.open(io.BytesIO(obs.screenshot)) as im:
             return read_image(im)
     env = legato.local(hide_terminal=False, fixed_wait_s=0 if arm == "checked" else None)
+    from native_receipt import TitleReader
+    owner=take_json(folder/"owner.json")
+    reader=TitleReader(**owner)
+    assert reader.value()==0
     try:
         end = time.monotonic() + 8
         while receipt(env.observe()) != 0:
@@ -107,40 +114,34 @@ def worker(folder, arm):
             serial, delay = spec["serial"], spec["delay_ms"]
             action = Action("click", x=x+(355 if spec["target"] else 150), y=y+155)
             seen = []
-            def check(obs):
-                value = receipt(obs)
+            def check(value):
                 seen.append(value)
                 return value == serial
             cap = 4 if delay >= 0 else .8
             start = time.perf_counter()
             returned = None
             if arm == "sdk":
-                def match_image(im):
-                    value = read_image(im)
-                    seen.append(value)
-                    return value == serial
                 try:
-                    returned = env.act(action, until=match_image, timeout_s=cap)
+                    returned = env.act(action, read=reader.value, until=check, timeout_s=cap)
                 except TimeoutError:
                     pass
                 timing = dict(env.last)
             else:
-                obs = env.act(action)
+                env.act(action)
                 timing = dict(env.last)
                 while True:
-                    if check(obs):
-                        returned = obs
+                    observed=reader.value()
+                    if check(observed):
+                        returned=observed
                         break
-                    if time.perf_counter()-start >= cap:
-                        break
+                    if time.perf_counter()-start >=cap: break
                     time.sleep(.01)
-                    obs = env.observe()
             elapsed = (time.perf_counter()-start)*1000
-            # All arms get the same independent final-frame check, outside the timer.
-            result = receipt(returned) if returned is not None else None
+            result=returned
             print(json.dumps(dict(total_ms=elapsed, accepted=result==serial, first=seen[0],
                                   reads=len(seen), timing=timing)), flush=True)
     finally:
+        reader.close()
         env.close()
 
 
