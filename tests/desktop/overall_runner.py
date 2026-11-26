@@ -60,7 +60,7 @@ def main():
                     print((folder/"server.log").read_text(errors="replace")[-2200:])
                     raise RuntimeError("local model failed startup")
                 sys.path.insert(0,str(Path(__file__).parent/"office"))
-                subprocess.run([sys.executable,"-u",str(Path(__file__).parent/"office"/"retrieval.py"),
+                subprocess.run([sys.executable,"-u",str(Path(__file__).parent/"office"/"shadow.py"),
                                 "--shard",args.shard],check=True)
             finally:
                 proc.terminate();proc.wait(timeout=20)

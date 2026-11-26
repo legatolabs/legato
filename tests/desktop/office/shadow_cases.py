@@ -1,0 +1,31 @@
+"""Evaluation descriptions written after the candidate verification rule was pinned."""
+NEW={
+"copy_title":("Set the presentation's opening title from the contents of Summary cell A1.",
+              "The title on the first slide must read exactly like A1 in the Summary worksheet."),
+"copy_total":("Take the figure in Summary B2 and use it alone under the title on slide one.",
+              "Show just the B2 value from Summary as the first slide's subtitle."),
+"top_region":("Use the name of the region whose revenue sums highest as the title for slide two.",
+              "Aggregate the monthly figures by region. Put the leader's name in the second slide title."),
+"top3_list":("Fill the body of the second slide with the three regions leading in aggregate revenue, descending, with line breaks.",
+             "Slide two needs body text ranking the top three regions by revenue sum, one per line from first to third."),
+"compute_total":("Write Total: followed by the sum of all Data revenue entries into slide two's body.",
+                 "Make the body of the second slide say 'Total: ' followed by combined revenue from all regions."),
+"region_table":("Add to slide two a table headed Region and Total, summing all monthly figures for each region.",
+                "Give each region one row of a Region and Total revenue table on slide 2."),
+"paste_chart":("Insert on slide three a month-by-month chronological revenue chart for the {extra} region.",
+               "Place the monthly revenue series for the {extra} region in a chart on the third slide, earliest month first."),
+"next_steps":("Make the final new slide Next Steps with body text Grow followed by the lowest revenue region's name.",
+              "Append a slide whose heading is Next Steps and whose body starts with Grow and names the lowest-grossing region.")}
+NEG=(
+"Copy only the first five characters of cell A1 from Summary into the opening slide title.",
+"Put the Summary B2 number into the first subtitle after subtracting tax.",
+"On slide two list the top three regions alphabetically, instead of in order of revenue.",
+"Make a revenue chart for the {extra} region on slide three with months running from latest to earliest.",
+"Replace the opening title with the text in Summary cell A2.",
+"Divide each region's sum by its number of months, and show the averages in a table on slide two.",
+"Put each region's initials into the ranked three-line list on slide two.",
+"Set the second slide title to the name of the region with the highest single month of revenue.",
+"Write the grand total as a percentage in the body of slide two.",
+"Insert the Next Steps slide immediately after the cover and before slide two.",
+"Give me a preview of the changes without producing any presentation file.",
+"Add the monthly revenue chart for the {extra} region to the opening slide, above the subtitle.")
