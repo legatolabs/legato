@@ -1,10 +1,9 @@
 name: local-desktop
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 permissions:
   contents: read
 jobs:
-  receipts:
+  stream:
     strategy:
       fail-fast: false
       matrix:
@@ -13,24 +12,11 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          ref: 1646bf7f916d64ec8220c7d3fe3e84433a43dd1b
-          path: baseline
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: python -m pip install -e .
       - if: runner.os == 'Linux'
-        run: xvfb-run -a -s '-screen 0 1280x800x24' python tests/desktop/verified_readiness.py results.json
+        run: xvfb-run -a -s '-screen 0 1280x800x24' python tests/desktop/streamed_form.py
       - if: runner.os != 'Linux'
-        run: python tests/desktop/verified_readiness.py results.json
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a -s '-screen 0 1280x800x24' python tests/desktop/verified_file_task.py
-      - if: runner.os != 'Linux'
-        run: python tests/desktop/verified_file_task.py
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: verified-${{ matrix.os }}
-          path: results.json
+        run: python tests/desktop/streamed_form.py
