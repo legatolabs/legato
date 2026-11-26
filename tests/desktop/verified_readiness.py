@@ -84,14 +84,16 @@ def worker(folder, arm):
     sdk_root = Path(os.environ["BENCH_SDK"]).resolve()
     assert Path(legato.__file__).resolve().is_relative_to(sdk_root), legato.__file__
     x, y = take_json(folder / "geometry.json")
+    def read_image(im):
+        strip = im.crop((x+10, y+70, x+245, y+71)).convert("L")
+        def dark(px):
+            return strip.getpixel((px-10, 0)) < 56
+        if not (dark(16) and dark(224) and not dark(239)):
+            return None
+        return sum(int(dark(37+i*15)) << i for i in range(12))
     def receipt(obs):
         with Image.open(io.BytesIO(obs.screenshot)) as im:
-            strip = im.crop((x+10, y+70, x+245, y+71)).convert("L")
-            def dark(px):
-                return strip.getpixel((px-10, 0)) < 56
-            if not (dark(16) and dark(224) and not dark(239)):
-                return None
-            return sum(int(dark(37+i*15)) << i for i in range(12))
+            return read_image(im)
     env = legato.local(hide_terminal=False, fixed_wait_s=0 if arm == "checked" else None)
     try:
         end = time.monotonic() + 8
@@ -113,8 +115,12 @@ def worker(folder, arm):
             start = time.perf_counter()
             returned = None
             if arm == "sdk":
+                def match_image(im):
+                    value = read_image(im)
+                    seen.append(value)
+                    return value == serial
                 try:
-                    returned = env.act(action, until=check, timeout_s=cap)
+                    returned = env.act(action, until=match_image, timeout_s=cap)
                 except TimeoutError:
                     pass
                 timing = dict(env.last)
