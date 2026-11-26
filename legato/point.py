@@ -459,6 +459,7 @@ class Pointing:
 
     def next(self, png: bytes) -> list:
         """The actions to run now on the screen `png`, in order. [] when the task has ended (status, error)."""
+        self.h._frame_size(self.ep, png)
         self.calls, self.quick = [], []
         while not self.ended and not self.running:
             if not self.pending:

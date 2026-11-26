@@ -79,9 +79,12 @@ def desktop_kind(env: Env | None) -> str:
     if env is None:
         return "other"
     from legato.local import LocalEnv
-    if type(env).__name__ == "BackgroundEnv":
+    if not isinstance(env, LocalEnv):
+        return "other"
+    from legato.background import BackgroundEnv
+    if isinstance(env, BackgroundEnv):
         return "mac-background"
-    if isinstance(env, LocalEnv) and sys.platform == "darwin":
+    if sys.platform == "darwin":
         return "mac-screen"
     return "other"
 

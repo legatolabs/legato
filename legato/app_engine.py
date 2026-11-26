@@ -773,8 +773,9 @@ class Run:
                     status, message = "cost_cap", (f"Stopped at ${self.record['usage']['cost_usd']:.2f}, the most a task "
                                                    f"may cost (${cap:.2f}). You can allow more in Settings.")
                     break
-                h.feed(ep, plan, pngs or [obs.screenshot], results or None, note)
-                seen = (pngs or [obs.screenshot])[-1]
+                if pngs:
+                    seen = pngs[-1]
+                h.feed(ep, plan, pngs or [seen], results or None, note)
         except StopNow:
             status, message = "stopped", "stopped from the Legato app"
         except safety.Stopped as e:
