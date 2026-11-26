@@ -202,8 +202,8 @@ When an integration knows what a successful action looks like, it can check the 
 ```python
 # receipt_visible reads the expected order ID from the supplied screenshot.
 obs = desktop.act(legato.Action("click", x=120, y=80),
-                  until=lambda frame: receipt_visible(frame.screenshot, expected_order_id),
+                  until=lambda image: receipt_visible(image, expected_order_id),
                   timeout_s=3.0)
 ```
 
-The runtime dispatches the action once and returns the first accepted observation. Use an expected value specific to this action so an earlier receipt cannot satisfy it. On a local or callback-based desktop, this replaces the usual quiet-screen wait for that action. Remote step helpers finish their step before checking the condition. An unmet condition raises `TimeoutError`. The application may have received the input, so inspect its state before retrying. A capture or predicate already running at the deadline may finish.
+The predicate receives a Pillow image. The runtime dispatches the action once and returns the first accepted frame as a normal screenshot observation. Use an expected value specific to this action so an earlier receipt cannot satisfy it. On a local or callback-based desktop, this replaces the usual quiet-screen wait for that action. Remote step helpers finish their step before checking the condition. An unmet condition raises `TimeoutError`. The application may have received the input, so inspect its state before retrying. A capture or predicate already running at the deadline may finish.
