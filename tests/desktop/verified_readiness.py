@@ -162,10 +162,18 @@ def benchmark(out):
                 spec = {"serial":serial, "delay_ms":delay, "target":serial % 2}
                 publish(folder / "request.json", spec)
                 proc = workers[arm]
+                started = time.perf_counter()
                 proc.stdin.write(json.dumps(spec)+"\n")
                 proc.stdin.flush()
                 row = json.loads(proc.stdout.readline())
                 grade = take_json(folder / "grade.json")
+                # The UI can paint before its separate application journal rename is visible.
+                # Include that interval in graded_ms, and still require the exact sequence and count.
+                until = time.monotonic()+1
+                while delay >= 0 and grade["serial"] < serial and time.monotonic() < until:
+                    time.sleep(.001)
+                    grade = take_json(folder / "grade.json")
+                row["graded_ms"] = (time.perf_counter()-started)*1000
                 valid = ((row["accepted"] and grade == {"serial":serial,"clicks":serial}) if delay >= 0
                          else (not row["accepted"] and take_json(folder / "withheld.json") ==
                                {"serial":serial,"clicks":serial} and grade["serial"] != serial))
