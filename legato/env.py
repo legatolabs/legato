@@ -368,13 +368,15 @@ class Env:
         try:
             while True:
                 start = time.monotonic()
-                if read is None:
-                    value = self._checked_frame(until, png)
-                    accepted = value is not None
-                else:
-                    value = read()
-                    accepted = until(value)
-                timing["obs_s"] += time.monotonic() - start  # includes evaluating the condition on this observation
+                try:
+                    if read is None:
+                        value = self._checked_frame(until, png)
+                        accepted = value is not None
+                    else:
+                        value = read()
+                        accepted = until(value)
+                finally:
+                    timing["obs_s"] += time.monotonic() - start
                 if accepted:
                     return value
                 png = None  # any later attempt needs a new frame

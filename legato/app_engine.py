@@ -38,7 +38,7 @@ import time
 import traceback
 import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from legato import safety
 from legato.actions import Action
