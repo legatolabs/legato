@@ -138,13 +138,16 @@ def worker(path,arm):
         env.close()
 
 
-def run():
+def run(text_edges=False):
     root=Path(__file__).resolve().parents[2]
     with tempfile.TemporaryDirectory() as tmp:
         path=Path(tmp)/"legato-receipt-73914.txt"
         path.write_text("",encoding="utf-8")
         cmds=(["open","-a","TextEdit",str(path)] if sys.platform=="darwin" else
               ["notepad.exe",str(path)] if sys.platform=="win32" else ["mousepad","--disable-server",str(path)])
+        sentinel=b"owned native editor clipboard 73914"
+        if text_edges:
+            subprocess.run(["pbcopy"],input=sentinel,check=True)
         app=subprocess.Popen(cmds)
         workers={}
         try:
@@ -164,9 +167,13 @@ def run():
                 if state["initial"]!="":
                     raise AssertionError(state)
             expected=""
-            for pair in range(18):
+            samples=["café", "Order 007", "東京", "go 🚀", "á", "two  spaces", "first\nsecond",
+                     "ship now\n", "ends here\n\n", "12345", "12+7=", " — last "]
+            for pair in range(len(samples) if text_edges else 18):
                 for arm in list(itertools.permutations(workers))[pair%6]:
                     token="R"+str(1000+pair*31+list(workers).index(arm)*7)
+                    if text_edges:
+                        token=samples[pair]
                     expected+=token
                     w=workers[arm]
                     w.stdin.write(json.dumps(dict(append=token,target=expected))+"\n")
@@ -174,7 +181,10 @@ def run():
                     r=json.loads(w.stdout.readline())
                     data=path.read_bytes()
                     valid=r.pop("readback")==expected and disk(path)==expected
-                    print("DOCUMENT",json.dumps(dict(arm=arm,pair=pair,valid=valid,bytes=len(data),
+                    if text_edges:
+                        restored=subprocess.check_output(["pbpaste"])==sentinel
+                        valid=valid and restored
+                    print("EDGE" if text_edges else "DOCUMENT",json.dumps(dict(arm=arm,pair=pair,valid=valid,bytes=len(data),
                                                   sha256=hashlib.sha256(data).hexdigest(),**r)),flush=True)
                     if not valid:
                         raise AssertionError((arm,pair))
@@ -188,7 +198,7 @@ def run():
 
 
 if __name__=="__main__":
-    if len(sys.argv)==1:
-        run()
+    if len(sys.argv)==1 or sys.argv[1]=="--text-edges":
+        run(text_edges="--text-edges" in sys.argv)
     else:
         worker(Path(sys.argv[1]),sys.argv[2])

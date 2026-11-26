@@ -26,3 +26,5 @@ jobs:
         run: dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' env NO_AT_BRIDGE=0 GTK_MODULES=gail:atk-bridge sh -c 'openbox >/tmp/legato-editor-wm.log 2>&1 & exec python tests/desktop/document_receipt.py'
       - if: runner.os != 'Linux'
         run: python tests/desktop/document_receipt.py
+      - if: runner.os == 'macOS'
+        run: python tests/desktop/document_receipt.py --text-edges
