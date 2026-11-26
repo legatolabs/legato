@@ -1424,3 +1424,17 @@ def test_a_sheet_on_another_window_is_not_taken_while_acting():
     a._acting = True
     a.window()
     assert 90 not in a.own and 90 in a.known
+
+
+def test_adaptive_action_returns_the_window_frame_that_settled():
+    m = FakeMac()
+    env = BackgroundEnv("TextEdit", mac=m, window="front", confirm=None)
+    now = [0.0]
+    env.waiter.clock = lambda: now[0]
+    env.waiter.sleep = lambda seconds: now.__setitem__(0, now[0] + seconds)
+    frame = env.act(Action("key", keys="Right")).screenshot
+    assert len(m.captures) == env.waiter.grabs
+    m.shade += 1
+    assert env.observe().screenshot != frame
+    assert len(m.captures) == env.waiter.grabs + 1
+    env.close()

@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from legato.actions import Action
-from legato.settle import LOCAL_RULES, Waiter, rule_kind
+from legato.settle import LOCAL_RULES, Waiter, _ScreenSample, rule_kind
 from legato.tools import wrap_command
 
 class DesktopError(RuntimeError):
@@ -286,13 +286,15 @@ class Env:
             self._execute(action)
             timing["act_s"] = time.monotonic() - t
             t = time.monotonic()
-            self.waiter.settle(rule_kind(action.type))
+            sample = self.waiter.settle(rule_kind(action.type))
+            if isinstance(sample, _ScreenSample):
+                self._pending_png = sample.png
             timing["settle_s"] = time.monotonic() - t
             if self.waiter.background and self.waiter.last:
                 timing["wait"] = dict(self.waiter.last)
         png = getattr(self, "_pending_png", None)
         self._pending_png = None
-        if png:                     # the helper returned the settled frame: no extra round trip
+        if png:                     # the step or the waiter already captured the settled frame
             w, h = png_size(png)
             obs = Obs(png, w, h)
             self.last = {**timing, "obs_s": 0.0}
