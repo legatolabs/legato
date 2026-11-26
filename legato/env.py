@@ -284,30 +284,30 @@ class Env:
             if not math.isfinite(timeout_s) or timeout_s <= 0:
                 raise ValueError("timeout_s must be finite and positive")
         if action.done:
+            start = time.monotonic()
             obs = self.observe()
-            return obs if until is None else self._wait_until(obs, until, timeout_s, time.monotonic() - self.last["obs_s"])
+            return obs if until is None else self._wait_until(obs, until, timeout_s, start)
         timing = {}
-        if self.fixed_wait_s is not None and until is None or self._step is None and until is not None:
-            t = time.monotonic()
-            self._execute(action)
-            timing["act_s"] = time.monotonic() - t
-            if until is None:
-                time.sleep(self.fixed_wait_s)
-                timing["settle_s"] = self.fixed_wait_s
-        elif self._step is not None:
+        if self._step is not None and (until is not None or self.fixed_wait_s is None):
             timing = self._step(action) or {}
         else:
-            self.waiter.prime()     # with background=True, before the first action: what moves on its own
+            adaptive = until is None and self.fixed_wait_s is None
+            if adaptive:
+                self.waiter.prime()  # learn what was already moving before the action
             t = time.monotonic()
             self._execute(action)
             timing["act_s"] = time.monotonic() - t
-            t = time.monotonic()
-            sample = self.waiter.settle(rule_kind(action.type))
-            if isinstance(sample, _ScreenSample):
-                self._pending_png = sample.png
-            timing["settle_s"] = time.monotonic() - t
-            if self.waiter.background and self.waiter.last:
-                timing["wait"] = dict(self.waiter.last)
+            if adaptive:
+                t = time.monotonic()
+                sample = self.waiter.settle(rule_kind(action.type))
+                if isinstance(sample, _ScreenSample):
+                    self._pending_png = sample.png
+                timing["settle_s"] = time.monotonic() - t
+                if self.waiter.background and self.waiter.last:
+                    timing["wait"] = dict(self.waiter.last)
+            elif until is None:
+                time.sleep(self.fixed_wait_s)
+                timing["settle_s"] = self.fixed_wait_s
         png = getattr(self, "_pending_png", None)
         self._pending_png = None
         start = time.monotonic()

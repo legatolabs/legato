@@ -115,12 +115,17 @@ class MacMouse:
 
     def click(self, x: float, y: float, count: int) -> None:
         q = self.q
+        if count == 1:
+            # Send movement, down and up to the same point in event-queue order.
+            move = q.CGEventCreateMouseEvent(None, q.kCGEventMouseMoved, (x, y), q.kCGMouseButtonLeft)
+            q.CGEventPost(q.kCGHIDEventTap, move)
         for n in range(1, count + 1):
             for kind in (q.kCGEventLeftMouseDown, q.kCGEventLeftMouseUp):
                 ev = q.CGEventCreateMouseEvent(None, kind, (x, y), q.kCGMouseButtonLeft)
                 q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, n)
                 q.CGEventPost(q.kCGHIDEventTap, ev)
-                time.sleep(0.03)
+                if count > 1:
+                    time.sleep(0.03)
 
 
 def _need(name: str):
@@ -212,6 +217,7 @@ class LocalEnv(Env):
         self.wait_scope = wait_scope
         if sys.platform == "darwin" and gui is None:
             no_dock_icon()
+        self._native_gui = gui is None
         self._windows_gui = sys.platform == "win32" and gui is None
         self.gui = gui or _need("pyautogui")
         self.gui.PAUSE = 0.02                     # pyautogui sleeps 0.1 s after every call by default
@@ -567,7 +573,13 @@ class LocalEnv(Env):
                         g.keyUp(k)
                     g.FAILSAFE = was
         elif t == "click":
-            g.click(a.x, a.y)
+            if self.macmouse is not None and a.x is not None and a.y is not None:
+                g.failSafeCheck()
+                self.macmouse.click(a.x, a.y, 1)
+            elif self._native_gui:
+                g.click(a.x, a.y, _pause=False)
+            else:
+                g.click(a.x, a.y)
         elif t in ("double_click", "triple_click"):
             n = 2 if t == "double_click" else 3
             if self.macmouse is not None:
