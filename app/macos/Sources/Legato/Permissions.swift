@@ -135,6 +135,13 @@ final class PermissionState: ObservableObject {
 
     private var screenAllowed = false
     private var screenProbing = false
+    private var screenRequested = false             // clicked in this run: the probe may bring up macOS's prompt
+
+    func request(_ p: Permission) {
+        p.request()
+        asked.insert(p)
+        if p == .screen { screenRequested = true }
+    }
 
     func refresh() {
         var g: [Permission: Bool] = [:]
@@ -149,7 +156,7 @@ final class PermissionState: ObservableObject {
     /// CGPreflightScreenCaptureAccess keeps its first answer until Legato restarts, so the step would never see the
     /// switch go on; ScreenCaptureKit asks macOS each time (and doesn't ask the user again once Legato is in the list).
     private func probeScreen() {
-        guard asked.contains(.screen), !screenProbing, !screenAllowed else { return }
+        guard screenRequested, !screenProbing, !screenAllowed else { return }
         screenProbing = true
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, _ in
             DispatchQueue.main.async { [weak self] in
@@ -286,7 +293,7 @@ struct OnboardingView: View {
                 if p == .screen && perms.needsRelaunch {
                     Button("Reopen Legato", action: relaunch).keyboardShortcut(.defaultAction)
                 } else {
-                    Button(perms.asked.contains(p) ? "Open System Settings" : "Allow…") { p.request(); perms.asked.insert(p) }
+                    Button(perms.asked.contains(p) ? "Open System Settings" : "Allow…") { perms.request(p) }
                         .keyboardShortcut(.defaultAction)
                 }
             case .tryIt:
