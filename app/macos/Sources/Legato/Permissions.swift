@@ -133,12 +133,30 @@ final class PermissionState: ObservableObject {
 
     func stopPolling() { timer?.invalidate(); timer = nil }
 
+    private var screenAllowed = false
+    private var screenProbing = false
+
     func refresh() {
         var g: [Permission: Bool] = [:]
         for p in Permission.allCases { g[p] = p.granted }
+        if g[.screen] == false { g[.screen] = screenAllowed; probeScreen() }
         if g != granted {
             granted = g
             onChange?()
+        }
+    }
+
+    /// CGPreflightScreenCaptureAccess keeps its first answer until Legato restarts, so the step would never see the
+    /// switch go on; ScreenCaptureKit asks macOS each time (and doesn't ask the user again once Legato is in the list).
+    private func probeScreen() {
+        guard asked.contains(.screen), !screenProbing, !screenAllowed else { return }
+        screenProbing = true
+        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.screenProbing = false
+                if content != nil { self.screenAllowed = true; self.refresh() }
+            }
         }
     }
 
