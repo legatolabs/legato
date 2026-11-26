@@ -31,6 +31,8 @@ import sys
 import time
 import uuid
 from contextlib import ExitStack
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
 from typing_extensions import TypedDict
@@ -244,17 +246,18 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
             low.version = __version__             # serverInfo.version, which the library leaves empty
     desks: dict[str, dict] = {}
 
-    def keep(did: str, event: str, png: bytes | None, *, state: dict | None = None, **detail: Any) -> None:
+    def keep(did: str, event: str, png: bytes | Path | None, *, state: dict | None = None, **detail: Any) -> None:
         if not record:
             return
         import json
-        from pathlib import Path
         d = desks[did] if state is None else state
         d["n"] = d.get("n", 0) + 1
         folder = Path(record) / did
         folder.mkdir(parents=True, exist_ok=True)
         name = f"{d['n']:04d}-{event}.png"
-        if png:
+        if isinstance(png, Path):
+            png.replace(folder / name)            # the harness already wrote the exact frame for this turn
+        elif png:
             (folder / name).write_bytes(png)
         with open(folder / "log.jsonl", "a") as f:
             f.write(json.dumps({"t": round(time.time() - d["opened"], 3), "step": d["n"], "event": event,
@@ -403,14 +406,14 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         keep(desktop_id, "screenshot", desks[desktop_id]["png"])
         return img
 
-    def read_text(d: dict, max_chars: int) -> str:
+    def read_text(d: dict, max_chars: int, timeout_s: float = 20.0) -> str:
         env = d["env"]
         reader = getattr(env, "read", None)
         if callable(reader):
             return reader(max_chars=max_chars)
         if windows_screen(env):
             from legato import winread
-            return winread.read(env.shell, max_chars)
+            return winread.read(env.shell, max_chars, timeout_s=timeout_s)
         raise ToolError("desktop_read needs a reader for this desktop. Built-in readers support background mode on a Mac "
                         "(the window's Accessibility tree) and a Windows screen (the foreground window's UI Automation "
                         "tree). A custom desktop can implement read(max_chars=...). Use desktop_screenshot to see it.")
@@ -445,8 +448,11 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
             want, seen = text.casefold(), ""
             wake = getattr(d["env"], "wait_for_text_change", None)
             while True:
+                remaining = cap - (time.monotonic() - t)
+                if remaining <= 0:
+                    break
                 try:
-                    seen = read_text(d, 100_000)
+                    seen = read_text(d, 100_000, timeout_s=min(20.0, remaining))
                 except RuntimeError as e:         # no window to read yet
                     seen, hit = f"(nothing: {e})", []
                 else:
@@ -462,6 +468,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                     wake(pause)                 # a notification can wake a read; only the read can match
                 else:
                     time.sleep(pause)
+            took = time.monotonic() - t
             keep(desktop_id, "wait", None, text=text, seconds=round(took, 3), found=False)
             raise ToolError(f"{text!r} was not in the window after {took:.0f} s. It reads:\n{seen[:800]}")
         env = d["env"]
@@ -549,27 +556,19 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         if choice.key_source and hasattr(agent.client, "key_source"):  # named if the server refuses the key
             agent.client.key_source = choice.key_source
         from legato.agent import ANSWER_NOTE
-        env, last = d["env"], {}
-        on_step = None
-        if record:                              # each step's actions and screen, not only the last one
-            def seen(fn):
-                def wrapped(*a, **k):
-                    obs = fn(*a, **k)
-                    last["png"] = getattr(obs, "screenshot", None)
-                    return obs
-                return wrapped
-            env.observe, env.act = seen(env.observe), seen(env.act)
-
-            def on_step(turn, actions, timing):
-                keep(desktop_id, "run_step", last.pop("png", None), turn=turn,
-                     actions=[a.describe() if a else "screenshot" for a in actions],
-                     seconds={k: round(v, 3) for k, v in timing.items() if isinstance(v, float)})
-        try:
-            res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, raise_desktop_errors=False,
-                            timeout_s=timeout_s)
-        finally:
+        env = d["env"]
+        with ExitStack() as recording:
+            record_dir, on_step = None, None
             if record:
-                del env.observe, env.act                # the class's own again
+                record_dir = recording.enter_context(TemporaryDirectory(dir=Path(record) / desktop_id))
+
+                def on_step(turn, actions, timing):
+                    path = timing.get("screenshot")
+                    keep(desktop_id, "run_step", Path(path) if path else None, turn=turn,
+                         actions=[a.describe() if a else "screenshot" for a in actions],
+                         seconds={k: round(v, 3) for k, v in timing.items() if isinstance(v, float)})
+            res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, raise_desktop_errors=False,
+                            timeout_s=timeout_s, record_dir=record_dir)
         answer = f"answer: {res.answer}\n" if res.answer else ""
         text = (f"status: {res.status}\n" + answer + res.report() + "\nactions: " + "; ".join(res.actions[-20:]))
         cost = (getattr(res, "usage", None) or {}).get("cost_usd")

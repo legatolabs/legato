@@ -248,4 +248,5 @@ def outline(raw: str, max_chars: int = 8000) -> str:
 def read(shell: Callable[[str, float], str], max_chars: int = 8000, timeout_s: float = 20.0) -> str:
     """The foreground window's text as an outline, read through `shell(command, timeout_s) -> output`, a PowerShell
     on the Windows machine (`legato.tools.local_shell` on this one). In a browser it is the page only."""
-    return outline(shell(script(max_chars), timeout_s), max_chars)
+    command = script(max_chars, max_s=min(8.0, max(0.0, timeout_s)))
+    return outline(shell(command, timeout_s), max_chars)

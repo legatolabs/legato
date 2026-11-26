@@ -303,14 +303,17 @@ def test_run_task_under_record_keeps_each_step(monkeypatch, tmp_path):
         h.client.chat = chat
         return h
     monkeypatch.setattr(legato.agent, "agent_for", agent_for)
-    srv = build_server(lambda res: (None, legato.attach(screenshot=lambda: png(*res), execute=lambda a: None,
-                                                        fixed_wait_s=0.0)), record=str(tmp_path))
+    env = legato.attach(screenshot=lambda: png(64, 40), execute=lambda a: None, fixed_wait_s=0.0)
+    # These instance methods belong to the developer who attached the desktop.
+    env.observe, env.act = supplied_methods = (env.observe, env.act)
+    srv = build_server(lambda res: (None, env), record=str(tmp_path))
 
     async def go():
         did = (await srv.call_tool("desktop_open", {"width": 64, "height": 40})).content[0].text.split()[1]
         await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "click it twice"})
         return did
     did = asyncio.run(go())
+    assert env.__dict__["observe"] is supplied_methods[0] and env.__dict__["act"] is supplied_methods[1]
     log = [json.loads(line) for line in (tmp_path / did / "log.jsonl").read_text().splitlines()]
     steps = [e for e in log if e["event"] == "run_step"]
     assert [e["event"] for e in log] == ["open", "run_step", "run_step", "run_step", "run_task"]
@@ -645,3 +648,26 @@ def test_a_change_notification_wakes_a_read_and_only_the_matching_read_finishes(
         assert "Build completed" in result.content[0].text
     asyncio.run(go())
     assert pauses == [0.3, 0.3]
+
+
+
+def test_windows_text_wait_passes_its_remaining_budget_to_uia(monkeypatch):
+    from legato import mcp_server
+    calls = []
+    env = legato.attach(screenshot=lambda: png(), execute=lambda a: None)
+
+    def shell(command, timeout):
+        calls.append((command, timeout))
+        return WINDOW.format("Ready" if len(calls) == 2 else "Pending")
+
+    env.shell = shell
+    monkeypatch.setattr(mcp_server, "windows_screen", lambda _: True)
+    srv = build_server(lambda res: (None, env))
+
+    async def go():
+        did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
+        await srv.call_tool("desktop_wait", {"desktop_id": did, "text": "Ready", "timeout_s": 2})
+    asyncio.run(go())
+    assert len(calls) == 2 and 0 < calls[1][1] < calls[0][1] <= 2
+    for command, timeout in calls:
+        assert f"$maxMs = {int(timeout * 1000)}\n" in command
