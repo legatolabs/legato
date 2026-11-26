@@ -342,7 +342,9 @@ fn main() -> ExitCode {
     };
     let clock = Instant::now();
     let now = || clock.elapsed().as_secs_f64();
-    let mut screen = Screen::open(); // before the action, so the connection is ready when the wait starts
+    // A zero-cap request only executes an action or returns a fresh screenshot. It never compares frames.
+    let wait = spec.rule.cap > 0.0;
+    let mut screen = if wait || spec.shot { Screen::open() } else { None };
     let speculate = spec.shot && std::env::var_os("LEGATO_NO_SPECULATE").is_none();
 
     let t0 = now();
@@ -359,11 +361,11 @@ fn main() -> ExitCode {
     let r = &spec.rule;
 
     let mut pending: Option<Pending> = None;
-    let mut last = check(&mut screen);
+    let mut last = if wait { check(&mut screen) } else { 0 };
     let mut t_change = now();
     let mut same = 1.0;
     let mut capped = false;
-    let mut grabs = 1u32;
+    let mut grabs = u32::from(wait);
     loop {
         if now() - t1 >= r.cap {
             capped = true;

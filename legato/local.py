@@ -339,7 +339,12 @@ class LocalEnv(Env):
     def _png(self) -> bytes:
         from PIL import Image
         g = self._grab()
-        im = Image.frombytes("RGB", g.size, g.rgb)
+        bgra = getattr(g, "bgra", None)
+        if bgra is None:
+            im = Image.frombytes("RGB", g.size, g.rgb)
+        else:
+            # Let Pillow unpack MSS pixels directly. The fourth byte is padding.
+            im = Image.frombytes("RGB", g.size, bgra, "raw", "BGRX")
         if im.size != self.size:
             im = im.resize(self.size, Image.BILINEAR)
         buf = io.BytesIO()

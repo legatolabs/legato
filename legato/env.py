@@ -68,7 +68,9 @@ if spec.get("sleep"):
     time.sleep(spec["sleep"])
 t1 = time.monotonic()
 r = spec["rule"]
-last = grab(); t_change = time.monotonic(); same = 1; capped = False; grabs = 1
+# A zero-cap request asks only for an action or a fresh screenshot. No pair of frames can be compared.
+last = grab() if r["cap"] > 0 else None
+t_change = time.monotonic(); same = 1; capped = False; grabs = int(last is not None)
 while True:
     if time.monotonic() - t1 >= r["cap"]:
         capped = True

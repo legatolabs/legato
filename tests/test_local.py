@@ -44,6 +44,20 @@ def test_screenshot_is_scaled_to_logical_size():
     assert e.gui.PAUSE < 0.1
 
 
+def test_bgra_capture_matches_rgb_with_padding_and_logical_scaling():
+    from types import SimpleNamespace
+
+    e = env()
+    size = (200, 100)
+    pair_count = size[0] * size[1] // 2
+    rgb = bytes([250, 7, 80, 17, 63, 210]) * pair_count
+    bgra = bytes([80, 7, 250, 0, 210, 63, 17, 211]) * pair_count
+    e.sct.grab = lambda mon: SimpleNamespace(size=size, rgb=rgb)
+    expected = e.observe().screenshot
+    e.sct.grab = lambda mon: SimpleNamespace(size=size, bgra=bgra)
+    assert e.observe().screenshot == expected
+
+
 def test_actions_map_to_pyautogui():
     e = env()
     e.act(Action("click", x=10, y=20))
