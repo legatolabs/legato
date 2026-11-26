@@ -126,6 +126,13 @@ struct OnboardingView: View {
                     Button("Reopen", action: relaunch)
                 }
                 .font(.system(size: 12))
+            } else if perms.launchedWithScreen {
+                HStack(alignment: .top) {
+                    Image(systemName: "info.circle")
+                    Text("If macOS asks whether Legato may “bypass the system private window picker”, click Allow. It takes screenshots only while a task runs, and asks this again now and then.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.system(size: 11)).foregroundColor(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -142,7 +149,7 @@ struct OnboardingView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Open Legato with Fn").font(.system(size: 13, weight: .medium))
-                Text("Tap Fn (🌐) on its own, or press ⌥⇧Space. For Fn, set System Settings → Keyboard → “Press 🌐 key to” → Do Nothing, so the emoji picker doesn’t open too.")
+                Text("Tap Fn (🌐) on its own, or press ⌥⇧Space. For Fn, set System Settings → Keyboard → “Press 🌐 key to” → Do Nothing, so the emoji picker doesn’t open too. They work even when a full menu bar hides Legato’s icon.")
                     .font(.system(size: 11)).foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Open Keyboard Settings") {

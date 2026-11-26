@@ -99,7 +99,8 @@ final class AppController: NSObject {
             self?.monitor.install()                 // Input Monitoring may just have been allowed
             if let c = self?.capturer { Task { await c.invalidate() } }
         }
-        if !settings.onboarded || !Permission.missing.isEmpty || settings.problem != nil {
+        // after the first time, only a missing permission brings it back: a task without a model says so itself
+        if !settings.onboarded || !Permission.missing.isEmpty {
             showOnboarding()
         }
     }
@@ -637,13 +638,41 @@ final class AppController: NSObject {
             perms: perms, settings: settings,
             openSettings: { [weak self] in self?.showSettings() },
             relaunch: { [weak self] in self?.relaunch() },
-            done: { [weak self] in
-                self?.settings.onboarded = true
-                self?.perms.stopPolling()
-                self?.windows["onboarding"]?.orderOut(nil)
-                self?.refreshMenu()
-            }))
+            done: { [weak self] in self?.windows["onboarding"]?.close() }))
+        w.delegate = self                           // the red button is Later too
         present(w)
+        // macOS asks once more ("bypass the system private window picker") on the first capture: ask here, where the
+        // window says to click Allow, not over the app of the first task
+        if perms.launchedWithScreen {
+            let c = capturer
+            Task { _ = try? await c.image(size: CGSize(width: 64, height: 40)) }
+        }
+    }
+
+    private func finishOnboarding() {
+        settings.onboarded = true
+        perms.stopPolling()
+        refreshMenu()
+        // on a full menu bar macOS hides the icon (behind the notch or the front app's menus): say where Legato is instead
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.statusItemHidden else { return }
+            let a = NSAlert()
+            a.messageText = "Legato is running, but its menu bar icon is hidden"
+            a.informativeText = "Your menu bar is full, so macOS hid Legato’s icon (behind the notch or another app’s menus). Tap Fn or press ⌥⇧Space to open Legato. To see the icon, quit or remove other menu bar apps (hold ⌘ and drag their icons off the menu bar)."
+            NSApp.activate(ignoringOtherApps: true)
+            a.runModal()
+        }
+    }
+
+    /// macOS hid the status item: not drawn (no room left of the other items), behind the notch, or off screen.
+    var statusItemHidden: Bool {
+        guard let w = statusItem.button?.window, let screen = w.screen ?? NSScreen.main else { return true }
+        if !w.occlusionState.contains(.visible) { return true }
+        if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
+            let x = w.frame.midX - screen.frame.minX
+            if x > left.maxX && x < right.minX { return true }
+        }
+        return !screen.frame.intersects(w.frame)
     }
 
     private func relaunch() {
@@ -653,5 +682,11 @@ final class AppController: NSObject {
         p.arguments = ["-c", "sleep 1; open \"\(path)\""]
         try? p.run()
         NSApp.terminate(nil)
+    }
+}
+
+extension AppController: NSWindowDelegate {
+    func windowWillClose(_ n: Notification) {
+        if (n.object as? NSWindow) === windows["onboarding"] { finishOnboarding() }
     }
 }
