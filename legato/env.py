@@ -32,7 +32,7 @@ import struct
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar, overload
 
 from PIL import Image
 
@@ -41,6 +41,7 @@ from legato.settle import LOCAL_RULES, Waiter, _ScreenSample, rule_kind
 from legato.tools import wrap_command
 
 FramePredicate = Callable[[Image.Image], bool]
+_Receipt = TypeVar("_Receipt")
 
 
 class DesktopError(RuntimeError):
@@ -277,15 +278,35 @@ class Env:
         self.last = {"obs_s": time.monotonic() - t}
         return Obs(b, w, h)
 
-    def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs:
-        """Send one action and return its observed screen. With until, check each fresh frame against a predicate.
+    @overload
+    def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs: ...
 
-        On local and screenshot/execute desktops the predicate replaces the usual quiet-screen wait. A remote
-        step helper finishes its step first. timeout_s limits further reads after dispatch. A capture or predicate
-        already running can finish. A missing result raises TimeoutError without sending the action again.
+    @overload
+    def act(self, action: Action, *, read: Callable[[], _Receipt],
+            until: Callable[[_Receipt], bool], timeout_s: float = 2.0) -> _Receipt: ...
+
+    def act(self, action: Action, *, until: Callable[[Any], bool] | None = None, timeout_s: float = 2.0,
+            read: Callable[[], Any] | None = None) -> Any:
+        """Send one action. Normally return the settled screen. With until, wait for a caller-defined result.
+
+        By default until receives each fresh frame as a Pillow image. Return the accepted frame as an Obs.
+        With read, check its values instead and return the exact accepted value. A local or callback desktop
+        can then verify native state without capturing a screenshot. A remote step helper finishes its own step
+        first. timeout_s limits further reads after dispatch. A capture or callback already running can finish.
+        A missing result raises TimeoutError without resending the action.
         """
+        if read is not None and (not callable(read) or until is None):
+            raise TypeError("read needs an observation function and an until predicate")
         if until is not None:
-            return self._act_until(action, until, timeout_s)
+            if not callable(until):
+                raise TypeError("until must be callable")
+            if not math.isfinite(timeout_s) or timeout_s <= 0:
+                raise ValueError("timeout_s must be finite and positive")
+        return self._act(action, until=until, timeout_s=timeout_s, read=read)
+
+    def _act(self, action: Action, *, until, timeout_s: float, read):
+        if until is not None:
+            return self._act_until(action, until, timeout_s, read)
         if action.done:
             return self.observe()
         timing = {}
@@ -328,17 +349,16 @@ class Env:
         with Image.open(io.BytesIO(obs.screenshot)) as image:
             return obs if until(image) else None
 
-    def _act_until(self, action: Action, until: FramePredicate, timeout_s: float) -> Obs:
-        if not callable(until):
-            raise TypeError("until must be callable")
-        if not math.isfinite(timeout_s) or timeout_s <= 0:
-            raise ValueError("timeout_s must be finite and positive")
+    def _dispatch_for_check(self, action: Action) -> None:
+        self._execute(action)
+
+    def _act_until(self, action: Action, until, timeout_s: float, read):
         timing = {"act_s": 0.0, "obs_s": 0.0, "settle_s": 0.0}
         png = None
         if not action.done:
             if self._step is None:
                 start = time.monotonic()
-                self._execute(action)
+                self._dispatch_for_check(action)
                 timing["act_s"] = time.monotonic() - start
             else:
                 timing.update(self._step(action) or {})
@@ -348,10 +368,15 @@ class Env:
         try:
             while True:
                 start = time.monotonic()
-                obs = self._checked_frame(until, png)
+                if read is None:
+                    value = self._checked_frame(until, png)
+                    accepted = value is not None
+                else:
+                    value = read()
+                    accepted = until(value)
                 timing["obs_s"] += time.monotonic() - start  # includes evaluating the condition on this observation
-                if obs is not None:
-                    return obs
+                if accepted:
+                    return value
                 png = None  # any later attempt needs a new frame
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
