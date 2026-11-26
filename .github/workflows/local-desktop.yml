@@ -1,5 +1,11 @@
 name: local-desktop
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: JSON array of native runner labels
+        default: '["ubuntu-24.04","macos-15","windows-2022"]'
+        required: true
 permissions:
   contents: read
 jobs:
@@ -7,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2022]
+        os: ${{ fromJSON(inputs.platforms) }}
         shard: [0, 1, 2, 3, 4, 5]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60

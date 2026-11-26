@@ -18,7 +18,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def load(p):
-    return json.loads(p.read_text(encoding="utf-8"))
+    end = time.monotonic() + .6
+    while True:
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except PermissionError:
+            if time.monotonic() >= end:
+                raise
+            time.sleep(.004)
 
 
 def store(p, value):
