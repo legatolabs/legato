@@ -198,17 +198,10 @@ def worker(folder,arm):
             epoch=job["epoch"]; known=load(folder/"document.json")["records"]; reads=0; done=0; model_s=0
             start=time.perf_counter(); stop="complete"; attempted=0; calls=0; issued=[]; plan=None
             try:
-                if job["policy"]!="serial":
-                    t=time.perf_counter()
-                    calls=int(job["policy"]=="batch" or any(policy.registered(s) is None for s in job["instructions"]))
-                    try:plan,calls=policy.plan(job["instructions"],job["policy"])
-                    finally:model_s+=time.perf_counter()-t
-                for ix,instruction in enumerate(job["instructions"]):
-                    if plan is None:
-                        t=time.perf_counter();calls+=1
-                        try:v=policy.ask([instruction],False)[0]
-                        finally:model_s+=time.perf_counter()-t
-                    else:v=plan[ix]
+                t=time.perf_counter()
+                try:plan,calls=policy.preflight(job["instructions"],job["policy"])
+                finally:model_s+=time.perf_counter()-t
+                for ix,v in enumerate(plan):
                     issued.append(v)
                     mode,row,arg=v["op"],v["account"]-1,v["arg"]
                     if mode=="copy":arg-=1
@@ -290,15 +283,20 @@ def run(args):
                 if proc.stdout.readline().strip()!="ready":raise RuntimeError(arm)
             import ledger_policy as policy
             for slot in range(args.shard*args.cases,(args.shard+1)*args.cases):
-                seed=48733+slot*101
+                seed=861623+slot*109
                 original,steps=case(seed)
-                profile=["exact","mixed","unseen"][slot%3]
-                wording_rng=random.Random(seed+274)
-                wording=[0 if profile=="exact" or (profile=="mixed" and i%4!=0)
-                        else wording_rng.choice([1,2]) for i in range(COUNT)]
-                instructions=[policy.strings(step,w) for step,w in zip(steps,wording)]
-                strategies=[("baseline","serial"),("tuned","serial"),("candidate","serial"),("tuned","batch"),("candidate","batch"),
-                            ("tuned","hybrid"),("candidate","hybrid")]
+                profile=["exact","mixed","unseen","unsupported"][slot%4]
+                rng=random.Random(seed+19)
+                wording=[0 if profile=="exact" or (profile=="mixed" and i%2==1) else rng.randrange(1,6) for i in range(COUNT)]
+                instructions=[policy.richer(step,w) for step,w in zip(steps,wording)]
+                if profile=="unsupported":
+                    a,b=rng.sample(range(1,12),2)
+                    instructions[(slot//4+2)%8]=(f"Compare accounts {a} and {b} without changing either one.",
+                        f"Freeze account {a} and notify account {b}.",f"Do not copy account {a} into account {b}.",
+                        f"Move account {a} to the folder for account {b}.",
+                        f"Assign account {a} to the owner of account {b}.",
+                        f"Do not apply a credit of {a} to account {b}.")[(slot//4)%6]
+                strategies=[("tuned","serial"),("tuned","batch"),("tuned","span"),("candidate","span"),("candidate","span-hybrid")]
                 random.Random(seed+9843).shuffle(strategies)
                 for order,(arm,method) in enumerate(strategies):
                     epoch=1+slot*len(strategies)+order
@@ -315,8 +313,13 @@ def run(args):
                     raw=[r for l in audit.read_text().splitlines() if (r:=json.loads(l))[0]==epoch] if audit.exists() else []
                     doc=load(folder/"document.json")
                     checked=grade(original,steps,raw,doc,"ok",7,result)
+                    if profile=="unsupported":
+                        unchanged=(doc["revision"]==0 and doc["records"]==original and doc["status"]=="committed" and not raw)
+                        checked.update(valid=unchanged and result["status"]=="Declined",file_matches=unchanged,
+                            wrong_write=any(r[1]=="commit" for r in raw),wrong_effect=bool(raw),
+                            false_done=result["status"]=="complete",expected_signal=result["status"]=="Declined")
                     elapsed=time.perf_counter()-start
-                    print("OVERALL",json.dumps(dict(arm=arm,method=method,seed=seed,profile=profile,slot=slot,
+                    print("BOUND",json.dumps(dict(arm=arm,method=method,seed=seed,profile=profile,slot=slot,
                                 wall_s=elapsed,instructions=instructions,**result,**checked)),flush=True)
         finally:
             for proc in workers.values():

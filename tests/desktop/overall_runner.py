@@ -62,7 +62,7 @@ def main():
                 from ledger_policy import ask
                 ask(["Set account 4 to 543."],False)
                 subprocess.run([sys.executable,"-u",str(Path(__file__).with_name("long_ledger.py")),
-                                "--cases","6","--shard",args.shard],check=True)
+                                "--cases","12","--shard",args.shard],check=True)
             finally:
                 proc.terminate();proc.wait(timeout=20)
 
