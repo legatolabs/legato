@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import time
+from dataclasses import dataclass
 from typing import Any, Callable
 
 # per action kind, for a sandbox that grabs its own framebuffer (ms per grab)
@@ -45,7 +46,16 @@ def quiet_enough(now, t0, t_change, same, floor, quiet, min_same) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class _ScreenSample:
+    """Full observation and its comparison key, which may include the captured window's position."""
+    png: bytes
+    digest: str
+
+
 def digest(shot: Any) -> str:
+    if isinstance(shot, _ScreenSample):
+        return shot.digest
     if shot is None:
         return "none"
     if isinstance(shot, dict):

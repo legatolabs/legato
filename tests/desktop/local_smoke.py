@@ -35,4 +35,12 @@ elif sys.platform == "darwin":
     obs = env.act(Action("key", keys="ctrl+n"))          # sent as Cmd+N on macOS
     obs = env.act(Action("type", text="typed by legato.local()"))
     open("local-shots/1-textedit.png", "wb").write(obs.screenshot)
+env.close()
+
+if sys.platform == "win32":
+    from windows_wheel import main as verify_wheel
+    verify_wheel()
+elif sys.platform == "darwin":
+    from mac_receipt import main as verify_receipts
+    verify_receipts()
 print("ok")

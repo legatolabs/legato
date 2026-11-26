@@ -55,9 +55,10 @@ def e2b(width: int, height: int, *, timeout_s: float | None = None) -> tuple[Any
     return sb, attach(sb)
 
 
-def local(width: int, height: int) -> tuple[Any, Env]:
+def local(width: int, height: int, **options: Any) -> tuple[Any, Env]:
     from legato.local import local as this_computer
-    return None, this_computer()
+    env = this_computer(**options)
+    return getattr(env, "close", None), env
 
 
 def start(factory: Factory, width: int, height: int, timeout_s: float | None = None) -> tuple[Any, Env]:

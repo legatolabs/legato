@@ -42,7 +42,7 @@ from legato import safety
 from legato.actions import Action
 from legato.env import DesktopError, DesktopStartError, Env
 from legato.local import LocalEnv
-from legato.settle import LOCAL_RULES, Waiter
+from legato.settle import LOCAL_RULES, Waiter, _ScreenSample
 
 # macOS virtual key codes (ANSI layout) for the names LocalEnv.key() produces
 KEYCODES = {
@@ -851,11 +851,11 @@ class BackgroundEnv(LocalEnv):
     def _png(self) -> bytes:
         return self._capture()[1]
 
-    def _digest(self) -> str:
+    def _digest(self) -> _ScreenSample:
         w, png = self._capture()
         h = hashlib.blake2b(png, digest_size=16)
         h.update(repr((w["id"], w["x"], w["y"], w["w"], w["h"])).encode())
-        return h.hexdigest()
+        return _ScreenSample(png, h.hexdigest())
 
     def read(self, max_chars: int = 8000) -> str:
         """The window's text from its Accessibility tree: one line per element that says something, indented under
@@ -918,9 +918,15 @@ class BackgroundEnv(LocalEnv):
                 if not label or label in (above, last):
                     continue                      # empty, or the text of what holds it or of the line before
             elif not label and kids and role not in QUIET_ROLES and len(kids) <= 8:
-                texts = [self._attrs(k, ["AXRole", "AXValue"]) for k in kids]
-                if all(t.get("AXRole") == "AXStaticText" for t in texts):       # a heading or link: its text
-                    label, kids = " ".join(s for t in texts if (s := _str(t.get("AXValue")))), []
+                texts = []
+                for child in kids:
+                    attrs = self._attrs(child, ["AXRole", "AXValue"])
+                    if attrs.get("AXRole") != "AXStaticText":
+                        break
+                    if text := _str(attrs.get("AXValue")):
+                        texts.append(text)
+                else:                           # a heading or link containing only text
+                    label, kids = " ".join(texts), []
             line = self._line(role, label, value, a, bool(kids))
             if line is None:                      # an element that says nothing: its children take its place
                 todo.extend((k, depth, above) for k in reversed(kids))

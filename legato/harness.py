@@ -583,6 +583,13 @@ class Harness:
             return tuple(self.model_size)
         return w, h
 
+    def _frame_size(self, ep: Episode, png: bytes) -> None:
+        """A window can resize between decisions. Map coordinates against the frame the model now sees."""
+        w, h = png_size(png)
+        if (w, h) != (ep.w, ep.h):
+            ep.w, ep.h = w, h
+            ep.mw, ep.mh = self._size(w, h)
+
     def _png(self, ep: Episode, png: bytes) -> str:
         if (ep.mw, ep.mh) != (ep.w, ep.h):
             png = resize_png(png, (ep.mw, ep.mh))
@@ -926,12 +933,14 @@ class Harness:
                     xy = plans.find_text_near(png, label, near)
                     if xy:
                         timing["found_near"] = timing.get("found_near", 0) + 1
-                        return xy
-                return plans.find_text(png, label, near)
+                        return xy, png
+                return plans.find_text(png, label, near), png
             finally:
                 timing["find_s"] = timing.get("find_s", 0.0) + time.monotonic() - t
+        checked_screen = None
         n = len(plan.actions)
         for i, st in enumerate(plan.actions, 1):
+            checked_screen = None
             try:
                 if isinstance(st, ToolCall):
                     t = time.monotonic()
@@ -948,10 +957,11 @@ class Harness:
                 elif isinstance(st, plans.WaitFor):
                     t_end, found = time.monotonic() + st.timeout_s, None
                     while True:
-                        found = find(st.text, None)
+                        found, frame = find(st.text, None)
                         if found or time.monotonic() >= t_end:
                             break
                         time.sleep(0.3)
+                    checked_screen = frame
                     check = bool(found)
                     if found and self.strict_done:
                         check = None                # text on the screen, not proof: it may have been there before
@@ -963,7 +973,7 @@ class Harness:
                         xy = st.fallback                # nothing has acted yet: the screen is the one the model saw
                         timing["label_trusted"] = timing.get("label_trusted", 0) + 1
                     else:
-                        xy = find(st.text, st.near or last_xy)
+                        xy, _ = find(st.text, st.near or last_xy)
                     if xy and st.fallback is not None:
                         timing["label_found"] = timing.get("label_found", 0) + 1
                     if not xy and st.fallback is not None:   # not there: the click the model aimed, if still safe
@@ -1009,7 +1019,9 @@ class Harness:
         if stop:
             timing["plan_stop"] = stop[:120]
         last = plan.actions[ran - 1] if ran else None
-        if stop or (changed and not isinstance(last, (Action, plans.FindClick))):
+        if checked_screen is not None:
+            pngs.append(checked_screen)          # the screenshot on which the final wait succeeded or timed out
+        elif stop or (changed and not isinstance(last, (Action, plans.FindClick))):
             pngs.append(look())
         return pngs, results + notes
 
@@ -1019,7 +1031,11 @@ class Harness:
         actions. `note` is text the model reads with them (an action the person did not allow)."""
         ep.turns.append({"role": "assistant", "text": "\n".join(plan.reply) or "(no action)"})
         keep = pngs if self.screenshot_each_action else pngs[-1:]
-        turn = {"role": "user", "pngs": [self._png(ep, p) for p in keep]}
+        encoded = []
+        for png in keep:
+            self._frame_size(ep, png)
+            encoded.append(self._png(ep, png))
+        turn = {"role": "user", "pngs": encoded}
         if results:
             turn["results"] = list(results)
         if self.change_log and pngs:
@@ -1199,7 +1215,9 @@ class Harness:
             if self.plan_mode and (plan.done or plan.failed):
                 res.actions.append("done" if plan.done else "fail")
             res.timings.append(timing)
-            lim.step(res, timing, (pngs or [obs.screenshot])[-1])
+            if pngs:
+                seen = pngs[-1]
+            lim.step(res, timing, seen)
             entry = {"turn": turn, "say": " | ".join(plan.reply)[:600],
                      "actions": [a.describe() if a else "screenshot" for a in ran] + ([denied] if denied else []),
                      "done": plan.done, "failed": plan.failed, "s": round(plan.rec["s"], 2)}
@@ -1226,8 +1244,7 @@ class Harness:
                     if not (plan.done and not res.answer and ask and asked < 0 and turn + 1 < max_steps):
                         break
                     asked, note = turn + 1, ANSWER_ASK       # one more turn to read the answer off the screen
-            self.feed(ep, plan, pngs or [obs.screenshot], results, note)
-            seen = (pngs or [obs.screenshot])[-1]
+            self.feed(ep, plan, pngs or [seen], results, note)
 
 
 def _answer(rec: dict, actions: list) -> str:

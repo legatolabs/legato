@@ -79,9 +79,12 @@ def desktop_kind(env: Env | None) -> str:
     if env is None:
         return "other"
     from legato.local import LocalEnv
-    if type(env).__name__ == "BackgroundEnv":
+    if not isinstance(env, LocalEnv):
+        return "other"
+    from legato.background import BackgroundEnv
+    if isinstance(env, BackgroundEnv):
         return "mac-background"
-    if isinstance(env, LocalEnv) and sys.platform == "darwin":
+    if sys.platform == "darwin":
         return "mac-screen"
     return "other"
 
@@ -110,7 +113,8 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
         return env, getattr(env, "close", lambda: None), f"{what}, in the background"
     if desktop == "screen":
         from legato.local import local
-        return local(confirm=confirm), (lambda: None), "this screen"
+        env = local(confirm=confirm)
+        return env, getattr(env, "close", lambda: None), "this screen"
     from legato import providers
     make = providers.e2b if desktop == "e2b" else providers.load(desktop)
     handle, env = providers.start(make, width, height, timeout_s)

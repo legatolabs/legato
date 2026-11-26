@@ -9,7 +9,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -79,12 +78,15 @@ def test_a_failed_install_falls_back(monkeypatch, tmp_path):
 
 @pytest.fixture
 def display():
-    disp = ":95"
-    x = subprocess.Popen(["Xvfb", disp, "-screen", "0", "800x600x24"], stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL)
-    time.sleep(1.0)
-    yield disp
-    x.kill()
+    # Xvfb reports an unused display on stdout only after it is ready to accept connections.
+    with subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "800x600x24", "-noreset", "-nolisten", "tcp"],
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as server:
+        try:
+            number = server.stdout.readline().strip()
+            assert number.isdecimal(), "Xvfb exited before reporting a display"
+            yield f":{number}"
+        finally:
+            server.terminate()
 
 
 def run_helper(argv, spec, disp):
@@ -111,7 +113,44 @@ def test_same_answers_as_the_python_helper(display, tmp_path):
         ia, ib = (Image.open(io.BytesIO(base64.b64decode(r["png"]))).convert("RGB") for r in (a, b))
         assert ia.size == ib.size == (800, 600) and ia.tobytes() == ib.tobytes()
     zero = run_helper([str(BIN)], {"cmds": [], "rule": {**LOCAL_RULES["default"], "cap": 0}}, display)
-    assert zero["capped"] and zero["grabs"] == 1 and "png" not in zero
+    assert zero["capped"] and zero["grabs"] == 0 and "png" not in zero
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_zero_cap_executes_commands_without_capturing(native, tmp_path):
+    if native and BIN is None:
+        pytest.skip("native helper not built")
+    helper = tmp_path / "helper.py"
+    helper.write_text(E.HELPER)
+    marker = tmp_path / "action"
+    # A no-shot, no-wait call needs no display or screenshot utilities.
+    cmd = [sys.executable, "-c", "from pathlib import Path; import sys; Path(sys.argv[1]).touch()", str(marker)]
+    spec = {"cmds": [cmd], "rule": {**LOCAL_RULES["default"], "cap": 0}}
+    proc = subprocess.run(([str(BIN)] if native else [sys.executable, str(helper)]) + [json.dumps(spec)],
+                          env={**os.environ, "DISPLAY": "", "PATH": str(tmp_path)}, capture_output=True, check=True)
+    out = json.loads(proc.stdout)
+    assert marker.exists() and out["capped"] and out["grabs"] == 0 and "png" not in out
+
+
+@pytest.mark.parametrize("native", [False, True])
+@needs_x
+def test_zero_cap_returns_a_fresh_screenshot(native, display, tmp_path):
+    if native and BIN is None:
+        pytest.skip("native helper not built")
+    if not native and not shutil.which("scrot"):
+        pytest.skip("the Python helper needs scrot")
+    helper = tmp_path / "helper.py"
+    helper.write_text(E.HELPER)
+    argv = [str(BIN)] if native else [sys.executable, str(helper)]
+    if not shutil.which("xsetroot"):
+        pytest.skip("needs xsetroot to change the pixels")
+    from PIL import Image
+    for color, rgb in (("red", (255, 0, 0)), ("blue", (0, 0, 255))):
+        spec = {"cmds": [["xsetroot", "-solid", color]], "rule": {**LOCAL_RULES["default"], "cap": 0}, "shot": True}
+        out = run_helper(argv, spec, display)
+        assert out["capped"] and out["grabs"] == 0
+        with Image.open(io.BytesIO(base64.b64decode(out["png"]))) as im:
+            assert im.size == (800, 600) and im.convert("RGB").getpixel((5, 5)) == rgb
 
 
 @needs_bin

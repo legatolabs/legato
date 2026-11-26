@@ -9,6 +9,8 @@ It needs nothing installed: PowerShell 5, which ships with Windows, has UI Autom
 from __future__ import annotations
 
 import json
+import re
+from itertools import chain, pairwise
 from typing import Callable
 
 # The walk, in PowerShell (written without double quotes: it travels as one command-line argument). It prints one
@@ -128,16 +130,14 @@ def script(max_chars: int = 8000, max_nodes: int = 4000, max_depth: int = 60, ma
     return out.strip()
 
 
+_ESCAPE = re.compile(r"\\(.)", re.DOTALL)
+_ESCAPES = {"n": "\n", "t": "\t", "\\": "\\"}
+
+
 def _unesc(s: str) -> str:
-    out, i = [], 0
-    while i < len(s):
-        if s[i] == "\\" and i + 1 < len(s):
-            out.append({"n": "\n", "t": "\t", "\\": "\\"}.get(s[i + 1], s[i + 1]))
-            i += 2
-        else:
-            out.append(s[i])
-            i += 1
-    return "".join(out)
+    if "\\" not in s:
+        return s
+    return _ESCAPE.sub(lambda m: _ESCAPES.get(m[1], m[1]), s)
 
 
 def _quote(s: str, cap: int = 2000) -> str:
@@ -173,31 +173,36 @@ def outline(raw: str, max_chars: int = 8000) -> str:
     line per element that says something, indented under what holds it. At most `max_chars` characters, the note
     saying it was cut included. Raises RuntimeError when `raw` is not the script's output (PowerShell failed)."""
     max_chars = max(1, int(max_chars))
-    rows = [r for r in raw.replace("\r\n", "\n").split("\n") if r]
-    start = next((i for i, r in enumerate(rows) if r.startswith(("#page\t", "#window\t"))), None)
-    if start is None:
+    rows = iter(raw.replace("\r\n", "\n").split("\n"))
+    header = next((row for row in rows if row.startswith(("#page\t", "#window\t"))), None)
+    if header is None:
         raise RuntimeError("could not read the foreground window through UI Automation: "
                            + (raw.strip()[-300:] or "PowerShell printed nothing"))
-    first = rows[start].split("\t")
+    first = header.split("\t")
     title = _unesc(first[1]).strip()
     head = f"{first[0][1:]} {_quote(title or 'untitled')}"
     if first[0] == "#page" and len(first) > 2 and first[2].strip():
         head += f" {_unesc(first[2]).strip()}"
-    items, stopped = [], ""
-    for r in rows[start + 1:]:
-        if r.startswith("#stopped"):
-            stopped = f"[stopped after {r.split(chr(9))[-1]} elements]"
-            break
-        p = r.split("\t")
-        if len(p) >= 5 and p[0].isdigit():
-            items.append((int(p[0]), p[1], p[2], _unesc(p[3]).strip(), _unesc(p[4]).strip()))
+    stopped = ""
+
+    def elements():
+        nonlocal stopped
+        for row in rows:
+            if row.startswith("#stopped"):
+                stopped = f"[stopped after {row.split(chr(9))[-1]} elements]"
+                break
+            fields = row.split("\t")
+            if len(fields) >= 5 and fields[0].isdigit():
+                yield int(fields[0]), fields[1], fields[2], fields[3], fields[4]
+
     note = f"[cut at {max_chars} characters: ask for more with max_chars]"
     if len(note) * 3 > max_chars:
         note = "[cut]"
     lines, size, cut, last = [head], len(head), "", ""
     shown: list[tuple[int, int, str]] = []        # the lines above this element: (depth in the tree, indent, name)
     skip_below: int | None = None
-    for i, (depth, kind, flags, name, value) in enumerate(items):
+    # One row of lookahead tells us whether an unnamed control has children.
+    for (depth, kind, flags, name, value), following in pairwise(chain(elements(), (None,))):
         if skip_below is not None and depth > skip_below:
             continue
         skip_below = None
@@ -206,12 +211,13 @@ def outline(raw: str, max_chars: int = 8000) -> str:
         if kind in SKIP_TYPES:
             skip_below = depth
             continue
+        name, value = _unesc(name).strip(), _unesc(value).strip()
         if kind.startswith("Pane/"):
             kind = "Edit" if "richedit" in kind.lower() else CLASSES.get(kind[5:].lower(), "Pane")
             if kind == "Edit":
                 name, value = "", name
         above = shown[-1][2] if shown else ""
-        kids = i + 1 < len(items) and items[i + 1][0] > depth
+        kids = following is not None and following[0] > depth
         if kind == "Text":
             if not name or name in (above, last):
                 continue                          # empty, or the text of what holds it or of the line before
@@ -242,4 +248,5 @@ def outline(raw: str, max_chars: int = 8000) -> str:
 def read(shell: Callable[[str, float], str], max_chars: int = 8000, timeout_s: float = 20.0) -> str:
     """The foreground window's text as an outline, read through `shell(command, timeout_s) -> output`, a PowerShell
     on the Windows machine (`legato.tools.local_shell` on this one). In a browser it is the page only."""
-    return outline(shell(script(max_chars), timeout_s), max_chars)
+    command = script(max_chars, max_s=min(8.0, max(0.0, timeout_s)))
+    return outline(shell(command, timeout_s), max_chars)
