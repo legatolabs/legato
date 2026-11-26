@@ -113,7 +113,9 @@ def open_desktop(desktop: str | None = None, *, task: str = "", app: str | None 
         return env, getattr(env, "close", lambda: None), f"{what}, in the background"
     if desktop == "screen":
         from legato.local import local
-        env = local(confirm=confirm)
+        # Match the Mac app: ignore independently moving cells (for example, a clock) when waiting for the screen.
+        wait = {"wait": "cells"} if sys.platform == "darwin" else {}
+        env = local(confirm=confirm, **wait)
         return env, getattr(env, "close", lambda: None), "this screen"
     from legato import providers
     make = providers.e2b if desktop == "e2b" else providers.load(desktop)

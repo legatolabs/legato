@@ -662,3 +662,17 @@ def test_setup_flags_that_change_one_thing_ask_nothing(no_machine, monkeypatch, 
     assert main(["setup", "--api-key-env", "MY_KEY", "--no-check"]) == 0
     cfg = config.load(use_env=False)
     assert (cfg.coords, cfg.api_key_env, cfg.desktop, cfg.model) == ("pixels", "MY_KEY", "docker", "qwen/qwen3.8-27b")
+
+
+def test_the_whole_screen_on_a_mac_waits_as_the_mac_app_does(monkeypatch):
+    """cells that move on their own (a clock, another app's spinner) must not hold each action to the wait's cap"""
+    import importlib
+    from legato.agent import open_desktop
+    made = {}
+    monkeypatch.setattr(importlib.import_module("legato.local"), "local", lambda **k: made.update(k) or object())
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert open_desktop("screen", confirm=None)[2] == "this screen" and made == {"confirm": None, "wait": "cells"}
+    made.clear()
+    monkeypatch.setattr(sys, "platform", "linux")
+    open_desktop("screen", confirm=None)
+    assert made == {"confirm": None}
