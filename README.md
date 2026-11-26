@@ -2,6 +2,10 @@
 
 The fast, open-source computer-use runtime. Bring any model.
 
+[![PyPI](https://img.shields.io/pypi/v/legatolabs)](https://pypi.org/project/legatolabs/)
+[![CI](https://github.com/legatolabs/legato/actions/workflows/ci.yml/badge.svg)](https://github.com/legatolabs/legato/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 ![Legato enters three invoices from a text file into a Windows desktop app](https://legato.computer/media/invoice-desk-2x.gif)
 
 <sub>A real run on a Windows desktop, shown at 2x with the real-time clock: Legato reads three invoices from Notepad and

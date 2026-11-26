@@ -9,3 +9,5 @@
   - `result.report()` from a few runs.
 - Benchmark claims in the docs come with their method and raw data. Please keep it that way: a number without a
   range or a reproduction command does not go in.
+- Found a security problem? Report it privately: see [SECURITY.md](SECURITY.md).
+- Everyone here follows the [code of conduct](CODE_OF_CONDUCT.md).
