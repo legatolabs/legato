@@ -9,7 +9,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -79,12 +78,15 @@ def test_a_failed_install_falls_back(monkeypatch, tmp_path):
 
 @pytest.fixture
 def display():
-    disp = ":95"
-    x = subprocess.Popen(["Xvfb", disp, "-screen", "0", "800x600x24", "-noreset"], stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL)
-    time.sleep(1.0)
-    yield disp
-    x.kill()
+    # Xvfb reports an unused display on stdout only after it is ready to accept connections.
+    with subprocess.Popen(["Xvfb", "-displayfd", "1", "-screen", "0", "800x600x24", "-noreset", "-nolisten", "tcp"],
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True) as server:
+        try:
+            number = server.stdout.readline().strip()
+            assert number.isdecimal(), "Xvfb exited before reporting a display"
+            yield f":{number}"
+        finally:
+            server.terminate()
 
 
 def run_helper(argv, spec, disp):
