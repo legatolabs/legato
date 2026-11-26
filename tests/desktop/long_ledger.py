@@ -175,6 +175,7 @@ def fixture(folder):
 
 
 def worker(folder,arm):
+    import ledger_policy as policy
     from legato import Action,local
     import legato
     assert Path(legato.__file__).resolve().is_relative_to(Path(os.environ["TEST_SDK"]).resolve())
@@ -195,15 +196,22 @@ def worker(folder,arm):
         for line in sys.stdin:
             job=json.loads(line)
             epoch=job["epoch"]; known=load(folder/"document.json")["records"]; reads=0; done=0; model_s=0
-            start=time.perf_counter(); stop="complete"; attempted=0
+            start=time.perf_counter(); stop="complete"; attempted=0; calls=0; issued=[]; plan=None
             try:
-                for ix,step in enumerate(job["steps"]):
-                    mode,row,arg=step
-                    if job.get("live"):
-                        from ledger_model import infer
-                        t=time.perf_counter()
-                        mode,row,arg=infer(step,ix,known)
-                        model_s+=time.perf_counter()-t
+                if job["policy"]!="serial":
+                    t=time.perf_counter()
+                    calls=int(job["policy"]=="batch" or any(policy.registered(s) is None for s in job["instructions"]))
+                    try:plan,calls=policy.plan(job["instructions"],job["policy"])
+                    finally:model_s+=time.perf_counter()-t
+                for ix,instruction in enumerate(job["instructions"]):
+                    if plan is None:
+                        t=time.perf_counter();calls+=1
+                        try:v=policy.ask([instruction],False)[0]
+                        finally:model_s+=time.perf_counter()-t
+                    else:v=plan[ix]
+                    issued.append(v)
+                    mode,row,arg=v["op"],v["account"]-1,v["arg"]
+                    if mode=="copy":arg-=1
                     if mode=="set":value=f"{arg:03}"
                     elif mode=="copy":value=known[arg]
                     elif mode=="add":value=f"{int(known[row])+arg:03}"
@@ -231,7 +239,7 @@ def worker(folder,arm):
             except (TimeoutError,ValueError,RuntimeError,IndexError) as exc:
                 stop=type(exc).__name__
             print(json.dumps(dict(status=stop,completed=done,actions=attempted,ms=(time.perf_counter()-start)*1000,
-                                  model_ms=model_s*1000,reads=reads)),flush=True)
+                                  model_ms=model_s*1000,calls=calls,issued=issued,reads=reads)),flush=True)
     finally:
         reader.close();desktop.close()
 
@@ -280,37 +288,36 @@ def run(args):
                     creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
                 workers[arm]=proc
                 if proc.stdout.readline().strip()!="ready":raise RuntimeError(arm)
-            for slot in range(args.cases):
-                seed=12097+args.shard*101+slot
-                if slot<12 or slot>=20:fault,weak="ok",False
-                elif slot<18:fault,weak=["dropped","lost","rollback"][(slot-12)%3],False
-                else:fault,weak="rollback",True
-                initial,steps=case(seed)
-                rng=random.Random(seed);index=(COUNT-1 if weak else rng.randrange(3,COUNT))
-                delays=[rng.choice([0,7,38,81]) for _ in steps]
-                gaps=[rng.choice([0,5,18,52]) for _ in steps]
-                if slot<20 and not args.live:
-                    arms=list(itertools.permutations(("baseline","tuned","candidate")))[(slot+args.shard)%6]
-                else:
-                    ref="baseline" if args.live else "tuned"
-                    arms=(ref,"candidate") if (args.shard+slot)%2==0 else ("candidate",ref)
-                for order,arm in enumerate(arms):
-                    epoch=10+3*slot+order
-                    store(folder/"control.json",dict(epoch=epoch,records=initial,seed=seed,
-                          fault=fault,index=index,delays=delays,gaps=gaps))
+            import ledger_policy as policy
+            for slot in range(args.shard*args.cases,(args.shard+1)*args.cases):
+                seed=48733+slot*101
+                original,steps=case(seed)
+                profile=["exact","mixed","unseen"][slot%3]
+                wording_rng=random.Random(seed+274)
+                wording=[0 if profile=="exact" or (profile=="mixed" and i%4!=0)
+                        else wording_rng.choice([1,2]) for i in range(COUNT)]
+                instructions=[policy.strings(step,w) for step,w in zip(steps,wording)]
+                strategies=[("baseline","serial"),("tuned","serial"),("candidate","serial"),("tuned","batch"),("candidate","batch"),
+                            ("tuned","hybrid"),("candidate","hybrid")]
+                random.Random(seed+9843).shuffle(strategies)
+                for order,(arm,method) in enumerate(strategies):
+                    epoch=1+slot*len(strategies)+order
+                    rng=random.Random(seed)
+                    store(folder/"control.json",dict(epoch=epoch,records=original,seed=seed,fault="ok",index=7,
+                          delays=[rng.choice([0,7,38,81]) for _ in steps],gaps=[rng.choice([0,5,18,52]) for _ in steps]))
                     wait(lambda:(folder/"ready.json").exists() and load(folder/"ready.json")["epoch"]==epoch)
-                    msg=dict(**load(folder/"ready.json"),steps=steps,weak=weak,live=args.live)
-                    proc=workers[arm]
+                    msg=dict(**load(folder/"ready.json"),instructions=instructions,policy=method,weak=False)
+                    proc=workers[arm];start=time.perf_counter()
                     proc.stdin.write(json.dumps(msg)+"\n");proc.stdin.flush()
                     result=json.loads(proc.stdout.readline())
-                    # Check independently after any scheduled rollback or acknowledgement has had time to arrive.
                     time.sleep(.35)
                     audit=folder/"audit.jsonl"
                     raw=[r for l in audit.read_text().splitlines() if (r:=json.loads(l))[0]==epoch] if audit.exists() else []
                     doc=load(folder/"document.json")
-                    checked=grade(initial,steps,raw,doc,fault,index,result)
-                    print("LONGTASK",json.dumps(dict(arm=arm,seed=seed,shard=args.shard,slot=slot,live=args.live,
-                                      fault=fault,weak=weak,index=index,**result,**checked)),flush=True)
+                    checked=grade(original,steps,raw,doc,"ok",7,result)
+                    elapsed=time.perf_counter()-start
+                    print("OVERALL",json.dumps(dict(arm=arm,method=method,seed=seed,profile=profile,slot=slot,
+                                wall_s=elapsed,instructions=instructions,**result,**checked)),flush=True)
         finally:
             for proc in workers.values():
                 proc.stdin.close()
