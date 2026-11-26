@@ -135,13 +135,6 @@ final class PermissionState: ObservableObject {
 
     private var screenAllowed = false
     private var screenProbing = false
-    private var screenRequested = false             // clicked in this run: the probe may bring up macOS's prompt
-
-    func request(_ p: Permission) {
-        p.request()
-        asked.insert(p)
-        if p == .screen { screenRequested = true }
-    }
 
     func refresh() {
         var g: [Permission: Bool] = [:]
@@ -154,17 +147,21 @@ final class PermissionState: ObservableObject {
     }
 
     /// CGPreflightScreenCaptureAccess keeps its first answer until Legato restarts, so the step would never see the
-    /// switch go on; ScreenCaptureKit asks macOS each time (and doesn't ask the user again once Legato is in the list).
+    /// switch go on. A fresh copy of Legato (`--screen-allowed`) asks macOS again, and never brings up a prompt.
     private func probeScreen() {
-        guard screenRequested, !screenProbing, !screenAllowed else { return }
+        guard !screenProbing, !screenAllowed, let exe = Bundle.main.executableURL else { return }
         screenProbing = true
-        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, _ in
+        let p = Process()
+        p.executableURL = exe
+        p.arguments = ["--screen-allowed"]
+        p.terminationHandler = { p in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.screenProbing = false
-                if content != nil { self.screenAllowed = true; self.refresh() }
+                if p.terminationStatus == 0 { self.screenAllowed = true; self.refresh() }
             }
         }
+        if (try? p.run()) == nil { screenProbing = false }
     }
 
     /// Screen Recording takes effect only after Legato is reopened.
@@ -293,7 +290,7 @@ struct OnboardingView: View {
                 if p == .screen && perms.needsRelaunch {
                     Button("Reopen Legato", action: relaunch).keyboardShortcut(.defaultAction)
                 } else {
-                    Button(perms.asked.contains(p) ? "Open System Settings" : "Allow…") { perms.request(p) }
+                    Button(perms.asked.contains(p) ? "Open System Settings" : "Allow…") { p.request(); perms.asked.insert(p) }
                         .keyboardShortcut(.defaultAction)
                 }
             case .tryIt:
