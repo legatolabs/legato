@@ -119,20 +119,37 @@ def worker(path,arm):
         print(json.dumps({"initial":text()}),flush=True)
         for line in sys.stdin:
             req=json.loads(line)
+            if req.get("reset"):
+                if text():
+                    env.act(Action("key",keys="ctrl+a"))
+                    env.act(Action("key",keys="BackSpace"))
+                    deadline=time.monotonic()+4
+                    while text():
+                        if time.monotonic()>deadline:
+                            raise RuntimeError(("cannot clear owned text",text()))
+                        time.sleep(.02)
+                env.act(Action("key",keys="ctrl+s"))
             start=time.perf_counter()
             target=req["target"]
             stages=[]
             for action,read in ((Action("type",text=req["append"]),text),(Action("key",keys="ctrl+s"),lambda:disk(path))):
                 began=time.perf_counter()
-                if arm=="sdk":
-                    observed=env.act(action,read=read,until=lambda s:s==target,timeout_s=5)
-                else:
-                    env.act(action)
-                    while (observed:=read())!=target:
-                        if time.perf_counter()-began>5:
-                            raise TimeoutError((arm,action.type,observed,target))
-                        time.sleep(.01)
-                stages.append((time.perf_counter()-began)*1000)
+                try:
+                    if arm=="sdk":
+                        observed=env.act(action,read=read,until=lambda s:s==target,timeout_s=5)
+                    else:
+                        env.act(action)
+                        while (observed:=read())!=target:
+                            if time.perf_counter()-began>5:
+                                raise TimeoutError((arm,action.type,observed,target))
+                            time.sleep(.01)
+                    stages.append((time.perf_counter()-began)*1000)
+                except TimeoutError:
+                    if not req.get("reset"):
+                        raise
+                    stages.append((time.perf_counter()-began)*1000)
+                    observed=read()
+                    break
             print(json.dumps(dict(ms=(time.perf_counter()-start)*1000,phase_ms=stages,readback=observed)),flush=True)
     finally:
         env.close()
@@ -167,6 +184,7 @@ def run(text_edges=False):
                 if state["initial"]!="":
                     raise AssertionError(state)
             expected=""
+            failures=[]
             samples=["café", "Order 007", "東京", "go 🚀", "á", "two  spaces", "first\nsecond",
                      "ship now\n", "ends here\n\n", "12345", "12+7=", " — last "]
             for pair in range(len(samples) if text_edges else 18):
@@ -174,20 +192,27 @@ def run(text_edges=False):
                     token="R"+str(1000+pair*31+list(workers).index(arm)*7)
                     if text_edges:
                         token=samples[pair]
-                    expected+=token
+                    expected=token if text_edges else expected+token
                     w=workers[arm]
-                    w.stdin.write(json.dumps(dict(append=token,target=expected))+"\n")
+                    w.stdin.write(json.dumps(dict(append=token,target=expected,reset=text_edges))+"\n")
                     w.stdin.flush()
                     r=json.loads(w.stdout.readline())
                     data=path.read_bytes()
-                    valid=r.pop("readback")==expected and disk(path)==expected
+                    have=r.pop("readback")
+                    valid=have==expected and disk(path)==expected
                     if text_edges:
                         restored=subprocess.check_output(["pbpaste"])==sentinel
                         valid=valid and restored
                     print("EDGE" if text_edges else "DOCUMENT",json.dumps(dict(arm=arm,pair=pair,valid=valid,bytes=len(data),
                                                   sha256=hashlib.sha256(data).hexdigest(),**r)),flush=True)
                     if not valid:
-                        raise AssertionError((arm,pair))
+                        if not text_edges:
+                            raise AssertionError((arm,pair))
+                        failures.append(dict(arm=arm,pair=pair,requested=expected,observed=have,
+                                             file=disk(path),clipboard=restored))
+                        print("MISMATCH",json.dumps(failures[-1]),flush=True)
+            if failures:
+                raise AssertionError(failures)
         finally:
             for w in workers.values():
                 w.stdin.close()
