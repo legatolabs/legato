@@ -9,8 +9,22 @@
 #
 # Signing: macOS ties the Accessibility and Screen Recording permissions to the app's signature. With the same
 # certificate on every build they survive rebuilds; with an ad-hoc signature they have to be granted again each time.
-# The first "Apple Development" or "Developer ID Application" identity in your keychain is used, or LEGATO_SIGN_ID.
+# The first "Apple Development" or "Developer ID Application" identity in your keychain is used, then a self-signed
+# "Legato Local Signing" one, or LEGATO_SIGN_ID. With no Apple account, `build.sh --make-signing-id` makes that
+# self-signed one in your login keychain, once (the first build asks to let codesign use it: Always Allow).
 set -euo pipefail
+
+LOCAL_ID="Legato Local Signing"
+if [ "${1:-}" = "--make-signing-id" ]; then
+  if security find-identity -p codesigning | grep -q "\"$LOCAL_ID\""; then echo "already in your keychain: $LOCAL_ID"; exit 0; fi
+  T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+  printf '[req]\ndistinguished_name=dn\nx509_extensions=ext\nprompt=no\n[dn]\nCN=%s\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n' "$LOCAL_ID" > "$T/cnf"
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config "$T/cnf" -keyout "$T/key.pem" -out "$T/cert.pem" 2>/dev/null
+  /usr/bin/openssl pkcs12 -export -inkey "$T/key.pem" -in "$T/cert.pem" -out "$T/id.p12" -passout pass:legato
+  security import "$T/id.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P legato -T /usr/bin/codesign >/dev/null
+  echo "made \"$LOCAL_ID\" in your login keychain: builds from now on keep their permissions"
+  exit 0
+fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -56,11 +70,13 @@ iconutil -c icns "$ICONSET" -o "$OUT/Contents/Resources/AppIcon.icns"
 # ---- sign
 ID="${LEGATO_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
   | sed -nE 's/.*"((Developer ID Application|Apple Development): [^"]*)".*/\1/p' | head -1)}"
+# not "valid" (-v): a self-signed certificate isn't trusted, and needn't be to keep the same signature
+[ -n "$ID" ] || ! security find-identity -p codesigning 2>/dev/null | grep -q "\"$LOCAL_ID\"" || ID="$LOCAL_ID"
 if [ -n "$ID" ]; then
   echo "==> signing with $ID"
   codesign --force --deep --sign "$ID" "$OUT"
 else
-  echo "==> no signing identity: ad-hoc (permissions will need granting again after each build)"
+  echo "==> no signing identity: ad-hoc (permissions will need granting again after each build; --make-signing-id stops that)"
   codesign --force --deep --sign - "$OUT"
 fi
 

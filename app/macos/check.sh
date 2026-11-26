@@ -28,9 +28,17 @@ build)
   B="$HERE/build/Legato.app"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $ID" -c "Set :CFBundleName 'Legato Test'" \
     -c "Set :CFBundleDisplayName 'Legato Test'" "$B/Contents/Info.plist"
-  codesign --force --deep --sign "${LEGATO_SIGN_ID:--}" "$B" 2>/dev/null
+  # sign again as build.sh did (its certificate, or ad-hoc), so a certificate's permissions survive rebuilds
+  sign=$(codesign -dvv "$B" 2>&1 | sed -n 's/^Authority=//p' | head -1)
+  codesign --force --deep --sign "${LEGATO_SIGN_ID:-${sign:--}}" "$B" 2>/dev/null
+  was=$(defaults read "$APP/Contents/Info" CFBundleIdentifier 2>/dev/null || true)
   mkdir -p "$HOME/Applications" && rm -rf "$APP" && ditto "$B" "$APP"
-  echo "built $APP ($ID)" ;;
+  if [ -n "$was" ] && [ "$was" != "$ID" ]; then
+    # macOS's Screen Recording prompt remembers the id it saw at this path ($was) and would save the grant for it
+    killall universalAccessAuthWarn 2>/dev/null || true
+    echo "note: this path held $was; restarted macOS's Screen Recording prompt so it reads $ID"
+  fi
+  echo "built $APP ($ID, signed ${LEGATO_SIGN_ID:-${sign:-ad-hoc}})" ;;
 start)
   date +%s > "$MARK"; (stat -f %z "$LOG" 2>/dev/null || echo 0) > "$MARK.log"
   pgrep -x Legato >/dev/null && echo "note: another Legato is running; quit it first (they share Fn and ⌥⇧Space)"
