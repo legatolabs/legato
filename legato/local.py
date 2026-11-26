@@ -31,7 +31,7 @@ from typing import Any, Callable
 
 from legato import safety
 from legato.actions import Action
-from legato.env import DesktopError, DesktopStartError, Env, Obs
+from legato.env import DesktopError, DesktopStartError, Env, FramePredicate, Obs
 from legato.settle import LOCAL_RULES, Waiter
 from legato.tools import local_shell
 
@@ -342,7 +342,7 @@ class LocalEnv(Env):
         except Exception:  # noqa: BLE001 - the whole screen still works
             return None
 
-    def _png(self) -> bytes:
+    def _screen_image(self):
         from PIL import Image
         g = self._grab()
         bgra = getattr(g, "bgra", None)
@@ -353,9 +353,25 @@ class LocalEnv(Env):
             im = Image.frombytes("RGB", g.size, bgra, "raw", "BGRX")
         if im.size != self.size:
             im = im.resize(self.size, Image.BILINEAR)
+        return im
+
+    @staticmethod
+    def _encode_png(im) -> bytes:
         buf = io.BytesIO()
         im.save(buf, "PNG", compress_level=1)
         return buf.getvalue()
+
+    def _png(self) -> bytes:
+        return self._encode_png(self._screen_image())
+
+    def _checked_frame(self, until: FramePredicate, png: bytes | None) -> Obs | None:
+        # Window-scoped, app-supplied and overridden observations must always use their own capture surface.
+        if png is not None or self._shot != self._png or type(self)._png is not LocalEnv._png or type(self).observe is not Env.observe:
+            return super()._checked_frame(until, png)
+        image = self._screen_image()
+        if not until(image.copy()):  # callers may transform their copy while examining it
+            return None
+        return Obs(self._encode_png(image), *image.size)
 
     # ------------------------------------------------------------ the person's stop and yes
     def stop_requested(self) -> str | None:
@@ -428,7 +444,7 @@ class LocalEnv(Env):
             except (OSError, subprocess.SubprocessError):
                 pass
 
-    def act(self, action: Action, *, until: Callable[[Obs], bool] | None = None, timeout_s: float = 2.0) -> Obs:
+    def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs:
         """Run `action`, unless the person has asked to stop (`safety.Stopped`) or says no to it (`safety.Denied`)."""
         if action.done:
             return super().act(action, until=until, timeout_s=timeout_s)

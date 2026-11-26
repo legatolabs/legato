@@ -103,18 +103,26 @@ def test_verified_action_returns_matching_observation_and_dispatches_once():
     desk = legato.attach(screenshot=iter(frames).__next__, execute=calls.append)
     click = Action("click", x=2, y=1)
     def ready(obs):
-        seen.append(obs)
+        seen.append(obs.width)
         return obs.width == 16
     observed = desk.act(click, until=ready)
     assert calls == [click]
-    assert [frame.width for frame in seen] == [8, 16]
-    assert observed is seen[-1] and observed.screenshot == frames[-1]
+    assert seen == [8, 16]
+    assert observed.width == 16 and observed.screenshot == frames[-1]
     assert desk.last["act_s"] >= 0 and desk.last["obs_s"] >= 0 and desk.last["settle_s"] >= 0
+
+
+def _test_png():
+    from PIL import Image
+    import io
+    buf = io.BytesIO()
+    Image.new("RGB", (2, 1)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 def test_missing_condition_preserves_action_count_and_next_action_uses_its_own_wait():
     calls = []
-    desk = legato.attach(screenshot=lambda: b"pending", execute=calls.append, fixed_wait_s=0)
+    desk = legato.attach(screenshot=_test_png, execute=calls.append, fixed_wait_s=0)
     click = Action("click", x=2, y=1)
     with pytest.raises(TimeoutError):
         desk.act(click, until=lambda obs: False, timeout_s=.025)
@@ -123,7 +131,7 @@ def test_missing_condition_preserves_action_count_and_next_action_uses_its_own_w
         with pytest.raises(ValueError):
             desk.act(click, until=lambda obs: True, timeout_s=invalid)
     assert calls == [click]
-    assert desk.act(click).screenshot == b"pending"
+    assert desk.act(click).screenshot == _test_png()
     assert calls == [click, click]
 
 
@@ -131,9 +139,9 @@ def test_verified_step_uses_remote_helpers_frame_once():
     calls = []
     def step(action):
         calls.append(action)
-        desk._pending_png = b"ready"
+        desk._pending_png = _test_png()
         return {"helper": True, "settle_s": .3}
     desk = Env(lambda: pytest.fail("extra capture"), step=step)
     click = Action("click", x=2, y=1)
-    assert desk.act(click, until=lambda obs: obs.screenshot == b"ready").screenshot == b"ready"
+    assert desk.act(click, until=lambda image: image.size == (2, 1)).screenshot == _test_png()
     assert calls == [click] and desk.last["helper"] and desk.last["settle_s"] >= .3

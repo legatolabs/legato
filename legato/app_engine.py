@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from legato import safety
-from legato.env import Obs
+from legato.env import FramePredicate, Obs
 from legato.actions import Action
 from legato import plan as plans
 from legato.harness import DENIED_NOTE, END_NOTE, Harness
@@ -546,7 +546,7 @@ def app_env(link: Link, run: "Run", gui: Any = None, wait_scope: str = "screen")
                 return "stopped from the Legato app"
             return super().stop_requested()
 
-        def act(self, action: Action, *, until: Callable[[Obs], bool] | None = None, timeout_s: float = 2.0) -> Obs:
+        def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs:
             if action.done:
                 return super().act(action, until=until, timeout_s=timeout_s)
             if run.stopping:

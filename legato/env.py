@@ -23,6 +23,7 @@ import base64
 import functools
 import gzip
 import hashlib
+import io
 import json
 import math
 import os
@@ -33,9 +34,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from PIL import Image
+
 from legato.actions import Action
 from legato.settle import LOCAL_RULES, Waiter, _ScreenSample, rule_kind
 from legato.tools import wrap_command
+
+FramePredicate = Callable[[Image.Image], bool]
+
 
 class DesktopError(RuntimeError):
     """A desktop failed: it could not take a screenshot or run an action (a window that can't be captured, a sandbox
@@ -271,74 +277,93 @@ class Env:
         self.last = {"obs_s": time.monotonic() - t}
         return Obs(b, w, h)
 
-    def act(self, action: Action, *, until: Callable[[Obs], bool] | None = None, timeout_s: float = 2.0) -> Obs:
-        """Send the action once. With until, return the first post-action observation the caller accepts.
+    def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs:
+        """Send one action and return its observed screen. With until, check each fresh frame against a predicate.
 
-        On local and screenshot/execute desktops a predicate replaces the visual quiet wait. Remote helpers may
-        finish their own step first. timeout_s bounds waiting for the condition after dispatch. An observation
-        or callback already in progress can finish. A missing result raises TimeoutError without resending input.
+        On local and screenshot/execute desktops the predicate replaces the usual quiet-screen wait. A remote
+        step helper finishes its step first. timeout_s limits further reads after dispatch. A capture or predicate
+        already running can finish. A missing result raises TimeoutError without sending the action again.
         """
         if until is not None:
-            if not callable(until):
-                raise TypeError("until must be callable")
-            if not math.isfinite(timeout_s) or timeout_s <= 0:
-                raise ValueError("timeout_s must be finite and positive")
+            return self._act_until(action, until, timeout_s)
         if action.done:
-            start = time.monotonic()
-            obs = self.observe()
-            return obs if until is None else self._wait_until(obs, until, timeout_s, start)
+            return self.observe()
         timing = {}
-        if self._step is not None and (until is not None or self.fixed_wait_s is None):
-            timing = self._step(action) or {}
-        else:
-            adaptive = until is None and self.fixed_wait_s is None
-            if adaptive:
-                self.waiter.prime()  # learn what was already moving before the action
+        if self.fixed_wait_s is not None:
             t = time.monotonic()
             self._execute(action)
             timing["act_s"] = time.monotonic() - t
-            if adaptive:
-                t = time.monotonic()
-                sample = self.waiter.settle(rule_kind(action.type))
-                if isinstance(sample, _ScreenSample):
-                    self._pending_png = sample.png
-                timing["settle_s"] = time.monotonic() - t
-                if self.waiter.background and self.waiter.last:
-                    timing["wait"] = dict(self.waiter.last)
-            elif until is None:
-                time.sleep(self.fixed_wait_s)
-                timing["settle_s"] = self.fixed_wait_s
+            time.sleep(self.fixed_wait_s)
+            timing["settle_s"] = self.fixed_wait_s
+        elif self._step is not None:
+            timing = self._step(action) or {}
+        else:
+            self.waiter.prime()     # with background=True, before the first action: what moves on its own
+            t = time.monotonic()
+            self._execute(action)
+            timing["act_s"] = time.monotonic() - t
+            t = time.monotonic()
+            sample = self.waiter.settle(rule_kind(action.type))
+            if isinstance(sample, _ScreenSample):
+                self._pending_png = sample.png
+            timing["settle_s"] = time.monotonic() - t
+            if self.waiter.background and self.waiter.last:
+                timing["wait"] = dict(self.waiter.last)
         png = getattr(self, "_pending_png", None)
         self._pending_png = None
-        start = time.monotonic()
         if png:                     # the step or the waiter already captured the settled frame
             w, h = png_size(png)
             obs = Obs(png, w, h)
-            timing["obs_s"] = 0.0
-        else:
-            obs = self.observe()
-            timing.update(self.last)
-        self.last = timing
-        return obs if until is None else self._wait_until(obs, until, timeout_s, start)
+            self.last = {**timing, "obs_s": 0.0}
+            return obs
+        obs = self.observe()
+        self.last = {**timing, **self.last}
+        return obs
 
-    def _wait_until(self, obs: Obs, until: Callable[[Obs], bool], timeout_s: float, start: float) -> Obs:
-        timing = self.last
-        previous_settle = timing.get("settle_s", 0.0)
-        deadline = start + timeout_s
-        while True:
-            try:
-                if until(obs):
+    def _checked_frame(self, until: FramePredicate, png: bytes | None) -> Obs | None:
+        if png is None:
+            obs = self.observe()
+        else:
+            obs = Obs(png, *png_size(png))
+        with Image.open(io.BytesIO(obs.screenshot)) as image:
+            return obs if until(image) else None
+
+    def _act_until(self, action: Action, until: FramePredicate, timeout_s: float) -> Obs:
+        if not callable(until):
+            raise TypeError("until must be callable")
+        if not math.isfinite(timeout_s) or timeout_s <= 0:
+            raise ValueError("timeout_s must be finite and positive")
+        timing = {"act_s": 0.0, "obs_s": 0.0, "settle_s": 0.0}
+        png = None
+        if not action.done:
+            if self._step is None:
+                start = time.monotonic()
+                self._execute(action)
+                timing["act_s"] = time.monotonic() - start
+            else:
+                timing.update(self._step(action) or {})
+                png = getattr(self, "_pending_png", None)
+                self._pending_png = None
+        deadline = time.monotonic() + timeout_s
+        try:
+            while True:
+                start = time.monotonic()
+                obs = self._checked_frame(until, png)
+                timing["obs_s"] += time.monotonic() - start  # includes evaluating the condition on this observation
+                if obs is not None:
                     return obs
+                png = None  # any later attempt needs a new frame
                 remaining = deadline - time.monotonic()
-                if remaining > 0:
-                    time.sleep(min(0.01, remaining))
+                if remaining <= 0:
+                    break
+                start = time.monotonic()
+                time.sleep(min(0.01, remaining))
+                timing["settle_s"] += time.monotonic() - start
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"desktop condition was not met within {timeout_s:g} s after dispatch")
-                obs = self.observe()
-                timing["obs_s"] += self.last["obs_s"]
-            finally:
-                timing["settle_s"] = previous_settle + max(0.0, time.monotonic() - start - timing["obs_s"])
-                self.last = timing
+                    break
+        finally:
+            self.last = timing
+        raise TimeoutError(f"desktop condition was not met within {timeout_s:g} s after dispatch")
 
 
 class E2BEnv(Env):
