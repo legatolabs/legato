@@ -215,4 +215,4 @@ receipt = desktop.act(save, read=document.read_revision,
                       until=lambda revision: revision == expected_revision, timeout_s=3.0)
 ```
 
-Scope the reader to the intended document or window and expected record. When deriving click coordinates from a screenshot, check that the pixels and the accessibility value refer to the same layout revision. Verify the selected record before sending dependent input. Call `desktop.observe()` when the next step also needs a screenshot.
+Scope the reader to the intended document or window and expected record. When deriving click coordinates from a screenshot, check that the pixels and the accessibility value refer to the same layout revision. Verify the selected record before sending dependent input. For an editor that can rewrite text after insertion, check the saved document revision or contents when the workflow needs a durable result. Call `desktop.observe()` when the next step also needs a screenshot.
