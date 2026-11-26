@@ -150,12 +150,16 @@ def worker(path,arm):
                     stages.append((time.perf_counter()-began)*1000)
                     observed=read()
                     break
-            print(json.dumps(dict(ms=(time.perf_counter()-start)*1000,phase_ms=stages,readback=observed)),flush=True)
+            result=dict(ms=(time.perf_counter()-start)*1000,phase_ms=stages,readback=observed)
+            if req.get("late"):
+                time.sleep(2.0)
+                result.update(later_text=text(),later_file=disk(path))
+            print(json.dumps(result),flush=True)
     finally:
         env.close()
 
 
-def run(text_edges=False):
+def run(text_edges=False,late=False):
     root=Path(__file__).resolve().parents[2]
     with tempfile.TemporaryDirectory() as tmp:
         path=Path(tmp)/("legato-receipt-"+Path(tmp).name+".txt")
@@ -187,6 +191,8 @@ def run(text_edges=False):
             failures=[]
             samples=["café", "Order 007", "東京", "go 🚀", "á", "two  spaces", "first\nsecond",
                      "ship now\n", "ends here\n\n", "12345", "12+7=", " — last "]
+            if late:
+                samples=["12+7=", "Total 12+7=", "Record 007"]*2
             for pair in range(len(samples) if text_edges else 18):
                 for arm in list(itertools.permutations(workers))[pair%6]:
                     token="R"+str(1000+pair*31+list(workers).index(arm)*7)
@@ -194,7 +200,7 @@ def run(text_edges=False):
                         token=samples[pair]
                     expected=token if text_edges else expected+token
                     w=workers[arm]
-                    w.stdin.write(json.dumps(dict(append=token,target=expected,reset=text_edges))+"\n")
+                    w.stdin.write(json.dumps(dict(append=token,target=expected,reset=text_edges,late=late))+"\n")
                     w.stdin.flush()
                     r=json.loads(w.stdout.readline())
                     data=path.read_bytes()
@@ -203,7 +209,10 @@ def run(text_edges=False):
                     if text_edges:
                         restored=subprocess.check_output(["pbpaste"])==sentinel
                         valid=valid and restored
-                    print("EDGE" if text_edges else "DOCUMENT",json.dumps(dict(arm=arm,pair=pair,valid=valid,bytes=len(data),
+                    if late:
+                        valid=valid and r["later_text"]==expected and r["later_file"]==expected
+                        r.update(requested=token,first_observed=have,restored=restored)
+                    print("STABILITY" if late else ("EDGE" if text_edges else "DOCUMENT"),json.dumps(dict(arm=arm,pair=pair,valid=valid,bytes=len(data),
                                                   sha256=hashlib.sha256(data).hexdigest(),**r)),flush=True)
                     if not valid:
                         if not text_edges:
@@ -211,7 +220,7 @@ def run(text_edges=False):
                         failures.append(dict(arm=arm,pair=pair,requested=expected,observed=have,
                                              file=disk(path),clipboard=restored))
                         print("MISMATCH",json.dumps(failures[-1]),flush=True)
-            if failures:
+            if failures and not late:
                 raise AssertionError(failures)
         finally:
             for w in workers.values():
@@ -223,7 +232,7 @@ def run(text_edges=False):
 
 
 if __name__=="__main__":
-    if len(sys.argv)==1 or sys.argv[1]=="--text-edges":
-        run(text_edges="--text-edges" in sys.argv)
+    if len(sys.argv)==1 or sys.argv[1] in ("--text-edges","--late-state"):
+        run(text_edges=len(sys.argv)>1,late="--late-state" in sys.argv)
     else:
         worker(Path(sys.argv[1]),sys.argv[2])
