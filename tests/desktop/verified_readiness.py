@@ -95,13 +95,45 @@ def worker(folder, arm):
         with Image.open(io.BytesIO(obs.screenshot)) as im:
             return read_image(im)
     env = legato.local(hide_terminal=False, fixed_wait_s=0 if arm == "checked" else None)
+    from PIL import ImageGrab
+    camera = None
+    capture_start = time.perf_counter()
+    if arm == "imagegrab":
+        env._screen_image = lambda: ImageGrab.grab(all_screens=False)
+    if arm in ("dxgi", "winrt"):
+        try:
+            import dxcam
+            camera = dxcam.create(backend=arm, processor_backend="numpy", output_color="RGB", max_buffer_len=4)
+            camera.start(target_fps=60)
+            def latest():
+                array = camera.grab(new_frame_only=False)
+                if array is None:
+                    raise RuntimeError("Native source returned no frame")
+                image = Image.fromarray(array)
+                if image.size != env.size:
+                    raise RuntimeError("The native capture geometry differs from the input device")
+                return image
+            env._screen_image = latest
+            limit=time.monotonic()+8
+            while time.monotonic()<limit:
+                try:
+                    if receipt(env.observe()) == 0:break
+                except RuntimeError:
+                    pass
+                time.sleep(.03)
+            else:raise RuntimeError("Native source did not show the foreground fixture markers")
+        except Exception as exc:
+            print(json.dumps({"unsupported":str(exc)[:200]}),flush=True)
+            env.close()
+            if camera is not None:camera.release()
+            return
     try:
         end = time.monotonic() + 8
         while receipt(env.observe()) != 0:
             if time.monotonic() >= end:
                 raise RuntimeError("Could not read owned window before trial")
             time.sleep(.04)
-        print(json.dumps({"screen":env.size}), flush=True)
+        print(json.dumps({"screen":env.size,"startup_ms":(time.perf_counter()-capture_start)*1000}), flush=True)
         for line in sys.stdin:
             spec = json.loads(line)
             serial, delay = spec["serial"], spec["delay_ms"]
@@ -114,7 +146,7 @@ def worker(folder, arm):
             cap = 4 if delay >= 0 else .8
             start = time.perf_counter()
             returned = None
-            if arm == "sdk":
+            if arm not in ("default","checked"):
                 def match_image(im):
                     value = read_image(im)
                     seen.append(value)
@@ -142,6 +174,7 @@ def worker(folder, arm):
                                   reads=len(seen), timing=timing)), flush=True)
     finally:
         env.close()
+        if camera is not None:camera.release()
 
 
 def benchmark(out):
@@ -153,14 +186,19 @@ def benchmark(out):
         workers = {}
         try:
             take_json(folder / "geometry.json")
-            for arm in ["default", "checked", "sdk"]:
-                root = candidate if arm=="sdk" else baseline
+            for arm in ["default", "checked", "sdk", "imagegrab", "dxgi", "winrt"]:
+                root = baseline if arm in ("default","checked") else candidate
                 assert (root / "legato" / "env.py").exists(), root
                 workers[arm] = subprocess.Popen([sys.executable,"-u",str(Path(__file__).resolve()),"--worker",temp,arm],
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, cwd=root,
                     env={**os.environ, "BENCH_SDK":str(root), "PYTHONPATH":str(root)},
                     creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
-                print(arm, "setup", json.loads(workers[arm].stdout.readline()), flush=True)
+                setup=json.loads(workers[arm].stdout.readline())
+                print(arm,"setup",setup,flush=True)
+                if "unsupported" in setup:
+                    workers[arm].stdin.close()
+                    workers[arm].wait(timeout=10)
+                    del workers[arm]
             rows, serial = [], 0
             def trial(arm, delay, pair, within):
                 nonlocal serial
@@ -188,13 +226,15 @@ def benchmark(out):
                 rows.append(row)
                 if not valid or (folder / "error.json").exists():
                     raise AssertionError(f"Incorrect receipt, target or input count: {row} {grade}")
-            for pair in range(18):
-                arms = list(itertools.permutations(["default","checked","sdk"]))[(pair//2 + pair%2)%6]
+            import random
+            for pair in range(12):
+                arms=list(workers)
+                random.Random(717 + pair).shuffle(arms)
                 for arm in arms:
                     for within, delay in enumerate([0,0,0] if pair%2==0 else [0,70,350]):
                         trial(arm, delay, pair, within)
-            for arm in ["sdk","checked","default"]:
-                trial(arm,-1,18,0)
+            for arm in workers:
+                trial(arm,-1,12,0)
             out.write_text(json.dumps({"os":platform.platform(), "python":sys.version, "rows":rows}, indent=2))
         finally:
             for w in workers.values():
