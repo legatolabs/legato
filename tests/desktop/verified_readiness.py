@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import itertools
 import statistics
 import subprocess
 import sys
@@ -109,16 +110,30 @@ def benchmark(out):
                 nonlocal serial
                 serial += 1
                 publish(folder / "request.json", {"serial":serial, "delay_ms":delay})
-                env = regular if arm == "default" else fast
+                env = fast if arm == "checked" else regular
                 start = time.perf_counter()
-                obs = env.act(action)
-                first = receipt(obs)
-                value, reads = first, 1
+                seen = []
+                def check(obs):
+                    value = receipt(obs)
+                    seen.append(value)
+                    return value == serial
                 limit = start + (4 if delay >= 0 else 0.8)
-                while value != serial and time.perf_counter() < limit:
-                    time.sleep(.01)
-                    obs = env.observe()
-                    value, reads = receipt(obs), reads+1
+                if arm == "sdk":
+                    try:
+                        obs = env.act(action, until=check, timeout_s=4 if delay >= 0 else .8)
+                    except TimeoutError:
+                        value = None
+                    else:
+                        value = receipt(obs)   # independently decode the exact frame the API returned
+                    timing = dict(env.last)
+                else:
+                    obs = env.act(action)
+                    timing = dict(env.last)
+                    while not check(obs) and time.perf_counter() < limit:
+                        time.sleep(.01)
+                        obs = env.observe()
+                    value = seen[-1]
+                first, reads = seen[0], len(seen)
                 elapsed = (time.perf_counter()-start)*1000
                 accepted = value == serial
                 grade = take_json(folder / "grade.json")
@@ -127,20 +142,22 @@ def benchmark(out):
                                {"serial":serial,"clicks":serial} and grade["serial"] != serial))
                 row = dict(pair=pair, arm=arm, action_in_task=within, delay_ms=delay,
                            total_ms=elapsed, accepted=accepted, valid=valid, first=first,
-                           serial=serial, reads=reads)
+                           serial=serial, reads=reads, timing=timing)
                 rows.append(row)
                 if not valid or (folder / "error.json").exists():
                     raise RuntimeError(f"Wrong or duplicated action: {row}, application receipt {grade}")
-            for pair in range(10):
-                arms = ["default","checked"] if pair % 2 == 0 else ["checked","default"]
+            for pair in range(12):
+                arms = list(itertools.permutations(["default","checked","sdk"]))[(pair // 2 + pair % 2) % 6]
                 for arm in arms:
                     for within, delay in enumerate([0, 0, 0] if pair % 2 == 0 else [0, 70, 350]):
                         trial(arm, delay, pair, within)
-            for arm in ["checked","default"]:
-                trial(arm, -1, 10, 0)
+            for arm in ["sdk", "checked","default"]:
+                trial(arm, -1, 12, 0)
             out.write_text(json.dumps({"os":platform.platform(), "python":sys.version,
                                       "screen":regular.size, "rows":rows}, indent=2))
-            for key in ("default","checked"):
+            for row in rows:
+                print("MEASURE", json.dumps(row, separators=(",",":")), flush=True)
+            for key in ("default","checked","sdk"):
                 values = [r["total_ms"] for r in rows if r["arm"]==key and r["delay_ms"]==0]
                 print(key, len(values), "immediate median ms", statistics.median(values), flush=True)
         finally:
