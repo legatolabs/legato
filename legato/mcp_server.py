@@ -331,28 +331,31 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         if not app:
             from legato import config
             app = config.pick_app("")                       # the saved app, else the browser
-        env = None
         try:
             env = background(app)                           # a window of its own: the person's stay as they are
-            if url:
-                env.open_url(url)                           # returns once the page has loaded (Accessibility)
-                Waiter(lambda: env.observe().screenshot, PAGE_RULE).settle("page", cap_s=5.0, poll_s=0.1)
-            did = uuid.uuid4().hex[:12]
-            desks[did] = {"sb": None, "env": env, "wh": (0, 0), "opened": time.time()}
-            img = shot(desks[did])
+            with ExitStack() as opening:
+                close = getattr(env, "close", None)
+                if callable(close):
+                    opening.callback(close)
+                if url:
+                    env.open_url(url)
+                    Waiter(lambda: env.observe().screenshot, PAGE_RULE).settle("page", cap_s=5.0, poll_s=0.1)
+                did = uuid.uuid4().hex[:12]
+                d = {"sb": None, "env": env, "wh": (0, 0), "opened": time.time()}
+                img = shot(d)
+                w, h = d["wh"]
+                what = env.describe() if hasattr(env, "describe") else f"{app}'s window"
+                keep(did, "open", d["png"], state=d, width=w, height=h, url=url, app=app, window=what)
+                result = open_result(
+                    f"desktop_id: {did} ({w}x{h}): {what}, worked in the background; the person's other windows are left "
+                    "alone. Coordinates are pixels of this window. Clicks press, focus or select what is under them; "
+                    "drags and clicks on nothing pressable are not possible here, so use the keyboard for those.", img,
+                    {"desktop_id": did, "width": w, "height": h, "started": url or app, "start_error": None})
+                desks[did] = d
+                opening.pop_all()
+                return result
         except (RuntimeError, OSError, subprocess.SubprocessError) as e:
-            close = getattr(env, "close", None)
-            if callable(close):
-                close()                                     # the window it opened, if it got that far
             raise ToolError(f"could not open {app} in the background: {e}") from None
-        w, h = desks[did]["wh"]
-        what = env.describe() if hasattr(env, "describe") else f"{app}'s window"
-        keep(did, "open", desks[did]["png"], width=w, height=h, url=url, app=app, window=what)
-        return open_result(
-            f"desktop_id: {did} ({w}x{h}): {what}, worked in the background; the person's other windows are left "
-            "alone. Coordinates are pixels of this window. Clicks press, focus or select what is under them; "
-            "drags and clicks on nothing pressable are not possible here, so use the keyboard for those.", img,
-            {"desktop_id": did, "width": w, "height": h, "started": url or app, "start_error": None})
 
     @srv.tool()
     @_said
@@ -402,13 +405,13 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
 
     def read_text(d: dict, max_chars: int) -> str:
         env = d["env"]
-        from legato.background import BackgroundEnv
-        if isinstance(env, BackgroundEnv):
-            return env.read(max_chars=max_chars)
+        reader = getattr(env, "read", None)
+        if callable(reader):
+            return reader(max_chars=max_chars)
         if windows_screen(env):
             from legato import winread
             return winread.read(env.shell, max_chars)
-        raise ToolError("desktop_read works only in background mode on a Mac (legato mcp --background, the window's "
+        raise ToolError("desktop_read needs a desktop read(max_chars=...) implementation, background mode on a Mac (legato mcp --background, the window's "
                         "Accessibility tree) and on a Windows screen (the foreground window, UI Automation); on this "
                         "desktop use desktop_screenshot, or desktop_shell to check files and output")
 
@@ -418,7 +421,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         """The text of the window, without a screenshot: an outline with one line per element, such as
         `- heading "Counter"`, `- text "Count: 1"` or `- textbox "Name": "Ada" [focused]`. In a browser it is the
         page, with its title and address first. Use it to check what an app or page says (a count, a message, a
-        field's value). It works in the background on a Mac (the desktop's window, from its Accessibility tree) and
+        field's value). It works with a developer-supplied read(max_chars=...) method, in the background on a Mac (the window's tree), and
         on a Windows screen (the foreground window, from UI Automation; about half a second). Other desktops (a
         Mac's or Linux's whole screen, a container, a sandbox) have no such tree and answer with an error: use
         desktop_screenshot. max_chars: where the outline is cut (default 8000)."""
@@ -445,8 +448,9 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                 try:
                     seen = read_text(d, 100_000)
                 except RuntimeError as e:         # no window to read yet
-                    seen = f"(nothing: {e})"
-                hit = [line.strip() for line in seen.splitlines() if want in line.casefold()]
+                    seen, hit = f"(nothing: {e})", []
+                else:
+                    hit = [line.strip() for line in seen.splitlines() if want in line.casefold()]
                 took = time.monotonic() - t
                 if hit:
                     keep(desktop_id, "wait", None, text=text, seconds=round(took, 3), found=True)
@@ -558,7 +562,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                      seconds={k: round(v, 3) for k, v in timing.items() if isinstance(v, float)})
         try:
             res = agent.run(task + ANSWER_NOTE, env, max_steps=max_steps, on_step=on_step, raise_desktop_errors=False,
-                            timeout_s=float(timeout_s) if timeout_s else None)
+                            timeout_s=timeout_s)
         finally:
             if record:
                 del env.observe, env.act                # the class's own again
@@ -649,8 +653,10 @@ def main(argv=None) -> int:
     if not (a.local or a.background or a.sandbox):        # what legato setup saved
         from legato import config
         saved = config.load().desktop or config.default_desktop()
-        a.background = saved == "background" and sys.platform == "darwin"
+        a.background = saved == "background"
         a.sandbox = {"screen": "local", "background": "local"}.get(saved, saved)
+    if a.background and sys.platform != "darwin":
+        ap.error("background mode requires macOS; use --local for the foreground screen or --sandbox docker")
     spec = "local" if a.local or a.background else a.sandbox
     make = providers.load(spec)
     if spec == "local" and a.wait_scope != "screen":

@@ -281,8 +281,9 @@ def test_run_task_passes_its_deadline_and_says_status_in_its_description(monkeyp
         assert r.structured_content["status"] == "timeout"
         assert tool.output_schema["required"] == ["status", "answer", "seconds", "steps", "error", "cost_usd"]
         await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t"})
+        await srv.call_tool("desktop_run_task", {"desktop_id": did, "task": "t", "timeout_s": 0})
     asyncio.run(go())
-    assert got[0]["timeout_s"] == 90.0 and got[1]["timeout_s"] is None
+    assert got[0]["timeout_s"] == 90.0 and got[1]["timeout_s"] is None and got[2]["timeout_s"] == 0
 
 
 def test_run_task_under_record_keeps_each_step(monkeypatch, tmp_path):
@@ -404,7 +405,7 @@ def test_read_and_wait_on_a_windows_screen(monkeypatch):
 
     async def go(srv):
         did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
-        with pytest.raises(Exception, match="only in background mode on a Mac.*Windows screen"):
+        with pytest.raises(Exception, match="background mode on a Mac.*Windows screen"):
             await srv.call_tool("desktop_read", {"desktop_id": did})
         monkeypatch.setattr(m, "windows_screen", lambda env: True)
         r = await srv.call_tool("desktop_read", {"desktop_id": did})
@@ -548,3 +549,83 @@ def test_run_task_runs_a_named_model_with_its_own_providers_key(monkeypatch):
         ("claude-sonnet-5-5", "https://api.anthropic.com/v1", "sk-ant-env"),
         ("anthropic/claude-sonnet-5.5", "https://openrouter.ai/api/v1", "sk-or-saved"),
         ("qwen/qwen3.8-27b", "https://openrouter.ai/api/v1", "sk-or-saved")]
+
+
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_saved_mac_background_never_opens_the_foreground_on_another_os(monkeypatch, platform):
+    import sys
+    from legato import config, mcp_server
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setattr(config, "load", lambda: config.Config(desktop="background"))
+    monkeypatch.setattr(mcp_server, "build_server", lambda *a, **kw: pytest.fail("opened a foreground server"))
+    with pytest.raises(SystemExit) as exit_info:
+        mcp_server.main([])
+    assert exit_info.value.code == 2
+
+
+def test_desktop_read_and_wait_use_the_attached_reader_without_capturing():
+    env = legato.attach(screenshot=lambda: png(), execute=lambda action: None)
+    reads = []
+    def read(*, max_chars):
+        reads.append(max_chars)
+        return 'window "Tools"\n- text "Build passed"'[:max_chars]
+    env.read = read
+    srv = build_server(lambda res: (None, env))
+
+    async def go():
+        did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
+        env.observe = lambda: pytest.fail("captured the screen during a text query")
+        reply = await srv.call_tool("desktop_read", {"desktop_id": did, "max_chars": 21})
+        assert reply.content[0].text == 'window "Tools"\n- text'
+        reply = await srv.call_tool("desktop_wait", {"desktop_id": did, "text": "passed"})
+        assert 'Build passed' in reply.content[0].text
+    asyncio.run(go())
+    assert reads == [21, 100_000]
+
+
+def test_desktop_wait_never_matches_a_reader_error():
+    from legato.background import BackgroundEnv
+    from legato.env import Env
+    class Broken(BackgroundEnv):
+        def __init__(self):
+            Env.__init__(self, lambda: png())
+        def read(self, max_chars):
+            raise RuntimeError("Ready window is unavailable")
+        def close(self):
+            pass
+        def describe(self):
+            return "test"
+    srv = build_server(lambda res: (None, Broken()))
+    async def go():
+        did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
+        with pytest.raises(Exception, match="was not in the window"):
+            await srv.call_tool("desktop_wait", {"desktop_id": did, "text": "Ready", "timeout_s": 1})
+    asyncio.run(go())
+
+
+@pytest.mark.parametrize("failure", ["capture", "record"])
+def test_background_open_failure_releases_the_window_once(failure, tmp_path):
+    from legato.background import BackgroundEnv
+    from legato.env import Env
+    closes = []
+    class Window(BackgroundEnv):
+        def __init__(self):
+            def grab():
+                if failure == "capture":
+                    raise RuntimeError("window closed")
+                return png()
+            Env.__init__(self, grab)
+        def close(self):
+            closes.append(True)
+        def describe(self):
+            return "Test window"
+    record = tmp_path / "not-a-directory"
+    record.write_text("file")
+    srv = build_server(background=lambda app: Window(), record=str(record))
+    async def go():
+        with pytest.raises(Exception):
+            await srv.call_tool("desktop_open", {"app": "fixture"})
+    asyncio.run(go())
+    assert closes == [True]
+    srv.close_left()
+    assert closes == [True]

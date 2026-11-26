@@ -922,7 +922,7 @@ def test_mcp_desktop_read_reads_a_background_window_and_is_refused_elsewhere():
     async def elsewhere():
         r = await srv.call_tool("desktop_open", {"width": 64, "height": 40})
         did = r.content[0].text.split()[1]
-        with pytest.raises(Exception, match="only in background mode"):
+        with pytest.raises(Exception, match="background mode on a Mac"):
             await srv.call_tool("desktop_read", {"desktop_id": did})
     asyncio.run(elsewhere())
 
@@ -1438,3 +1438,22 @@ def test_adaptive_action_returns_the_window_frame_that_settled():
     assert env.observe().screenshot != frame
     assert len(m.captures) == env.waiter.grabs + 1
     env.close()
+
+
+
+def test_mixed_controls_stop_label_probes_at_the_first_control():
+    desktop, m = env()
+    win, _ = _window_with_buttons(m)
+    row = El("AXCell", win)
+    control = El("AXCheckBox", row, title="Selected", value=1)
+    for text in ("First", "Second"):
+        El("AXStaticText", row, value=text)
+    probed = []
+    def attrs(el, names):
+        if names == ["AXRole", "AXValue"]:
+            probed.append(el)
+        return {n: v for n in names if (v := m.attr(el, n)) is not None}
+    m.attrs = attrs
+    outline = desktop.read()
+    assert all(s in outline for s in ("Selected", "First", "Second"))
+    assert control in probed and not any(child in probed for child in row.children[1:])
