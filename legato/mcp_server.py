@@ -236,7 +236,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         "has settled, so there is no need to wait or take extra screenshots. desktop_shell runs a command on the "
         "desktop's computer: use it to start apps, read and write files and check results, which is faster than "
         "the screen. A window started that way takes a moment: desktop_wait waits for it. desktop_read gives a "
-        "window's text without a screenshot (a Mac in the background, a Windows screen)."
+        "window's text without a screenshot (a Mac background window, a Windows screen, or a desktop with a reader)."
         + (" " + about if about else "")))
     from legato import __version__
     for low in (getattr(srv, "_lowlevel_server", None), getattr(srv, "_mcp_server", None)):
@@ -421,10 +421,9 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         """The text of the window, without a screenshot: an outline with one line per element, such as
         `- heading "Counter"`, `- text "Count: 1"` or `- textbox "Name": "Ada" [focused]`. In a browser it is the
         page, with its title and address first. Use it to check what an app or page says (a count, a message, a
-        field's value). It works with a developer-supplied read(max_chars=...) method, in the background on a Mac (the window's tree), and
-        on a Windows screen (the foreground window, from UI Automation; about half a second). Other desktops (a
-        Mac's or Linux's whole screen, a container, a sandbox) have no such tree and answer with an error: use
-        desktop_screenshot. max_chars: where the outline is cut (default 8000)."""
+        field's value). Built-in readers support a Mac background window and the foreground window on a Windows
+        screen. An attached desktop can supply read(max_chars=...). Where there is no reader, use
+        desktop_screenshot or desktop_shell. max_chars bounds the returned outline (1 to 200,000)."""
         d = get(desktop_id)
         t = time.monotonic()
         text = read_text(d, min(max(int(max_chars), 1), 200_000))
