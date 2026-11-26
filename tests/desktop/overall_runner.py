@@ -59,10 +59,8 @@ def main():
                 else:
                     print((folder/"server.log").read_text(errors="replace")[-2200:])
                     raise RuntimeError("local model failed startup")
-                from ledger_policy import ask
-                ask(["Set account 4 to 543."],False)
-                subprocess.run([sys.executable,"-u",str(Path(__file__).with_name("long_ledger.py")),
-                                "--cases","6","--shard",args.shard],check=True)
+                subprocess.run([sys.executable,"-u",str(Path(__file__).with_name("conditional_loop.py")),
+                                "--shard",args.shard],check=True)
             finally:
                 proc.terminate();proc.wait(timeout=20)
 
