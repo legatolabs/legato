@@ -422,10 +422,10 @@ class LocalEnv(Env):
             except (OSError, subprocess.SubprocessError):
                 pass
 
-    def act(self, action: Action) -> Obs:
+    def act(self, action: Action, *, until: Callable[[Obs], bool] | None = None, timeout_s: float = 2.0) -> Obs:
         """Run `action`, unless the person has asked to stop (`safety.Stopped`) or says no to it (`safety.Denied`)."""
         if action.done:
-            return super().act(action)
+            return super().act(action, until=until, timeout_s=timeout_s)
         if why := self.stop_requested():
             self._restore_clipboard()
             raise safety.Stopped(why)
@@ -443,7 +443,7 @@ class LocalEnv(Env):
                 raise safety.Denied(ask)
         self._typed = typed
         try:
-            return super().act(action)
+            return super().act(action, until=until, timeout_s=timeout_s)
         except self._failsafe:
             self._restore_clipboard()
             raise safety.Stopped("the mouse was moved into a corner of the screen") from None

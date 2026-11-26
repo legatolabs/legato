@@ -36,11 +36,11 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 from legato import safety
 from legato.actions import Action
-from legato.env import DesktopError, DesktopStartError, Env
+from legato.env import DesktopError, DesktopStartError, Env, Obs
 from legato.local import LocalEnv
 from legato.settle import LOCAL_RULES, Waiter, _ScreenSample
 
@@ -981,7 +981,7 @@ class BackgroundEnv(LocalEnv):
         return None
 
     # ------------------------------------------------------------ acting
-    def act(self, action: Action):
+    def act(self, action: Action, *, until: Callable[[Obs], bool] | None = None, timeout_s: float = 2.0) -> Obs:
         if action.type == "key" and action.keys and HIDES.fullmatch(action.keys.lower().replace("ctrl", "cmd")):
             raise safety.Unavailable(f"{action.keys} would hide or minimize {self.app}'s window, the one this agent "
                                      "works in")
@@ -999,7 +999,7 @@ class BackgroundEnv(LocalEnv):
             if action.type in ("key", "type") and self._focus_own() is False:
                 raise safety.Unavailable(f"{action.describe()}: another {self.app} window has the keyboard right now "
                                          "(the person's, or another agent's), so the keys were not sent; try again")
-            return super().act(action)
+            return super().act(action, until=until, timeout_s=timeout_s)
         finally:
             self._acting = False
             self.give_back_front(before)
