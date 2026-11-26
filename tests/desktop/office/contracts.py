@@ -43,3 +43,25 @@ def model(lines):
     names=json.loads(c["message"]["content"])["tools"]
     if len(names)!=len(lines):raise ValueError("wrong number of operations")
     return names
+
+
+def compact(lines):
+    """One constrained output symbol per instruction. Each symbol names a registered operation."""
+    options = NAMES + ["clarify"]
+    alphabet = "ABCDEFGHI"
+    table = "\n".join(f"{letter} = {TEXT[name]}" for letter, name in zip(alphabet, options))
+    system = ("Translate the numbered instructions into operation codes. Output one letter per instruction, "
+              "joined in the original order. I means clarification required. Codes:\n"+table)
+    schema = {"type":"string","pattern":"^[A-I]{"+str(len(lines))+"}$"}
+    body = {"model":"legato-overall","messages":[{"role":"system","content":system},
+            {"role":"user","content":"\n".join(f"{i+1}. {s}" for i,s in enumerate(lines))}],
+            "temperature":0,"seed":3571,"cache_prompt":False,"max_tokens":20,
+            "response_format":{"type":"json_schema","json_schema":{"name":"codes","strict":True,"schema":schema}}}
+    req=urllib.request.Request("http://127.0.0.1:18714/v1/chat/completions",data=json.dumps(body).encode(),
+                               headers={"Content-Type":"application/json"})
+    with urllib.request.urlopen(req,timeout=120) as resp:choice=json.load(resp)["choices"][0]
+    if choice["finish_reason"]!="stop":raise ValueError("incomplete response")
+    codes=json.loads(choice["message"]["content"])
+    if not isinstance(codes,str) or len(codes)!=len(lines) or any(c not in alphabet for c in codes):
+        raise ValueError("invalid operation codes")
+    return [options[alphabet.index(c)] for c in codes]
