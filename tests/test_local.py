@@ -408,3 +408,33 @@ def test_windows_scroll_dispatches_wheel_notches_on_the_requested_axis(monkeypat
                      (0x0800, 0, 0, 360, 0), (0x0800, 0, 0, -360, 0)]
     assert gui.calls == [(name, args) for _ in range(4)
                          for name, args in (("moveTo", (20, 10)), ("failSafeCheck", ()))]
+
+
+def test_verified_click_returns_original_pixels_even_if_predicate_marks_its_image():
+    import io
+    from PIL import Image
+
+    e = env()
+    def check(image):
+        image.putpixel((0, 0), (255, 0, 0))
+        return True
+    obs = e.act(Action("click", x=2, y=3), until=check)
+    with Image.open(io.BytesIO(obs.screenshot)) as accepted:
+        assert accepted.size == e.size and accepted.getpixel((0, 0)) == (10, 20, 30)
+    assert e.gui.calls == [("click", (2, 3))]
+
+
+def test_verified_action_respects_stop_and_overridden_observation(monkeypatch):
+    import pytest
+    from legato import safety
+
+    e = env()
+    monkeypatch.setattr(e, "stop_requested", lambda: "test stop")
+    with pytest.raises(safety.Stopped):
+        e.act(Action("click", x=2, y=3), until=lambda image: pytest.fail("should not observe"))
+    assert e.gui.calls == []
+    e = env()
+    original = e.observe().screenshot
+    e._shot = lambda: original
+    monkeypatch.setattr(e, "_screen_image", lambda: pytest.fail("wrong capture surface"))
+    assert e.act(Action("click", x=2, y=3), until=lambda image: image.size == e.size).screenshot == original
