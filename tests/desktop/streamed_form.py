@@ -49,9 +49,15 @@ def fixture(folder):
     journal.touch()
     def title(stage):
         state["stage"] = stage
-        app.title(prefix+str(state["trial"]*100+state["revision"]*10+stage))
+        identity=SLOTS.index(state["destination"])+1 if stage>0 else 0
+        app.title(prefix+str((state["trial"]*100+state["revision"]*10+stage)*5+identity))
     def layout():
         canvas.delete("all")
+        epoch=state["trial"]*100+state["revision"]*10
+        for bit in range(16):
+            color="black" if (epoch>>bit)&1 else "white"
+            canvas.create_rectangle(12+bit*8,80,18+bit*8,94,fill=color,outline="")
+        canvas.create_rectangle(2,80,8,94,fill="black",outline="")
         for i,slot in enumerate(SLOTS):
             x = POINTS[(i+state["revision"])%4]
             canvas.create_rectangle(x-37,10,x+37,72,fill=COLORS[i],outline="",tags=(slot,))
@@ -145,22 +151,43 @@ def wait_until(read,expected):
 
 def prepare(env, reader, xy, slot):
     from PIL import Image, ImageColor
-    version=reader.value()
-    with Image.open(io.BytesIO(env.observe().screenshot)) as im:
-        rgb=im.convert("RGB")
-        target=ImageColor.getrgb(COLORS[SLOTS.index(slot)])
-        hits=[(xy[0]+x,xy[1]+20) for x in POINTS if max(abs(a-b) for a,b in zip(rgb.getpixel((xy[0]+x,xy[1]+20)),target)) < 28]
-    if len(hits)!=1 or reader.value()!=version:
-        raise ValueError("no stable target")
-    return version,hits[0]
+    deadline=time.monotonic()+3
+    while time.monotonic()<deadline:
+        version=reader.value()
+        with Image.open(io.BytesIO(env.observe().screenshot)) as im:
+            rgb=im.convert("RGB")
+            def dark(x):
+                return max(rgb.getpixel((xy[0]+x,xy[1]+86)))<50
+            stamp=sum(int(dark(15+i*8))<<i for i in range(16))
+            target=ImageColor.getrgb(COLORS[SLOTS.index(slot)])
+            hits=[(xy[0]+x,xy[1]+20) for x in POINTS
+                  if max(abs(a-b) for a,b in zip(rgb.getpixel((xy[0]+x,xy[1]+20)),target))<28]
+            consistent=(dark(4) and stamp==version//5 and len(hits)==1)
+        if consistent and reader.value()==version:
+            return version,hits[0]
+        time.sleep(.004)
+    raise TimeoutError("screenshot and semantic target did not agree on the current layout")
+
+
+def control(folder,trial,revision):
+    # A Windows reader can briefly hold a handle that disallows replacing the existing control file.
+    end=time.monotonic()+2
+    while True:
+        try:
+            publish(folder/"control.json",dict(trial=trial,revision=revision))
+            return
+        except PermissionError:
+            if time.monotonic()>=end:
+                raise
+            time.sleep(.004)
 
 
 def transact(env,reader,xy,folder,trial,case,arm,live,cancel,move):
     from legato import Action
     read=reader.value
     epoch=trial*100
-    publish(folder/"control.json",dict(trial=trial,revision=0))
-    wait_until(read,epoch)
+    control(folder,trial,0)
+    wait_until(read,epoch*5)
     start=time.perf_counter()
     prepared=None
     model=True
@@ -171,8 +198,8 @@ def transact(env,reader,xy,folder,trial,case,arm,live,cancel,move):
         selected=registered(case["text"])
         model=selected is None
     def move_targets():
-        publish(folder/"control.json",dict(trial=trial,revision=1))
-        wait_until(read,epoch+10)
+        control(folder,trial,1)
+        wait_until(read,(epoch+10)*5)
     if model:
         output=""
         boundary=False
@@ -205,17 +232,18 @@ def transact(env,reader,xy,folder,trial,case,arm,live,cancel,move):
             if prepared is None:
                 prepared=prepare(env,reader,xy,slot)
             version,(x,y)=prepared
-            if version not in (epoch,epoch+10) or read()!=version:
+            if version not in (epoch*5,(epoch+10)*5) or read()!=version:
                 raise RuntimeError("target changed before dispatch")
             actions=[Action("click",x=x,y=y),Action("type",text=code),Action("key",keys="Return")]
             for index,action in enumerate(actions,1):
-                env.act(action,read=read,until=lambda v: v==version+index,timeout_s=3)
+                expected=version+index*5+SLOTS.index(slot)+1
+                env.act(action,read=read,until=lambda v: v==expected,timeout_s=3)
             committed=True
     journal=list(csv.reader((folder/"saved.csv").read_text().splitlines()))
     own=[row for row in journal if int(row[0])==trial]
     took=time.perf_counter()-start
     return dict(s=took,model=model,stale=stale,committed=committed,rows=own,
-                stage=read()%10,selected=selected,completed=finished)
+                stage=(read()//5)%10,selected=selected,completed=finished)
 
 
 def run(live,limit):
