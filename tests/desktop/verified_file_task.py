@@ -1,6 +1,5 @@
 """Held-out task. A native form edits two fields and saves an on-disk receipt. Only the grader reads the file."""
 import csv
-import io
 import json
 import os
 from pathlib import Path
@@ -14,7 +13,9 @@ from verified_readiness import publish, take_json
 def fixture(folder):
     import tkinter as tk
     root=tk.Tk()
-    root.title("Legato shipment editor")
+    prefix = "Legato " + folder.name + " shipment editor "
+    root.title(prefix+"0")
+    publish(folder/"owner.json", {"prefix":prefix, "pid":os.getpid()})
     root.geometry("520x300+45+80")
     root.attributes("-topmost", True)
     canvas=tk.Canvas(root,width=510,height=110,highlightthickness=0,bg="white")
@@ -34,6 +35,7 @@ def fixture(folder):
     def draw(stage):
         session["stage"]=stage
         val=session["serial"]*16+stage
+        root.title(prefix+str(val))
         canvas.itemconfigure(text,text=f"Shipment {session['serial']} · stage {stage}")
         for i,rect in enumerate(rects):
             canvas.itemconfigure(rect,fill="black" if val & 1<<i else "white")
@@ -81,18 +83,13 @@ def fixture(folder):
 
 
 def worker(folder,arm):
-    from PIL import Image
     import legato
     from legato import Action
     assert Path(legato.__file__).resolve().is_relative_to(Path(os.environ["BENCH_SDK"]).resolve())
     x,y,ex,ey,bx,by=take_json(folder/"geometry.json")
-    def read(im):
-        a=im.crop((x,y+65,x+225,y+66)).convert("L")
-        if a.getpixel((8,0))>=55 or a.getpixel((214,0))>=55: return -1
-        return sum(int(a.getpixel((23+i*9,0))<55)<<i for i in range(20))
-    def decode(obs):
-        with Image.open(io.BytesIO(obs.screenshot)) as im: return read(im)
     env=legato.local(hide_terminal=False,fixed_wait_s=0 if arm=="manual" else None)
+    from native_receipt import TitleReader
+    reader=TitleReader(**take_json(folder/"owner.json"))
     try:
         print(json.dumps({"screen":env.size}),flush=True)
         for line in sys.stdin:
@@ -100,29 +97,30 @@ def worker(folder,arm):
             click=Action("click",x=ex,y=ey)
             save=Action("key",keys="Return") if spec["by_key"] else Action("click",x=bx,y=by)
             end=time.monotonic()+5
-            while decode(env.observe())!=serial*16:
+            while reader.value()!=serial*16:
                 if time.monotonic()>end: raise RuntimeError("reset not visible")
                 time.sleep(.01)
             start=time.perf_counter()
             for stage,action in enumerate((click,Action("type",text=spec["value"]),save),1):
                 expect=serial*16+stage; reads=0
-                def matches(im):
+                def matches(value):
                     nonlocal reads
                     reads+=1
-                    return read(im)==expect
+                    return value==expect
                 if arm=="sdk":
-                    obs=env.act(action,until=matches,timeout_s=3)
+                    result=env.act(action,read=reader.value,until=matches,timeout_s=3)
                 else:
-                    obs=env.act(action); deadline=time.monotonic()+3
+                    env.act(action); deadline=time.monotonic()+3
                     while True:
-                        reads+=1
-                        if decode(obs)==expect:break
+                        result=reader.value()
+                        if matches(result):break
                         if time.monotonic()>=deadline:raise TimeoutError((serial,stage))
-                        time.sleep(.01);obs=env.observe()
-                stage_values.append(decode(obs))
+                        time.sleep(.01)
+                stage_values.append(result)
                 read_counts.append(reads)
             print(json.dumps({"ms":1000*(time.perf_counter()-start),"frames":stage_values,"reads":read_counts}),flush=True)
     finally:
+        reader.close()
         env.close()
 
 
