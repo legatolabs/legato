@@ -50,6 +50,8 @@ def main():
     if os.name != "nt":
         sys.exit("This probe needs a disposable interactive Windows desktop.")
     import legato
+    from legato import winread
+    assert Path(legato.__file__).resolve().is_relative_to(Path(os.environ["BENCH_CHECKOUT"]).resolve())
 
     user32 = ctypes.WinDLL("user32", use_last_error=True)
     user32.GetForegroundWindow.restype = w.HWND
@@ -96,7 +98,8 @@ def main():
                 if foreground != proc.pid or target != proc.pid:
                     raise RuntimeError("The fixture does not own the foreground and target point")
                 env.act(legato.Action("scroll", x=x, y=y, direction=direction, amount=3))
-            rows = [tuple(map(int, row.split(","))) for row in (dest / "wheel.txt").read_text().splitlines()]
+            log = dest / "wheel.txt"
+            rows = [tuple(map(int, row.split(","))) for row in log.read_text().splitlines()] if log.exists() else []
             # A driver can deliver three notches in one message or several.
             totals = []
             for axis, delta in rows:
@@ -106,11 +109,23 @@ def main():
                     totals.append((axis, delta))
             expected = [(0x20A, 360), (0x20A, -360), (0x20E, -360), (0x20E, 360)]
             print(json.dumps({"expected": expected, "received": rows, "matches": totals == expected}))
-            if totals != expected:
-                raise AssertionError("Incorrect wheel axis or delta")
+            if os.environ["BENCH_ARM"] == "candidate":
+                assert totals == expected, "Incorrect wheel axis or delta"
+            times = []
+            from legato.tools import local_shell
+            for i in range(5):
+                assert owner(user32.GetForegroundWindow()) == proc.pid
+                begin=time.perf_counter()
+                outline = winread.read(local_shell, max_chars=8000, timeout_s=15)
+                elapsed=(time.perf_counter()-begin)*1000
+                assert "Legato wheel acceptance" in outline, outline[:500]
+                times.append({"read_ms":elapsed,"warmup":i==0})
+            data = {"received":rows,"matches":totals==expected,"readings":times}
+            Path(os.environ["BENCH_OUT"]).write_text(json.dumps(data))
+            print(os.environ["BENCH_ARM"],json.dumps(data))
         finally:
-            if env is not None:
-                env.close()
+            if callable(close := getattr(env, "close", None)):
+                close()
             proc.terminate()
             proc.wait(timeout=5)
 

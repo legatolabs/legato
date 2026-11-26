@@ -1,5 +1,7 @@
 """Verify a background Safari click through the page, its accessibility tree, and its returned frame."""
 import io
+import json
+import os
 import queue
 import threading
 import time
@@ -48,6 +50,7 @@ def accessible_button_point(env):
 def main():
     import ApplicationServices
     import Quartz
+    assert Path(legato.__file__).resolve().is_relative_to(Path(os.environ["BENCH_CHECKOUT"]).resolve())
 
     if not ApplicationServices.AXIsProcessTrusted() or not Quartz.CGPreflightScreenCaptureAccess():
         print("SKIP background Safari receipt: Accessibility and Screen Recording permissions are required")
@@ -87,8 +90,17 @@ def main():
                         raise AssertionError("The target window did not expose the initial receipt")
                     time.sleep(0.2)
                 obs = env.observe()
+                capture = env._capture
+                captures = []
+                def timed_capture():
+                    start = time.perf_counter()
+                    value = capture()
+                    captures.append((time.perf_counter()-start)*1000)
+                    return value
+                env._capture = timed_capture
+                measurements = []
                 visible = 0
-                for receipt in range(1001, 1005):
+                for receipt in range(1001, 1008):
                     point = button_point(obs.screenshot)
                     if point:
                         visible += 1
@@ -105,12 +117,19 @@ def main():
                             (output / "2-safari.png").write_bytes(obs.screenshot)
                             (output / "2-safari.txt").write_text(env.read(), encoding="utf-8")
                         point = accessible_button_point(env)
+                    captures.clear()
+                    t0 = time.perf_counter()
                     obs = env.act(legato.Action("click", x=point[0], y=point[1]))
+                    acted = time.perf_counter()
                     assert receipts.get(timeout=5) == f"/receipt/{receipt}"
                     assert f"Receipt {receipt}" in env.read()
-                print(f"Verified four Safari clicks by page receipts and AX reads. Button visible in {visible}/4 input frames.")
-                if visible < 4:
-                    print("::warning::Safari rendered an incomplete background window capture")
+                    end = time.perf_counter()
+                    measurements.append(dict(receipt=receipt,warmup=receipt==1001,action_ms=(acted-t0)*1000,
+                        verified_ms=(end-t0)*1000,obs_ms=env.last.get("obs_s",0)*1000,capture_ms=list(captures),
+                        captures=len(captures)))
+                record = dict(rows=measurements,visible=visible,verified=len(measurements))
+                Path(os.environ["BENCH_OUT"]).write_text(json.dumps(record))
+                print(os.environ["BENCH_ARM"], json.dumps(record))
             except Exception:
                 output = Path("local-shots")
                 output.mkdir(exist_ok=True)
