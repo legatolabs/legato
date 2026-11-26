@@ -29,6 +29,8 @@ def fixture(folder):
     canvas.pack(fill="both", expand=True)
     canvas.create_rectangle(40, 120, 270, 195, fill="#224488", outline="")
     canvas.create_text(150, 155, text="Submit order", fill="white")
+    canvas.create_rectangle(285, 120, 425, 195, fill="#225522", outline="")
+    canvas.create_text(355, 155, text="Update", fill="white")
     title = canvas.create_text(200, 35, text="Order 0", fill="black")
     bits = [canvas.create_rectangle(30+i*15, 65, 44+i*15, 87, fill="white", outline="") for i in range(12)]
     marks = [canvas.create_rectangle(x, 65, x+10, 87, fill=color, outline="")
@@ -45,11 +47,11 @@ def fixture(folder):
 
     def click(event):
         nonlocal sequence, clicks
-        if not (40 <= event.x <= 270 and 120 <= event.y <= 195):
+        if not (40 <= event.x <= 425 and 120 <= event.y <= 195):
             return
         clicks += 1
         plan = json.loads((folder / "request.json").read_text(encoding="utf-8"))
-        if plan["serial"] != sequence + 1:
+        if plan["serial"] != sequence + 1 or int(event.x > 275) != plan["target"]:
             publish(folder / "error.json", {"serial":sequence, "clicks":clicks})
             return
         sequence += 1
@@ -75,96 +77,115 @@ def take_json(path, timeout=8):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def benchmark(out):
+def worker(folder, arm):
     import legato
     from PIL import Image
     from legato.actions import Action
+    sdk_root = Path(os.environ["BENCH_SDK"]).resolve()
+    assert Path(legato.__file__).resolve().is_relative_to(sdk_root), legato.__file__
+    x, y = take_json(folder / "geometry.json")
+    def receipt(obs):
+        with Image.open(io.BytesIO(obs.screenshot)) as im:
+            strip = im.crop((x+10, y+70, x+245, y+71)).convert("L")
+            def dark(px):
+                return strip.getpixel((px-10, 0)) < 56
+            if not (dark(16) and dark(224) and not dark(239)):
+                return None
+            return sum(int(dark(37+i*15)) << i for i in range(12))
+    env = legato.local(hide_terminal=False, fixed_wait_s=0 if arm == "checked" else None)
+    try:
+        end = time.monotonic() + 8
+        while receipt(env.observe()) != 0:
+            if time.monotonic() >= end:
+                raise RuntimeError("Could not read owned window before trial")
+            time.sleep(.04)
+        print(json.dumps({"screen":env.size}), flush=True)
+        for line in sys.stdin:
+            spec = json.loads(line)
+            serial, delay = spec["serial"], spec["delay_ms"]
+            action = Action("click", x=x+(355 if spec["target"] else 150), y=y+155)
+            seen = []
+            def check(obs):
+                value = receipt(obs)
+                seen.append(value)
+                return value == serial
+            cap = 4 if delay >= 0 else .8
+            start = time.perf_counter()
+            returned = None
+            if arm == "sdk":
+                try:
+                    returned = env.act(action, until=check, timeout_s=cap)
+                except TimeoutError:
+                    pass
+                timing = dict(env.last)
+            else:
+                obs = env.act(action)
+                timing = dict(env.last)
+                while True:
+                    if check(obs):
+                        returned = obs
+                        break
+                    if time.perf_counter()-start >= cap:
+                        break
+                    time.sleep(.01)
+                    obs = env.observe()
+            elapsed = (time.perf_counter()-start)*1000
+            # All arms get the same independent final-frame check, outside the timer.
+            result = receipt(returned) if returned is not None else None
+            print(json.dumps(dict(total_ms=elapsed, accepted=result==serial, first=seen[0],
+                                  reads=len(seen), timing=timing)), flush=True)
+    finally:
+        env.close()
 
+
+def benchmark(out):
+    candidate = Path(__file__).resolve().parents[2]
+    baseline = (candidate / "baseline").resolve()
     with tempfile.TemporaryDirectory() as temp:
         folder = Path(temp)
         child = subprocess.Popen([sys.executable, __file__, "--fixture", temp])
-        regular = fast = None
+        workers = {}
         try:
-            x, y = take_json(folder / "geometry.json")
-            def receipt(obs):
-                with Image.open(io.BytesIO(obs.screenshot)) as im:
-                    strip = im.crop((x+10, y+70, x+245, y+71)).convert("L")
-                    def is_black(px):
-                        return strip.getpixel((px-10, 0)) < 56
-                    if not (is_black(16) and is_black(224) and not is_black(239)):
-                        return None
-                    return sum(int(is_black(37+i*15)) << i for i in range(12))
-
-            regular = legato.local(hide_terminal=False)
-            fast = legato.local(hide_terminal=False, fixed_wait_s=0)
-            action = Action("click", x=x+150, y=y+155)
-            deadline = time.monotonic() + 5
-            while receipt(regular.observe()) != 0:
-                if time.monotonic() > deadline:
-                    raise RuntimeError(f"Owned fixture markers absent on {platform.platform()} at {(x,y)}")
-                time.sleep(.05)
-            rows = []
-            serial = 0
-
+            take_json(folder / "geometry.json")
+            for arm in ["default", "checked", "sdk"]:
+                root = candidate if arm=="sdk" else baseline
+                assert (root / "legato" / "env.py").exists(), root
+                workers[arm] = subprocess.Popen([sys.executable,"-u",str(Path(__file__).resolve()),"--worker",temp,arm],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, cwd=root,
+                    env={**os.environ, "BENCH_SDK":str(root), "PYTHONPATH":str(root)},
+                    creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0))
+                print(arm, "setup", json.loads(workers[arm].stdout.readline()), flush=True)
+            rows, serial = [], 0
             def trial(arm, delay, pair, within):
                 nonlocal serial
                 serial += 1
-                publish(folder / "request.json", {"serial":serial, "delay_ms":delay})
-                env = fast if arm == "checked" else regular
-                start = time.perf_counter()
-                seen = []
-                def check(obs):
-                    value = receipt(obs)
-                    seen.append(value)
-                    return value == serial
-                limit = start + (4 if delay >= 0 else 0.8)
-                if arm == "sdk":
-                    try:
-                        obs = env.act(action, until=check, timeout_s=4 if delay >= 0 else .8)
-                    except TimeoutError:
-                        value = None
-                    else:
-                        value = receipt(obs)   # independently decode the exact frame the API returned
-                    timing = dict(env.last)
-                else:
-                    obs = env.act(action)
-                    timing = dict(env.last)
-                    while not check(obs) and time.perf_counter() < limit:
-                        time.sleep(.01)
-                        obs = env.observe()
-                    value = seen[-1]
-                first, reads = seen[0], len(seen)
-                elapsed = (time.perf_counter()-start)*1000
-                accepted = value == serial
+                spec = {"serial":serial, "delay_ms":delay, "target":serial % 2}
+                publish(folder / "request.json", spec)
+                proc = workers[arm]
+                proc.stdin.write(json.dumps(spec)+"\n")
+                proc.stdin.flush()
+                row = json.loads(proc.stdout.readline())
                 grade = take_json(folder / "grade.json")
-                valid = ((accepted and grade == {"serial":serial,"clicks":serial}) if delay >= 0
-                         else (not accepted and take_json(folder / "withheld.json") ==
+                valid = ((row["accepted"] and grade == {"serial":serial,"clicks":serial}) if delay >= 0
+                         else (not row["accepted"] and take_json(folder / "withheld.json") ==
                                {"serial":serial,"clicks":serial} and grade["serial"] != serial))
-                row = dict(pair=pair, arm=arm, action_in_task=within, delay_ms=delay,
-                           total_ms=elapsed, accepted=accepted, valid=valid, first=first,
-                           serial=serial, reads=reads, timing=timing)
+                row.update(spec, pair=pair, arm=arm, action_in_task=within, valid=valid)
+                print("MEASURE", json.dumps(row,separators=(",",":")), flush=True)
                 rows.append(row)
                 if not valid or (folder / "error.json").exists():
-                    raise RuntimeError(f"Wrong or duplicated action: {row}, application receipt {grade}")
-            for pair in range(12):
-                arms = list(itertools.permutations(["default","checked","sdk"]))[(pair // 2 + pair % 2) % 6]
+                    raise AssertionError(f"Incorrect receipt, target or input count: {row} {grade}")
+            for pair in range(18):
+                arms = list(itertools.permutations(["default","checked","sdk"]))[(pair//2 + pair%2)%6]
                 for arm in arms:
-                    for within, delay in enumerate([0, 0, 0] if pair % 2 == 0 else [0, 70, 350]):
+                    for within, delay in enumerate([0,0,0] if pair%2==0 else [0,70,350]):
                         trial(arm, delay, pair, within)
-            for arm in ["sdk", "checked","default"]:
-                trial(arm, -1, 12, 0)
-            out.write_text(json.dumps({"os":platform.platform(), "python":sys.version,
-                                      "screen":regular.size, "rows":rows}, indent=2))
-            for row in rows:
-                print("MEASURE", json.dumps(row, separators=(",",":")), flush=True)
-            for key in ("default","checked","sdk"):
-                values = [r["total_ms"] for r in rows if r["arm"]==key and r["delay_ms"]==0]
-                print(key, len(values), "immediate median ms", statistics.median(values), flush=True)
+            for arm in ["sdk","checked","default"]:
+                trial(arm,-1,18,0)
+            out.write_text(json.dumps({"os":platform.platform(), "python":sys.version, "rows":rows}, indent=2))
         finally:
-            if fast is not None:
-                fast.close()
-            if regular is not None:
-                regular.close()
+            for w in workers.values():
+                w.stdin.close()
+                w.wait(timeout=5)
             child.terminate()
             child.wait(timeout=10)
 
@@ -172,5 +193,7 @@ def benchmark(out):
 if __name__ == "__main__":
     if sys.argv[1] == "--fixture":
         fixture(Path(sys.argv[2]))
+    elif sys.argv[1] == "--worker":
+        worker(Path(sys.argv[2]), sys.argv[3])
     else:
         benchmark(Path(sys.argv[1]))

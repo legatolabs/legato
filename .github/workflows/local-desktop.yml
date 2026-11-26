@@ -13,6 +13,10 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 1646bf7f916d64ec8220c7d3fe3e84433a43dd1b
+          path: baseline
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
