@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.platforms) }}
-        shard: [0, 1]
+        os: [ubuntu-24.04]
+        shard: [0, 1, 2]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 85
     steps:
@@ -30,8 +30,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -e ./candidate
-      - if: runner.os == 'Linux'
-        run: xvfb-run -a -s '-screen 0 1280x800x24' python tests/desktop/overall_runner.py --shard ${{ matrix.shard }}
-      - if: runner.os != 'Linux'
-        run: python tests/desktop/overall_runner.py --shard ${{ matrix.shard }}
+      - run: python -m pip install -e "./candidate[office]"
+      - run: python tests/desktop/overall_runner.py --shard ${{ matrix.shard }}

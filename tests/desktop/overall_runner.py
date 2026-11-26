@@ -59,10 +59,11 @@ def main():
                 else:
                     print((folder/"server.log").read_text(errors="replace")[-2200:])
                     raise RuntimeError("local model failed startup")
-                from ledger_policy import ask
-                ask(["Set account 4 to 543."],False)
-                subprocess.run([sys.executable,"-u",str(Path(__file__).with_name("long_ledger.py")),
-                                "--cases","6","--shard",args.shard],check=True)
+                sys.path.insert(0,str(Path(__file__).parent/"office"))
+                from contracts import model as warm
+                warm(["Put the summary heading in the first slide title."])
+                subprocess.run([sys.executable,"-u",str(Path(__file__).parent/"office"/"routing.py"),
+                                "--shard",args.shard],check=True)
             finally:
                 proc.terminate();proc.wait(timeout=20)
 
