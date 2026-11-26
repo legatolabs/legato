@@ -629,3 +629,19 @@ def test_background_open_failure_releases_the_window_once(failure, tmp_path):
     assert closes == [True]
     srv.close_left()
     assert closes == [True]
+
+
+def test_a_change_notification_wakes_a_read_and_only_the_matching_read_finishes():
+    reads = iter(["Pending", "Pending", "Build completed"])
+    pauses = []
+    env = legato.attach(screenshot=lambda: png(), execute=lambda action: None)
+    env.read = lambda *, max_chars: next(reads)
+    env.wait_for_text_change = pauses.append
+    srv = build_server(lambda res: (None, env))
+
+    async def go():
+        did = (await srv.call_tool("desktop_open", {})).content[0].text.split()[1]
+        result = await srv.call_tool("desktop_wait", {"desktop_id": did, "text": "completed"})
+        assert "Build completed" in result.content[0].text
+    asyncio.run(go())
+    assert pauses == [0.3, 0.3]

@@ -411,9 +411,9 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         if windows_screen(env):
             from legato import winread
             return winread.read(env.shell, max_chars)
-        raise ToolError("desktop_read needs a desktop read(max_chars=...) implementation, background mode on a Mac (legato mcp --background, the window's "
-                        "Accessibility tree) and on a Windows screen (the foreground window, UI Automation); on this "
-                        "desktop use desktop_screenshot, or desktop_shell to check files and output")
+        raise ToolError("desktop_read needs a reader for this desktop. Built-in readers support background mode on a Mac "
+                        "(the window's Accessibility tree) and a Windows screen (the foreground window's UI Automation "
+                        "tree). A custom desktop can implement read(max_chars=...). Use desktop_screenshot to see it.")
 
     @srv.tool()
     @_said
@@ -444,6 +444,7 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
         t = time.monotonic()
         if text:
             want, seen = text.casefold(), ""
+            wake = getattr(d["env"], "wait_for_text_change", None)
             while True:
                 try:
                     seen = read_text(d, 100_000)
@@ -457,7 +458,11 @@ def build_server(factory: Callable[[tuple[int, int]], tuple[Any, Env]] = e2b_fac
                     return [f"{text!r} is there after {took:.1f} s: {seen.splitlines()[0]}\n" + "\n".join(hit[:5])]
                 if took >= cap:
                     break
-                time.sleep(0.3)
+                pause = min(0.3, cap - took)
+                if callable(wake):
+                    wake(pause)                 # a notification can wake a read; only the read can match
+                else:
+                    time.sleep(pause)
             keep(desktop_id, "wait", None, text=text, seconds=round(took, 3), found=False)
             raise ToolError(f"{text!r} was not in the window after {took:.0f} s. It reads:\n{seen[:800]}")
         env = d["env"]
