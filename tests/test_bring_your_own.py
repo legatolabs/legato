@@ -88,3 +88,52 @@ def test_doctor_json(capsys, monkeypatch):
     assert main(["--json"]) == 0
     d = json.loads(capsys.readouterr().out)
     assert {"docker", "local", "e2b"} <= set(d["sandboxes"]) and "mcp" in d and d["legato"] == legato.__version__
+
+
+def test_verified_action_returns_matching_observation_and_dispatches_once():
+    from PIL import Image
+    import io
+
+    frames = []
+    for width in (8, 16):
+        buf = io.BytesIO()
+        Image.new("RGB", (width, 2)).save(buf, format="PNG")
+        frames.append(buf.getvalue())
+    calls, seen = [], []
+    desk = legato.attach(screenshot=iter(frames).__next__, execute=calls.append)
+    click = Action("click", x=2, y=1)
+    def ready(obs):
+        seen.append(obs)
+        return obs.width == 16
+    observed = desk.act(click, until=ready)
+    assert calls == [click]
+    assert [frame.width for frame in seen] == [8, 16]
+    assert observed is seen[-1] and observed.screenshot == frames[-1]
+    assert desk.last["act_s"] >= 0 and desk.last["obs_s"] >= 0 and desk.last["settle_s"] >= 0
+
+
+def test_missing_condition_preserves_action_count_and_next_action_uses_its_own_wait():
+    calls = []
+    desk = legato.attach(screenshot=lambda: b"pending", execute=calls.append, fixed_wait_s=0)
+    click = Action("click", x=2, y=1)
+    with pytest.raises(TimeoutError):
+        desk.act(click, until=lambda obs: False, timeout_s=.025)
+    assert calls == [click]
+    for invalid in (0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            desk.act(click, until=lambda obs: True, timeout_s=invalid)
+    assert calls == [click]
+    assert desk.act(click).screenshot == b"pending"
+    assert calls == [click, click]
+
+
+def test_verified_step_uses_remote_helpers_frame_once():
+    calls = []
+    def step(action):
+        calls.append(action)
+        desk._pending_png = b"ready"
+        return {"helper": True, "settle_s": .3}
+    desk = Env(lambda: pytest.fail("extra capture"), step=step)
+    click = Action("click", x=2, y=1)
+    assert desk.act(click, until=lambda obs: obs.screenshot == b"ready").screenshot == b"ready"
+    assert calls == [click] and desk.last["helper"] and desk.last["settle_s"] >= .3

@@ -24,6 +24,7 @@ import functools
 import gzip
 import hashlib
 import json
+import math
 import os
 import shlex
 import struct
@@ -270,16 +271,29 @@ class Env:
         self.last = {"obs_s": time.monotonic() - t}
         return Obs(b, w, h)
 
-    def act(self, action: Action) -> Obs:
+    def act(self, action: Action, *, until: Callable[[Obs], bool] | None = None, timeout_s: float = 2.0) -> Obs:
+        """Send the action once. With until, return the first post-action observation the caller accepts.
+
+        On local and screenshot/execute desktops a predicate replaces the visual quiet wait. Remote helpers may
+        finish their own step first. timeout_s bounds waiting for the condition after dispatch. An observation
+        or callback already in progress can finish. A missing result raises TimeoutError without resending input.
+        """
+        if until is not None:
+            if not callable(until):
+                raise TypeError("until must be callable")
+            if not math.isfinite(timeout_s) or timeout_s <= 0:
+                raise ValueError("timeout_s must be finite and positive")
         if action.done:
-            return self.observe()
+            obs = self.observe()
+            return obs if until is None else self._wait_until(obs, until, timeout_s, time.monotonic() - self.last["obs_s"])
         timing = {}
-        if self.fixed_wait_s is not None:
+        if self.fixed_wait_s is not None and until is None or self._step is None and until is not None:
             t = time.monotonic()
             self._execute(action)
             timing["act_s"] = time.monotonic() - t
-            time.sleep(self.fixed_wait_s)
-            timing["settle_s"] = self.fixed_wait_s
+            if until is None:
+                time.sleep(self.fixed_wait_s)
+                timing["settle_s"] = self.fixed_wait_s
         elif self._step is not None:
             timing = self._step(action) or {}
         else:
@@ -296,14 +310,35 @@ class Env:
                 timing["wait"] = dict(self.waiter.last)
         png = getattr(self, "_pending_png", None)
         self._pending_png = None
+        start = time.monotonic()
         if png:                     # the step or the waiter already captured the settled frame
             w, h = png_size(png)
             obs = Obs(png, w, h)
-            self.last = {**timing, "obs_s": 0.0}
-            return obs
-        obs = self.observe()
-        self.last = {**timing, **self.last}
-        return obs
+            timing["obs_s"] = 0.0
+        else:
+            obs = self.observe()
+            timing.update(self.last)
+        self.last = timing
+        return obs if until is None else self._wait_until(obs, until, timeout_s, start)
+
+    def _wait_until(self, obs: Obs, until: Callable[[Obs], bool], timeout_s: float, start: float) -> Obs:
+        timing = self.last
+        previous_settle = timing.get("settle_s", 0.0)
+        deadline = start + timeout_s
+        while True:
+            try:
+                if until(obs):
+                    return obs
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    time.sleep(min(0.01, remaining))
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"desktop condition was not met within {timeout_s:g} s after dispatch")
+                obs = self.observe()
+                timing["obs_s"] += self.last["obs_s"]
+            finally:
+                timing["settle_s"] = previous_settle + max(0.0, time.monotonic() - start - timing["obs_s"])
+                self.last = timing
 
 
 class E2BEnv(Env):

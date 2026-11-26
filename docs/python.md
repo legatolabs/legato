@@ -194,3 +194,16 @@ the report.
 
 `legato bench` runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)). RL rollouts at
 scale are part of Legato Cloud, in beta ([rl.md](rl.md)).
+
+### Waiting for a known application result
+
+When an integration knows what a successful action looks like, it can check the returned screen directly.
+
+```python
+# receipt_visible reads the expected order ID from the supplied screenshot.
+obs = desktop.act(legato.Action("click", x=120, y=80),
+                  until=lambda frame: receipt_visible(frame.screenshot, expected_order_id),
+                  timeout_s=3.0)
+```
+
+The runtime dispatches the action once and returns the first accepted observation. Use an expected value specific to this action so an earlier receipt cannot satisfy it. On a local or callback-based desktop, this replaces the usual quiet-screen wait for that action. Remote step helpers finish their step before checking the condition. An unmet condition raises `TimeoutError`. The application may have received the input, so inspect its state before retrying. A capture or predicate already running at the deadline may finish.
