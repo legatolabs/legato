@@ -60,9 +60,7 @@ def main():
                     print((folder/"server.log").read_text(errors="replace")[-2200:])
                     raise RuntimeError("local model failed startup")
                 sys.path.insert(0,str(Path(__file__).parent/"office"))
-                from contracts import model as warm
-                warm(["Put the summary heading in the first slide title."])
-                subprocess.run([sys.executable,"-u",str(Path(__file__).parent/"office"/"routing.py"),
+                subprocess.run([sys.executable,"-u",str(Path(__file__).parent/"office"/"retrieval.py"),
                                 "--shard",args.shard],check=True)
             finally:
                 proc.terminate();proc.wait(timeout=20)
