@@ -408,3 +408,41 @@ def test_loosely_written_actions_are_still_read():
     par = ACT_TOOL["function"]["parameters"]
     assert list(par["properties"])[:2] == ["status", "actions"] and par["required"] == ["status", "actions"]
     assert act_tool(progress=True)["function"]["parameters"]["required"] == ["status", "actions", "progress"]
+
+
+def test_an_action_with_an_expectation_goes_on_as_soon_as_it_is_true(tmp_path):
+    """Planner(expect=True): the planner may say what will be true after an action; the harness sends it once and
+    goes on when it is, and an expectation that never comes true costs its timeout, not a second input."""
+    made, missing = tmp_path / "saved.txt", tmp_path / "never.txt"
+    h, p = harness([act("continue", {"key": "ctrl+s", "expect": {"file": str(made)}},
+                        {"key": "ctrl+p", "expect": {"file": str(missing)}},
+                        {"key": "ctrl+w", "expect": {"file": str(made)}},      # already true: the ordinary wait
+                        {"key": "ctrl+n"}), act("done")], [], expect=True)
+    log = []
+    png = tiny_png(1, w=8, h=8)
+
+    def execute(a):
+        log.append(a)
+        if a.keys == "ctrl+s":
+            made.write_text("x")
+    import legato.point as lp
+    old, lp.EXPECT_TIMEOUT_S = lp.EXPECT_TIMEOUT_S, 0.05
+    try:
+        res = h.run("save", legato.attach(screenshot=lambda: png, execute=execute, fixed_wait_s=0))
+    finally:
+        lp.EXPECT_TIMEOUT_S = old
+    assert res.done and [a.keys for a in log] == ["ctrl+s", "ctrl+p", "ctrl+w", "ctrl+n"]      # each sent once
+    t = res.timings[0]
+    assert (t.get("expect_met"), t.get("expect_missed"), t.get("expect_already")) == (1, 1, 1)
+    system = p.client.sent[0]["messages"][0]["content"]
+    items = p.client.sent[0]["tools"][0]["function"]["parameters"]["properties"]["actions"]["items"]["properties"]
+    assert '"expect"' in system and "expect" in items
+
+
+def test_without_the_option_the_planner_is_not_told_of_expectations_and_one_given_anyway_is_ignored(tmp_path):
+    h, p = harness([act("continue", {"key": "ctrl+s", "expect": {"file": str(tmp_path / "never.txt")}}), act("done")], [])
+    log = []
+    res = h.run("save", desktop(log))
+    assert res.done and len(log) == 1 and "expect_missed" not in res.timings[0]
+    assert '"expect"' not in p.client.sent[0]["messages"][0]["content"]
+    assert "expect" not in p.client.sent[0]["tools"][0]["function"]["parameters"]["properties"]["actions"]["items"]["properties"]

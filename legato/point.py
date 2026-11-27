@@ -218,6 +218,19 @@ the items still to do, what is already checked). Your notes are given back to yo
 a new `notes` replaces them: keep what still matters. Work from your notes instead of reading the same thing twice."""
 NOTES = {"type": "string", "description": "what you have worked out and must keep; replaces your earlier notes"}
 NOTES_MAX = 4000
+EXPECT_NOTE = """
+An action may also carry "expect": what will be true on the computer the moment the action has worked. The next \
+action then starts as soon as it is true, instead of waiting for the screen to stop changing.
+- "expect": {{"title": "<text>"}}: the window in front has this text in its title (the name of the page a link or \
+an address opens, of the program or the dialog that appears, of the document once saved).
+- "expect": {{"file": "<full path>"}}: this file exists.
+Add it only when you are sure of it and it is not already true before the action: a click on a link to another \
+page, Return on an address, a shortcut that opens a dialog or a program, a save. Use text you know will be in the \
+title (a few distinctive words, not the whole title). Leave it out for everything else."""
+EXPECT_PROP = {"expect": {"type": "object", "properties": {"title": {"type": "string"}, "file": {"type": "string"}}}}
+EXPECT_TIMEOUT_S = 1.5             # an expectation that does not come true in this long: go on with the screen as it is
+EXPECT_RULE = {"floor": 0.0, "quiet": 0.12, "min_same": 2}     # after it is true: a short quiet, so the frame shows it
+EXPECT_QUIET_CAP_S = 0.5
 SHELL_OUT = 1500                   # characters of a command's output kept in the list the planner reads
 
 
@@ -234,16 +247,18 @@ PROGRESS_NOTE = ("\nEvery call also carries `progress`: one line, what is done s
                  "checked.")
 
 
-def act_tool(progress: bool = False, shell: tuple = (), notes: bool = False) -> dict:
+def act_tool(progress: bool = False, shell: tuple = (), notes: bool = False, expect: bool = False) -> dict:
     """The planner's `act` tool (progress: a required one-line `progress`, as Harness(progress_note=True) asks of
-    a plan; shell: the names among "shell" and "applescript" its actions may carry; notes: a `notes` text it keeps)."""
-    if not progress and not shell and not notes:
+    a plan; shell: the names among "shell" and "applescript" its actions may carry; notes: a `notes` text it keeps;
+    expect: its actions may carry an `expect`)."""
+    if not progress and not shell and not notes and not expect:
         return ACT_TOOL
     f = dict(ACT_TOOL["function"])
     f["parameters"] = par = dict(f["parameters"])
-    if shell:
+    if shell or expect:
         items = par["properties"]["actions"]["items"]
-        items = {**items, "properties": {**items["properties"], **{k: SHELL_PROPS[k] for k in shell}}}
+        items = {**items, "properties": {**items["properties"], **{k: SHELL_PROPS[k] for k in shell},
+                                         **(EXPECT_PROP if expect else {})}}
         par["properties"] = {**par["properties"], "actions": {**par["properties"]["actions"], "items": items}}
     if notes:
         par["properties"] = {**par["properties"], "notes": NOTES}
@@ -278,6 +293,7 @@ class Pointing:
         self.pending: list[dict] = []           # planned actions not yet given out
         self.running: list[tuple] = []          # given out and not yet run: (Action, what it is on, its plan entry)
         self.quick: list[bool] = []             # for the actions next() last gave: no settled screen is needed after
+        self.expects: list = []                 # and what the planner said will be true after each (Planner(expect=True))
         self.status, self.error = "continue", None
         self.empty = 0                          # planner replies in a row that had no actions
         self.why = ("start", "Nothing has been run yet.")
@@ -324,10 +340,12 @@ class Pointing:
             system += SHELL_NOTE.format(shell=p.shell_name or getattr(h.tools.get("bash"), "runs", "") or "bash", osa=OSA_NOTE.format() if "applescript" in self.shell else "")
         if p.notes:
             system += NOTES_NOTE
+        if getattr(p, "expect", False):
+            system += EXPECT_NOTE.format()
         msgs = [{"role": "system", "content": system + (PROGRESS_NOTE if h.progress_note else "")},
                 {"role": "user", "content": content}]
         rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature,
-                            tools=[act_tool(h.progress_note, self.shell, p.notes)],
+                            tools=[act_tool(h.progress_note, self.shell, p.notes, getattr(p, "expect", False))],
                             tool_choice={"type": "function", "function": {"name": "act"}})
         self.calls.append(({"messages": msgs, "max_tokens": p.max_tokens, "temperature": p.temperature}, rec))
         a = _args(rec)
@@ -460,7 +478,7 @@ class Pointing:
     def next(self, png: bytes) -> list:
         """The actions to run now on the screen `png`, in order. [] when the task has ended (status, error)."""
         self.h._frame_size(self.ep, png)
-        self.calls, self.quick = [], []
+        self.calls, self.quick, self.expects = [], [], []
         while not self.ended and not self.running:
             if not self.pending:
                 if self._spent():
@@ -489,6 +507,7 @@ class Pointing:
         for i, (_a, _what, x) in enumerate(self.running):
             nxt = self.running[i + 1][2] if i + 1 < len(self.running) else None
             self.quick.append(inert(x) and nxt is not None and ("key" in nxt or "type" in nxt))
+            self.expects.append(x.get("expect") if getattr(self.p, "expect", False) and isinstance(x.get("expect"), dict) else None)
         return [a for a, _what, _x in self.running]
 
     def ran(self, png: bytes, result: str | None = None) -> str:
@@ -509,6 +528,80 @@ class Pointing:
         self.running, self.pending = [], []
         self.history.append(said)
         self.why = ("denied", "The last action was not allowed and was not run. This is the screen now.")
+
+
+def front_title() -> Callable[[], str] | None:
+    """A reader of the title of the window in front on this computer, or None where there is none yet."""
+    import sys
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        user = ctypes.windll.user32
+        user.GetForegroundWindow.restype = wintypes.HWND
+
+        def read() -> str:
+            buf = ctypes.create_unicode_buffer(1024)
+            user.GetWindowTextW(wintypes.HWND(user.GetForegroundWindow()), buf, len(buf))
+            return buf.value
+        return read
+    if sys.platform == "darwin":
+        try:
+            import Quartz as q
+
+            from legato.local import front_windows
+        except ImportError:
+            return None
+
+        def read() -> str:
+            _, windows = front_windows(q)
+            return next((str(w.get("kCGWindowName", "")) for w in windows if w.get("kCGWindowLayer") == 0), "")
+        return read
+    return None
+
+
+def expectation(exp: dict | None, title: Callable[[], str] | None = None) -> Callable[[], bool] | None:
+    """The check for what a planner said will be true after an action ({"title": ...}, {"file": ...}), or None if
+    it said nothing this computer can read: the action then waits for the screen as usual."""
+    import os
+    if not isinstance(exp, dict):
+        return None
+    checks: list[Callable[[], bool]] = []
+    want = exp.get("title")
+    if isinstance(want, str) and want.strip():
+        title = title or front_title()
+        if title is None:
+            return None
+        checks.append(lambda: want.strip().lower() in title().lower())
+    path = exp.get("file")
+    if isinstance(path, str) and path.strip():
+        checks.append(lambda: os.path.exists(os.path.expandvars(os.path.expanduser(path.strip()))))
+    return (lambda: all(c() for c in checks)) if checks else None
+
+
+def act_expecting(env: "Env", a, check: Callable[[], bool], timing: dict):
+    """Send `a` once and go on as soon as `check` is true and the screen has been still for a moment (so the
+    screenshot shows it), not when the whole screen has settled. Returns the observation, and counts in `timing`
+    how the expectation ended: confirmed, already true before (the ordinary wait), or not met in time."""
+    from legato.verify import checked_step
+    t = time.monotonic()
+    out = checked_step(env, a, check, timeout_s=EXPECT_TIMEOUT_S)
+    sent = dict(env.last or {})
+    if out.status == "settled":                 # already true: it proved nothing, and the action ran the ordinary way
+        timing["expect_already"] = timing.get("expect_already", 0) + 1
+        return out.observation
+    if out.status == "confirmed":
+        timing["expect_met"] = timing.get("expect_met", 0) + 1
+        w = getattr(env, "waiter", None)
+        if w is not None and isinstance(getattr(w, "rules", None), dict):
+            w.rules.setdefault("expect", EXPECT_RULE)
+            w.settle("expect", cap_s=EXPECT_QUIET_CAP_S)
+    else:
+        timing["expect_missed"] = timing.get("expect_missed", 0) + 1
+    obs = env.observe()
+    took = time.monotonic() - t
+    act_s, obs_s = sent.get("act_s", 0.0), (env.last or {}).get("obs_s", 0.0)
+    env.last = {"act_s": act_s, "obs_s": obs_s, "settle_s": max(0.0, took - act_s - obs_s)}
+    return obs
 
 
 def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
@@ -573,7 +666,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                     told(timing, ran)
                 break
             try:
-                for a, quick in zip(actions, list(s.quick)):
+                for a, quick, exp in zip(actions, list(s.quick), list(s.expects) or [None] * len(actions)):
                     if isinstance(a, ToolCall):     # a command: its output goes into the list the planner reads
                         t1 = time.monotonic()
                         out = h.call_tool(a)
@@ -585,7 +678,10 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                         ran.append(a)
                         s.ran(png, out)
                         continue
-                    if quick:      # it only edits the focused field and a key or text follows: a short fixed pause
+                    check = None if quick else expectation(exp)
+                    if check is not None:          # the planner said what will be true: go on as soon as it is
+                        obs = act_expecting(env, a, check, timing)
+                    elif quick:    # it only edits the focused field and a key or text follows: a short fixed pause
                         wait_before, env.fixed_wait_s = env.fixed_wait_s, QUICK_WAIT_S
                         try:
                             obs = env.act(a)

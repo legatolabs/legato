@@ -86,6 +86,8 @@ class Planner:
     #                                      (on by default: it does not slow short tasks)
     shell_name: str = ""                 # point: what the harness's shell tool runs, as the planner is told ("":
     #                                      what the tool says it runs: bash, or PowerShell on Windows)
+    expect: bool = False                 # point, experimental: an action may say what will be true once it has
+    #                                      worked (a window title, a file); the harness then goes on as soon as it is
 
     def __post_init__(self) -> None:
         if self.client is None:
