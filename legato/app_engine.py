@@ -452,6 +452,8 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool]) -> 
     0.1-0.4 s an app; `tell app to quit` took the same on a clean app and blocked until the AppleScript timeout (30 s
     here) on one with unsaved changes. `ask` gets one yes for the list; an app still open after its quit (a save panel)
     is a second question, discard or keep it open, through the app's `confirm` with its own button labels."""
+    chose_keep: set[str] = set()                # apps the person kept open with their unsaved work, for this run
+
     def handler(args: dict) -> str:
         keep, want = _app_names(args.get("keep")), _app_names(args.get("apps"))
         running = [a for a in (request("apps").get("apps") or []) if isinstance(a, str)]
@@ -463,10 +465,15 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool]) -> 
         else:
             targets, gone = [a for a in running if a.lower() not in stay], []
         targets = list(dict.fromkeys(targets))
+        chosen = [a for a in targets if a.lower() in chose_keep]
+        targets = [a for a in targets if a.lower() not in chose_keep]
         if not targets:
+            if chosen:
+                return (f"nothing more to quit: the person chose to keep {', '.join(chosen)} open with its unsaved "
+                        "changes. That is their answer; the task is done.")
             return "nothing to quit" + (f" ({', '.join(gone)} not running)" if gone else "") + \
                 f". Open apps: {', '.join(running) or 'none'}."
-        left = [a for a in running if a not in targets and a.lower() not in _ALWAYS_OPEN]
+        left = [] if want else [a for a in running if a not in targets and a.lower() not in _ALWAYS_OPEN]
         if not ask(f"quit {', '.join(targets)}" + (f" ({', '.join(left)} stay open)" if left else "")):
             return "not run: the person said no to quitting these apps."
         r = request("quit_apps", apps=targets)
@@ -479,15 +486,21 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool]) -> 
             done = request("resolve_unsaved", app=app, discard=discard)
             if discard and done.get("quit"):
                 quit_.append(app)
+            elif not discard:
+                chose_keep.add(app.lower())
+                kept.append(app + ": kept open with its unsaved changes, as the person chose")
             else:
-                kept.append(app + (": kept open with its unsaved changes" if not discard
-                                   else ": still open, its save panel is in front"))
+                kept.append(app + ": still open, its save panel is in front")
         lines = [f"quit: {', '.join(quit_) or 'none'}"]
-        if kept:
-            lines.append("still open: " + "; ".join(kept))
+        if kept or chosen:
+            lines.append("still open: " + "; ".join(kept + [c + ": kept open earlier, as the person chose"
+                                                            for c in chosen]))
         if gone:
             lines.append(f"not running: {', '.join(gone)}")
-        lines.append(f"left open as asked: {', '.join(left) or 'none'}")
+        if left:
+            lines.append(f"left open as asked: {', '.join(left)}")
+        if any("as the person chose" in k for k in kept) or chosen:
+            lines.append("That is the person's answer: don't quit those again; the task is done.")
         return "\n".join(lines)
     return Tool("quit_apps", QUIT_HINT, _QUIT_ARGS, handler)
 

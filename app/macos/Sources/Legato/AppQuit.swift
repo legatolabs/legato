@@ -14,13 +14,20 @@ enum AppQuit {
             .compactMap(\.localizedName)
     }
 
-    /// Ask each app to quit, then wait up to `timeout` for them. The ones still running have a save panel (or are
-    /// slow to quit): `unsaved`.
-    static func quit(_ names: [String], timeout: TimeInterval = 3) async -> (quit: [String], unsaved: [String]) {
+    /// Ask each app to quit and wait for them. An app still running with a save panel up is `unsaved` as soon as
+    /// the panel shows (about a second); one slow to quit gets up to `timeout`.
+    static func quit(_ names: [String], timeout: TimeInterval = 8) async -> (quit: [String], unsaved: [String]) {
         let apps = names.compactMap { n in AppFocus.find(name: n, bundle: nil, url: nil).map { (n, $0) } }
         for (_, app) in apps { app.terminate() }
         let t0 = Date()
-        while Date().timeIntervalSince(t0) < timeout, apps.contains(where: { !$0.1.isTerminated }) {
+        var lastLook = Date.distantPast
+        while Date().timeIntervalSince(t0) < timeout {
+            let open = apps.filter { !$0.1.isTerminated }
+            if open.isEmpty { break }
+            if Date().timeIntervalSince(t0) > 0.8, Date().timeIntervalSince(lastLook) > 0.3 {
+                lastLook = Date()
+                if open.allSatisfy({ find(in: $0.1.processIdentifier, titles: discard + keep) != nil }) { break }
+            }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         return (apps.filter { $0.1.isTerminated }.map(\.0), apps.filter { !$0.1.isTerminated }.map(\.0))

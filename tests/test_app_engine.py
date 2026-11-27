@@ -616,7 +616,7 @@ def test_quit_apps_asks_once_with_the_list_and_quits_all_but_keep_finder_and_leg
     assert out.startswith("quit: Safari, TextEdit, Preview") and "still open" not in out
     named = QuitApp(["Safari", "Finder"])
     out = ae.quit_apps_tool(named.request, named.ask).handler({"apps": "Safari, Finder, Pages"})
-    assert named.asked == ["quit Safari"] and "not running: Pages" in out
+    assert named.asked == ["quit Safari"] and "not running: Pages" in out and "left open" not in out
 
 
 def test_quit_apps_says_no_and_nothing_to_quit_without_quitting():
@@ -643,6 +643,19 @@ def test_an_app_with_unsaved_work_is_one_question_with_its_own_answers(discard):
         assert out.startswith("quit: Safari, TextEdit") and "still open" not in out
     else:
         assert out.startswith("quit: Safari") and "still open: TextEdit: kept open with its unsaved changes" in out
+        assert "the task is done" in out
+
+
+def test_an_app_the_person_kept_open_is_not_asked_about_again():
+    # 27 Nov: after "Keep TextEdit open" the model called quit_apps for TextEdit again, asked twice, then gave up
+    from legato import app_engine as ae
+    app = QuitApp(["Safari", "TextEdit"], unsaved={"TextEdit"}, discard=False)
+    tool = ae.quit_apps_tool(app.request, app.ask)
+    tool.handler({"apps": ["Safari", "TextEdit"]})
+    n = len(app.calls)
+    out = tool.handler({"apps": ["TextEdit"]})
+    assert out.startswith("nothing more to quit") and "the task is done" in out
+    assert [c[0] for c in app.calls[n:]] == ["apps"]
 
 
 def test_applescript_that_quits_goes_to_quit_apps_when_the_app_has_it(monkeypatch):
