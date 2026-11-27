@@ -219,15 +219,20 @@ a new `notes` replaces them: keep what still matters. Work from your notes inste
 NOTES = {"type": "string", "description": "what you have worked out and must keep; replaces your earlier notes"}
 NOTES_MAX = 4000
 EXPECT_NOTE = """
-An action may also carry "expect": what will be true on the computer the moment the action has worked. The next \
-action then starts as soon as it is true, instead of waiting for the screen to stop changing.
-- "expect": {{"title": "<text>"}}: the window in front has this text in its title (the name of the page a link or \
-an address opens, of the program or the dialog that appears, of the document once saved).
-- "expect": {{"file": "<full path>"}}: this file exists.
-Add it only when you are sure of it and it is not already true before the action: a click on a link to another \
-page, Return on an address, a shortcut that opens a dialog or a program, a save. Use text you know will be in the \
-title (a few distinctive words, not the whole title). Leave it out for everything else."""
-EXPECT_PROP = {"expect": {"type": "object", "properties": {"title": {"type": "string"}, "file": {"type": "string"}}}}
+Speed: say what each action will make true. Whenever an action opens or changes a window, add "expect" to it, and \
+the next action starts the moment that is true instead of after a wait for the whole screen to stop changing.
+- "expect": {{"title": "<text>"}}: the window in front has this text in its title once the action has worked. Use it \
+on every action that opens a page (a click on a link, Return on an address: a distinctive word of the page's \
+name), starts or switches to a program (its name), opens a dialog (its name, such as "Save As" or "Run") or saves \
+or renames a document (the file's name).
+- "expect": {{"file": "<full path>"}}: this file exists once the action has worked (a save, an export, a download).
+For example: {{"key": "Return", "expect": {{"title": "Hacker News"}}}}; {{"click": "the Switzerland link", \
+"expect": {{"title": "Switzerland"}}}}; {{"key": "ctrl+s", "expect": {{"title": "Save As"}}}}.
+Use only text you are sure will be in the title and that is not in it already. Leave "expect" out only for an \
+action that changes no window title and creates no file (typing, a click inside a page or a drawing, a scroll)."""
+EXPECT_PROP = {"expect": {"type": "object", "description": "what will be true once this action has worked; add it to "
+                          "every action that opens a page, a program or a dialog, or saves a file",
+                          "properties": {"title": {"type": "string"}, "file": {"type": "string"}}}}
 EXPECT_TIMEOUT_S = 1.5             # an expectation that does not come true in this long: go on with the screen as it is
 EXPECT_RULE = {"floor": 0.0, "quiet": 0.12, "min_same": 2}     # after it is true: a short quiet, so the frame shows it
 EXPECT_QUIET_CAP_S = 0.5
