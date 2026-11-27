@@ -225,13 +225,19 @@ a new `notes` replaces them: keep what still matters. Work from your notes inste
 NOTES = {"type": "string", "description": "what you have worked out and must keep; replaces your earlier notes"}
 NOTES_MAX = 4000
 FINISH_NOTE = """
-Ending without another look: when the list you give completes the whole task, and that can be checked on the \
-computer without a screenshot, add "finish" beside "actions". After the last action the check is made; if it \
-holds, the task ends as done at once and you are not called again; if it does not, you are shown the screen as usual.
-- "finish": {{"file": "<full path>"}}: this file exists then; add "contains": "<text>" for text it must contain.
-- "finish": {{"title": "<text>"}}: the window in front has this text in its title then.
-With "finish", put the task's answer, if it asks for one, in "answer" now. Use it only when you are sure the list \
-does everything the task asks, nothing has to be read off the screen afterwards, and the check is not already true."""
+Speed: end the task with a check instead of another look. Whenever the list you give is the last thing the task \
+needs and its result can be checked on the computer, add "finish" beside "actions". After the last action the check \
+is made: if it holds the task ends as done at once, with no further call to you; if it does not, you are shown the \
+screen as usual.
+- "finish": {{"file": "<full path>", "contains": "<text in it>"}}: a file the list saves or exports exists then \
+("contains" is optional and only for text files).
+- "finish": {{"title": "<text>"}}: the window in front has this text in its title then (the page a last click \
+opens, the document's name once saved).
+For example: {{"status": "continue", "actions": [{{"key": "ctrl+s"}}, {{"type": "hn.txt"}}, {{"key": "Return"}}], \
+"finish": {{"file": "C:\\\\Users\\\\me\\\\Desktop\\\\hn.txt"}}}}.
+With "finish", put the task's answer, if it asks for one, in "answer" in the same call. Do this for every task that \
+ends by saving or exporting a file, or by arriving at a page you can name. Leave it out only when you must read \
+something off the screen after the last action, or when the check is already true before the list runs."""
 FINISH_PROP = {"finish": {"type": "object", "description": "with continue: this list completes the task, and this check "
                           "proves it without a screenshot", "properties": {
                               "file": {"type": "string"}, "contains": {"type": "string"}, "title": {"type": "string"}}}}
