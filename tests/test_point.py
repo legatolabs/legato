@@ -408,3 +408,16 @@ def test_loosely_written_actions_are_still_read():
     par = ACT_TOOL["function"]["parameters"]
     assert list(par["properties"])[:2] == ["status", "actions"] and par["required"] == ["status", "actions"]
     assert act_tool(progress=True)["function"]["parameters"]["required"] == ["status", "actions", "progress"]
+
+
+def test_a_batchs_timing_says_which_action_each_wait_followed():
+    h, p = harness([act("continue", {"click": "the address bar", "at": [100, 20]}, {"key": "ctrl+a"}, {"type": "example.com"},
+                        {"key": "Return"}), act("done")], [])
+    res = h.run("open the page", desktop([]))
+    per = res.timings[0]["actions"]
+    assert [x["a"].split()[0] for x in per] == ["click", "key", "type", "key"]
+    assert [bool(x.get("quick")) for x in per] == [False, True, True, False]      # text and caret keys before more keys
+    assert all(set(x) >= {"act_s", "settle_s", "obs_s"} for x in per)
+    for k in ("act_s", "settle_s", "obs_s"):                                       # the turn's sums are the actions'
+        assert abs(sum(x[k] for x in per) - res.timings[0][k]) < 1e-9
+    assert "act_s" in res.report() or res.report()                                 # the report still adds up

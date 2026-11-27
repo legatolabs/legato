@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A planner run's timings say which action each wait followed.** With a planner that points
+  (`Planner(style="point")`), each batch's entry in `result.timings` also has `actions`: every action that ran, in
+  order, with its input, wait and screenshot seconds, and whether it took the short pause. The batch's totals are
+  unchanged.
 - **Verified actions, opt-in, in the Python package.** `desktop.act(action)` still waits for the screen to settle.
   A developer who knows how the application acknowledges an action can ask for proof instead, sent once and never
   resent: `legato.verified_step` waits for the application's receipt for a request (a committed write),
