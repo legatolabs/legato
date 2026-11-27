@@ -492,7 +492,7 @@ final class AppController: NSObject {
             model.setChoices(yes: m["yes"] as? String, no: m["no"] as? String, forTask: (m["once"] as? Bool) != true)
             ask(id, kind: .engine, question: m["text"] as? String ?? "The agent wants to \(q).")
         case "apps":
-            engine.reply(id, ["apps": AppQuit.running()])
+            Task { @MainActor in self.engine.reply(id, ["apps": AppQuit.running()]) }
         case "quit_apps":
             let names = m["apps"] as? [String] ?? []
             Task { @MainActor in
