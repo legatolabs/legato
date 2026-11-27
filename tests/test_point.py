@@ -474,3 +474,47 @@ def test_without_speculate_nothing_is_started_early():
     env, _ = _watched_desktop(log, screen)
     res = h.run("save", env)
     assert res.done and res.planner["ahead"]["started"] == 0 and len(p.client.sent) == 2
+
+
+def fin(status: str, finish: dict, *actions: dict, answer: str = "") -> dict:
+    return rec([call("act", {"status": status, "actions": list(actions), "finish": finish, "answer": answer})])
+
+
+def test_a_list_that_says_how_to_check_it_finished_ends_the_task_without_another_call(tmp_path):
+    """Planner(finish=True): the planner's last list carries a check; it holds after the last action, so the task is
+    done with one planner call, and the answer is the one given with the list."""
+    out = tmp_path / "hn.txt"
+    h, p = harness([fin("continue", {"file": str(out), "contains": "points"}, {"key": "ctrl+s"}, answer="saved")], [],
+                   finish=True)
+    log = []
+    png = real_png(40, 30)
+    env = legato.attach(screenshot=lambda: png, execute=lambda a: (log.append(a), out.write_text("Story: 12 points")))
+    res = h.run("save the list", env)
+    assert res.done and res.answer == "saved" and len(log) == 1 and len(p.client.sent) == 1
+    assert res.timings[0]["finish"] == "held" and res.trace[-1]["planner"] == "finish"
+    assert '"finish"' in p.client.sent[0]["messages"][0]["content"]
+    assert "finish" in p.client.sent[0]["tools"][0]["function"]["parameters"]["properties"]
+
+
+def test_a_finish_check_that_does_not_hold_shows_the_planner_the_screen_as_usual(tmp_path, monkeypatch):
+    import legato.point as lp
+    monkeypatch.setattr(lp, "FINISH_WAIT_S", 0.05)
+    out = tmp_path / "never.txt"
+    h, p = harness([fin("continue", {"file": str(out)}, {"key": "ctrl+s"}), act("done")], [], finish=True)
+    log = []
+    res = h.run("save", desktop(log))
+    assert res.done and len(log) == 1 and len(p.client.sent) == 2 and res.timings[0]["finish"] == "missed"
+    assert "finish check did not hold" in p.client.sent[1]["messages"][1]["content"][0]["text"]
+
+
+def test_a_list_cut_short_finishes_nothing_and_the_option_is_off_by_default(tmp_path):
+    out = tmp_path / "there.txt"
+    out.write_text("x")
+    h, p = harness([fin("continue", {"file": str(out)}, {"click": "a button that is not there"}, {"key": "ctrl+s"}),
+                    act("done")], [rec([call("point", {"found": False})])], finish=True)
+    log = []
+    res = h.run("save", desktop(log))
+    assert res.done and log == [] and len(p.client.sent) == 2          # the check would have held; it was not made
+    h, p = harness([fin("continue", {"file": str(out)}, {"key": "ctrl+s"}), act("done")], [])
+    res = h.run("save", desktop([]))
+    assert len(p.client.sent) == 2 and '"finish"' not in p.client.sent[0]["messages"][0]["content"]

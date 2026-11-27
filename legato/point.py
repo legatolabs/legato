@@ -99,6 +99,7 @@ POINT_TOOL = {"type": "function", "function": {
         "coordinate": {"type": "array", "items": {"type": "number"}, "description": "[x, y] of its centre"}},
         "required": ["found"]}}}
 
+_ZW = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"))
 _AHEAD = ThreadPoolExecutor(max_workers=4, thread_name_prefix="legato-ahead")
 SPEC_STILL = 2                     # the frame a guess is made on has been read unchanged this many times in a row
 
@@ -223,6 +224,18 @@ the items still to do, what is already checked). Your notes are given back to yo
 a new `notes` replaces them: keep what still matters. Work from your notes instead of reading the same thing twice."""
 NOTES = {"type": "string", "description": "what you have worked out and must keep; replaces your earlier notes"}
 NOTES_MAX = 4000
+FINISH_NOTE = """
+Ending without another look: when the list you give completes the whole task, and that can be checked on the \
+computer without a screenshot, add "finish" beside "actions". After the last action the check is made; if it \
+holds, the task ends as done at once and you are not called again; if it does not, you are shown the screen as usual.
+- "finish": {{"file": "<full path>"}}: this file exists then; add "contains": "<text>" for text it must contain.
+- "finish": {{"title": "<text>"}}: the window in front has this text in its title then.
+With "finish", put the task's answer, if it asks for one, in "answer" now. Use it only when you are sure the list \
+does everything the task asks, nothing has to be read off the screen afterwards, and the check is not already true."""
+FINISH_PROP = {"finish": {"type": "object", "description": "with continue: this list completes the task, and this check "
+                          "proves it without a screenshot", "properties": {
+                              "file": {"type": "string"}, "contains": {"type": "string"}, "title": {"type": "string"}}}}
+FINISH_WAIT_S = 1.5                # how long the check may take to come true after the last action
 SHELL_OUT = 1500                   # characters of a command's output kept in the list the planner reads
 
 
@@ -239,10 +252,10 @@ PROGRESS_NOTE = ("\nEvery call also carries `progress`: one line, what is done s
                  "checked.")
 
 
-def act_tool(progress: bool = False, shell: tuple = (), notes: bool = False) -> dict:
+def act_tool(progress: bool = False, shell: tuple = (), notes: bool = False, finish: bool = False) -> dict:
     """The planner's `act` tool (progress: a required one-line `progress`, as Harness(progress_note=True) asks of
     a plan; shell: the names among "shell" and "applescript" its actions may carry; notes: a `notes` text it keeps)."""
-    if not progress and not shell and not notes:
+    if not progress and not shell and not notes and not finish:
         return ACT_TOOL
     f = dict(ACT_TOOL["function"])
     f["parameters"] = par = dict(f["parameters"])
@@ -252,6 +265,8 @@ def act_tool(progress: bool = False, shell: tuple = (), notes: bool = False) -> 
         par["properties"] = {**par["properties"], "actions": {**par["properties"]["actions"], "items": items}}
     if notes:
         par["properties"] = {**par["properties"], "notes": NOTES}
+    if finish:
+        par["properties"] = {**par["properties"], **FINISH_PROP}
     if progress:
         par["properties"] = {**par["properties"], "progress": PROGRESS}
         par["required"] = ["status", "actions", "progress"]
@@ -290,6 +305,8 @@ class Pointing:
         self.pointer_calls = 0
         self.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0,
                         "ahead": {"started": 0, "used": 0, "dropped": 0, "saved_s": 0.0, "dropped_usd": 0.0}}
+        self.finish: dict | None = None         # the check that ends the task after the current list (Planner(finish))
+        self.finish_answer = ""
         self.ahead: dict | None = None          # the next planner call, started before the screen settled (speculate)
         self.dropped: list = []                 # guesses given up on, still running
         self.answer = ""                        # what the planner said with done (the answer) or fail (why)
@@ -333,10 +350,12 @@ class Pointing:
             system += SHELL_NOTE.format(shell=p.shell_name or getattr(h.tools.get("bash"), "runs", "") or "bash", osa=OSA_NOTE.format() if "applescript" in self.shell else "")
         if p.notes:
             system += NOTES_NOTE
+        if getattr(p, "finish", False):
+            system += FINISH_NOTE.format()
         msgs = [{"role": "system", "content": system + (PROGRESS_NOTE if h.progress_note else "")},
                 {"role": "user", "content": content}]
         args = dict(max_tokens=p.max_tokens, temperature=p.temperature,
-                    tools=[act_tool(h.progress_note, self.shell, p.notes)],
+                    tools=[act_tool(h.progress_note, self.shell, p.notes, getattr(p, "finish", False))],
                     tool_choice={"type": "function", "function": {"name": "act"}})
         return msgs, args, shown
 
@@ -436,6 +455,12 @@ class Pointing:
             self.answer = entry["answer"] = " ".join(str(a.get("answer") or "").split())[:2000]
         self.trace.append(entry)
         self.frames.clear()
+        fin = a.get("finish") if getattr(p, "finish", False) and status == "continue" and acts else None
+        self.finish = ({k: str(fin[k]) for k in ("file", "contains", "title") if isinstance(fin.get(k), str) and fin[k].strip()}
+                       if isinstance(fin, dict) else None) or None
+        self.finish_answer = " ".join(str(a.get("answer") or "").split())[:2000] if self.finish else ""
+        if self.finish:
+            entry["finish"] = self.finish
         self.status, self.pending = status, (acts if status == "continue" else [])
         self.why = ("next", "Those actions ran. This is the screen now.")
         if empty and status == "continue":
@@ -551,7 +576,7 @@ class Pointing:
                     if self.error is None:      # not found: the rest of the batch is dropped and the planner looks
                         self.history.append(why)
                         self.why = ("missing", f"The last batch stopped: {why}. This is the screen now.")
-                    self.pending = []
+                    self.pending, self.finish = [], None     # the list did not run to its end: nothing is finished
                     break
                 self.pending.pop(0)
                 self.running.append((a, what, x))
@@ -573,9 +598,46 @@ class Pointing:
         self.frames.append((len(self.history), png))
         return said
 
+    def finished(self, title: Callable[[], str] | None) -> bool | None:
+        """After the list's last action: does the check the planner gave hold? True ends the task as done. None when
+        there is no check to make here (none given, actions still to come, or a title where none can be read)."""
+        import os
+        fin = self.finish
+        if not fin or self.running or self.pending or self.ended:
+            return None
+        if "title" in fin and title is None:
+            self.finish = None
+            return None
+        end = time.monotonic() + FINISH_WAIT_S
+        while True:
+            ok = True
+            if "file" in fin:
+                path = os.path.expandvars(os.path.expanduser(fin["file"]))
+                ok = os.path.isfile(path)
+                if ok and "contains" in fin:
+                    try:
+                        with open(path, "rb") as f:
+                            data = f.read(2_000_000)
+                        ok = any(fin["contains"].encode(enc) in data for enc in ("utf-8", "utf-16-le"))
+                    except OSError:
+                        ok = False
+            if ok and "title" in fin:
+                ok = fin["title"].translate(_ZW).lower() in str(title() or "").translate(_ZW).lower()
+            if ok or time.monotonic() >= end:
+                break
+            time.sleep(0.05)
+        self.finish = None
+        if ok:
+            self.status, self.answer = "done", self.finish_answer
+            self.trace.append({"planner": "finish", "status": "done", "check": fin, "answer": self.answer})
+        else:
+            self.why = ("next", "Those actions ran, and the finish check did not hold. This is the screen now.")
+            self.history.append(f"(the finish check did not hold: {json.dumps(fin, ensure_ascii=False)[:120]})")
+        return ok
+
     def refused(self, said: str) -> None:
         """The first action next() gave was not run (not allowed, not possible): the planner looks again."""
-        self.running, self.pending = [], []
+        self.running, self.pending, self.finish = [], [], None
         self.history.append(said)
         self.why = ("denied", "The last action was not allowed and was not run. This is the screen now.")
 
@@ -661,6 +723,11 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
         return timing
     seen = [0.0, 0.0]                       # the planner's and the pointer's seconds already in the timings
     speculate = bool(getattr(h.planner, "speculate", False))
+    finish_title = None
+    if getattr(h.planner, "finish", False):
+        from legato import needs as _needs
+        _r = getattr(env, "needs_reader", None) or _needs.reader()
+        finish_title = (lambda: _r.front()[2]) if _r is not None else None
     needs_reader = None
     if getattr(h.planner, "next_needs", False):
         from legato import needs
@@ -712,7 +779,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                         continue
                     rule = how = None
                     last = i == len(actions) - 1 and not s.pending and not quick
-                    if (speculate and last and not isinstance(a, ToolCall) and a.type != "wait"
+                    if (speculate and last and not s.finish and not isinstance(a, ToolCall) and a.type != "wait"
                             and hasattr(env, "_digest") and hasattr(env, "_png")):
                         obs, how = act_watching(env, a, s.guess)      # the planner's next call starts during the wait
                         rule = "planner ahead" if how else None
@@ -749,6 +816,15 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                 s.refused(f"{'not possible' if isinstance(e, Unavailable) else 'not allowed'}: {e}")
                 obs = env.observe()
                 png = obs.screenshot
+            if s.finish and not res.stopped:      # the list said it completes the task: check instead of looking
+                t1 = time.monotonic()
+                held = s.finished(finish_title)
+                if held is not None:
+                    timing["finish"] = "held" if held else "missed"
+                    timing["finish_s"] = time.monotonic() - t1
+                    if not held:
+                        obs = env.observe()
+                        png = obs.screenshot
             told(timing, ran)
         res.error = res.error or s.error
         if not res.error:

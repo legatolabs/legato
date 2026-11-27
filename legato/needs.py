@@ -78,6 +78,34 @@ def need(action: Action, nxt: Any, before: Before, reader: Any) -> tuple[str, Ca
                 return False
             return reader.focus().pid == pid          # and it has the keyboard, not a window still on its way
         return "program in front", program_in_front
+    if (action.type in ("click", "double_click") and nxt.type == "type" and not before.target_in_taskbar
+            and action.x is not None and action.y is not None):
+        x, y = action.x, action.y
+
+        def under_pointer() -> bool:
+            hwnd, pid, _title, _cls = reader.front()
+            if hwnd != before.hwnd:                   # the click opened or raised another window: its text is unknown
+                return False
+            f = reader.focus()
+            l, t, r, b = f.rect
+            return f.pid == pid and f.kind in (EDIT, COMBO) and l <= x <= r and t <= y <= b
+
+        try:
+            already = under_pointer() and reader.focus().ident == before.focus.ident
+        except Exception:  # noqa: BLE001
+            already = False
+        if not already:                               # the text field under the pointer takes the keyboard
+            return "field under the pointer", lambda: under_pointer() and reader.focus().ident != before.focus.ident
+        st2: dict = {}
+
+        def still_there() -> bool:                    # it had the keyboard already: it must hold, the program idle
+            now = time.monotonic()
+            if not under_pointer():
+                st2.pop("since", None)
+                return False
+            st2.setdefault("since", now)
+            return now - st2["since"] >= HOLD_S and reader.idle(before.pid) is True
+        return "field still under the pointer", still_there
     if action.type == "key" and nxt.type == "type":
         combo = "+".join(k.strip().lower() for k in str(action.keys or "").split("+") if k.strip())
         if combo in INERT or "+" not in combo:

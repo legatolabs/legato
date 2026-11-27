@@ -155,3 +155,19 @@ def test_a_field_already_ready_counts_only_after_it_has_held_with_the_program_id
     assert not check()                                               # back, but it has to hold again from now
     clock[0] += n.HOLD_S
     assert check()
+
+
+def test_after_a_click_into_a_field_text_needs_that_field_to_have_the_keyboard():
+    r = Reader()
+    r.hwnd, r.pid, r.f = 30, 8, Focus(ident=(1,), kind=DOC, pid=8, rect=(0, 0, 1000, 700))
+    click = Action("double_click", x=300, y=200)
+    text = Action("type", text="Observe")
+    rule, check = need(click, text, r.before(click), r)
+    assert rule == "field under the pointer" and not check()        # the page still has the keyboard
+    r.f = Focus(ident=(2,), kind=EDIT, pid=8, rect=(600, 100, 800, 130))
+    assert not check()                                              # a field took it, but not the one under the pointer
+    r.f = Focus(ident=(3,), kind=EDIT, pid=8, rect=(250, 180, 400, 220))
+    assert check()
+    r.hwnd = 31
+    assert not check()                                              # in another window
+    assert need(click, Action("key", keys="r"), r.before(click), r) is None      # a key next: what it is for is unknown
