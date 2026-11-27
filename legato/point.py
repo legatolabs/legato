@@ -233,8 +233,8 @@ screen as usual.
 ("contains" is optional and only for text files).
 - "finish": {{"title": "<text>"}}: the window in front has this text in its title then (the page a last click \
 opens, the document's name once saved).
-For example: {{"status": "continue", "actions": [{{"key": "ctrl+s"}}, {{"type": "hn.txt"}}, {{"key": "Return"}}], \
-"finish": {{"file": "C:\\\\Users\\\\me\\\\Desktop\\\\hn.txt"}}}}.
+For example: {{"status": "continue", "actions": [{{"key": "ctrl+s"}}, {{"type": "report.txt"}}, {{"key": "Return"}}], \
+"finish": {{"file": "C:\\\\Users\\\\me\\\\Documents\\\\report.txt"}}}}.
 With "finish", put the task's answer, if it asks for one, in "answer" in the same call. Do this for every task that \
 ends by saving or exporting a file, or by arriving at a page you can name. Leave it out only when you must read \
 something off the screen after the last action, or when the check is already true before the list runs."""
