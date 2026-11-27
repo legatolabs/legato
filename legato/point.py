@@ -26,6 +26,8 @@ import base64
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from typing import TYPE_CHECKING, Callable
 
 from legato.rl.policy import PolicyError
@@ -96,6 +98,9 @@ POINT_TOOL = {"type": "function", "function": {
         "found": {"type": "boolean"},
         "coordinate": {"type": "array", "items": {"type": "number"}, "description": "[x, y] of its centre"}},
         "required": ["found"]}}}
+
+_AHEAD = ThreadPoolExecutor(max_workers=4, thread_name_prefix="legato-ahead")
+SPEC_STILL = 2                     # the frame a guess is made on has been read unchanged this many times in a row
 
 BUTTONS = {"left": "left_click", "double": "double_click", "right": "right_click", "triple": "triple_click"}
 # Keys that only edit the focused field or move its caret: nothing opens, so what follows needs no settled screen.
@@ -283,7 +288,10 @@ class Pointing:
         self.why = ("start", "Nothing has been run yet.")
         self.seen = png                         # the screen the planner's latest call looked at
         self.pointer_calls = 0
-        self.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
+        self.planner = {"calls": 0, "by": {}, "s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0,
+                        "ahead": {"started": 0, "used": 0, "dropped": 0, "saved_s": 0.0, "dropped_usd": 0.0}}
+        self.ahead: dict | None = None          # the next planner call, started before the screen settled (speculate)
+        self.dropped: list = []                 # guesses given up on, still running
         self.answer = ""                        # what the planner said with done (the answer) or fail (why)
         self.ask = h._asks(task)                # a done without an answer gets one more planner call (ask_answer)
         self.pointer = {"s": 0.0, "prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}
@@ -302,15 +310,16 @@ class Pointing:
             self.error = f"model call limit ({self.max_calls})"
         return self.error is not None
 
-    def _plan(self, png: bytes) -> None:
-        h, p, t = self.h, self.p, time.monotonic()
+    def _request(self, png: bytes, history: list, frames: list) -> tuple[list, dict, list]:
+        """The planner's request for the screen `png` after `history`, with `frames` from during the batch:
+        (messages, the call's other arguments, the frames shown)."""
+        h, p = self.h, self.p
         key, why = self.why
-        self.seen = png
-        first = max(0, len(self.history) - 40)
-        ran = "\n".join(f"{first + i + 1}. {x}" for i, x in enumerate(self.history[first:])) or "nothing yet"
+        first = max(0, len(history) - 40)
+        ran = "\n".join(f"{first + i + 1}. {x}" for i, x in enumerate(history[first:])) or "nothing yet"
         kept = f"\n\nYour notes:\n{self.notes}" if self.notes else ""
         content = [{"type": "text", "text": f"Task: {self.task}{kept}\n\nRun so far:\n{ran}\n\n{why}"}]
-        shown = pick_frames(self.frames)
+        shown = pick_frames(frames)
         for n, f in shown:
             url = h._image_url(base64.b64encode(small_png(f)).decode())
             content += [{"type": "text", "text": f"The screen after action {n} (smaller):"},
@@ -326,9 +335,69 @@ class Pointing:
             system += NOTES_NOTE
         msgs = [{"role": "system", "content": system + (PROGRESS_NOTE if h.progress_note else "")},
                 {"role": "user", "content": content}]
-        rec = p.client.chat(msgs, max_tokens=p.max_tokens, temperature=p.temperature,
-                            tools=[act_tool(h.progress_note, self.shell, p.notes)],
-                            tool_choice={"type": "function", "function": {"name": "act"}})
+        args = dict(max_tokens=p.max_tokens, temperature=p.temperature,
+                    tools=[act_tool(h.progress_note, self.shell, p.notes)],
+                    tool_choice={"type": "function", "function": {"name": "act"}})
+        return msgs, args, shown
+
+    def guess(self, png: bytes) -> bool:
+        """Start the next planner call now, as if the batch's last action had left the screen `png` (called while
+        the wait for the screen goes on). True if a call was started. `_plan` uses its reply only when the request it
+        would make itself is this same one: the screen settled on `png`."""
+        if self.ahead is not None or len(self.running) != 1 or self.pending or self.ended:
+            return False                        # only the last action of a batch is followed by a planner call
+        a, what, x = self.running[0]
+        if isinstance(a, ToolCall):
+            return False
+        said = f'{a.describe()} on "{what}"' if what else a.describe()
+        history = self.history + [said]
+        try:
+            msgs, args, _shown = self._request(png, history, self.frames + [(len(history), png)])
+            self.ahead = {"msgs": msgs, "t": time.monotonic(),
+                          "future": _AHEAD.submit(self.p.client.chat, msgs, **args)}
+            self.planner["ahead"]["started"] += 1
+        except Exception:  # noqa: BLE001 - a guess that cannot start is only a saving missed
+            self.ahead = None
+        return self.ahead is not None
+
+    def _drop(self) -> None:
+        """Give up on the guess. Its tokens still cost money: they are counted when its call ends."""
+        g, self.ahead = self.ahead, None
+        if g is None:
+            return
+        pl = self.planner
+        pl["ahead"]["dropped"] += 1
+
+        def count(done) -> None:
+            try:
+                u = done.result().get("usage") or {}
+            except Exception:  # noqa: BLE001
+                return
+            pl["ahead"]["dropped_usd"] += u.get("cost") or 0.0
+            pl["cost_usd"] += u.get("cost") or 0.0
+        g["future"].add_done_callback(count)
+        self.dropped.append(g["future"])
+
+    def _plan(self, png: bytes) -> None:
+        h, p, t = self.h, self.p, time.monotonic()
+        key, why = self.why
+        self.seen = png
+        msgs, args, shown = self._request(png, self.history, self.frames)
+        rec = None
+        if self.ahead is not None:
+            g = self.ahead
+            if g["msgs"] == msgs:               # the screen settled on the frame the guess saw: its reply is this call's
+                try:
+                    rec = g["future"].result()
+                    self.ahead = None
+                    self.planner["ahead"]["used"] += 1
+                    self.planner["ahead"]["saved_s"] += max(0.0, t - g["t"])
+                except Exception:  # noqa: BLE001 - the guess failed: make the call as usual
+                    rec, self.ahead = None, None
+            else:
+                self._drop()
+        if rec is None:
+            rec = p.client.chat(msgs, **args)
         self.calls.append(({"messages": msgs, "max_tokens": p.max_tokens, "temperature": p.temperature}, rec))
         a = _args(rec)
         status = str(a.get("status") or "").lower()
@@ -511,6 +580,54 @@ class Pointing:
         self.why = ("denied", "The last action was not allowed and was not run. This is the screen now.")
 
 
+def act_watching(env: "Env", a, guess: Callable[[bytes], bool]):
+    """Send `a` once and wait for the screen as usual, but watching it: on the first frame that holds still after
+    the wait's floor, `guess(png)` is called (the planner's next call starts). Returns (observation, how): how is
+    "held" when the screen then settled on that same frame, which is then the observation; "changed" when it moved
+    on; None when no guess was made. The wait itself is the ordinary one: same floor, quiet time and cap."""
+    from legato.env import Obs, png_size
+    from legato.settle import LOCAL_RULES, quiet_enough, rule_kind
+    r = LOCAL_RULES.get(rule_kind(a.type)) or LOCAL_RULES["default"]
+    st: dict = {}
+
+    def probe() -> str | None:
+        now = time.monotonic()
+        d = env._digest()
+        if "t0" not in st:
+            st.update(t0=now, last=d, t_change=now, same=1)
+        elif d != st["last"]:
+            st.update(last=d, t_change=now, same=1)
+            if "png" in st:
+                st["moved"] = True              # the screen went on after the guess's frame
+        else:
+            st["same"] += 1
+        if "png" not in st and "tried" not in st and now - st["t0"] >= r["floor"] and st["same"] >= SPEC_STILL:
+            png = env._png()
+            if env._digest() == d:              # the frame that was encoded is the one that was compared
+                st["tried"] = True
+                if guess(png):
+                    st["png"] = png
+        return "settled" if quiet_enough(now, st["t0"], st["t_change"], st["same"], r["floor"], r["quiet"],
+                                         r["min_same"]) else None
+
+    t = time.monotonic()
+    try:
+        env.act(a, read=probe, until=lambda v: v is not None, timeout_s=float(r.get("cap", 2.0)))
+    except TimeoutError:
+        pass
+    sent = dict(env.last or {})
+    held = "png" in st and not st.get("moved") and env._digest() == st["last"]
+    if held:
+        obs, obs_s = Obs(st["png"], *png_size(st["png"])), 0.0
+    else:
+        obs = env.observe()
+        obs_s = (env.last or {}).get("obs_s", 0.0)
+    took = time.monotonic() - t
+    act_s = sent.get("act_s", 0.0)
+    env.last = {"act_s": act_s, "obs_s": obs_s, "settle_s": max(0.0, took - act_s - obs_s)}
+    return obs, ("held" if held else "changed") if "png" in st else None
+
+
 def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                 on_step: Callable | None = None, *, res: "RunResult | None" = None, limits=None) -> "RunResult":
     """Harness.run with a planner whose style is "point" (see the module docstring). max_steps counts every model
@@ -543,6 +660,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
             timing["planner_s"] = planner_s
         return timing
     seen = [0.0, 0.0]                       # the planner's and the pointer's seconds already in the timings
+    speculate = bool(getattr(h.planner, "speculate", False))
     needs_reader = None
     if getattr(h.planner, "next_needs", False):
         from legato import needs
@@ -593,7 +711,12 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                         s.ran(png, out)
                         continue
                     rule = how = None
-                    if needs_reader is not None:   # what the next action needs, raced against the ordinary wait
+                    last = i == len(actions) - 1 and not s.pending and not quick
+                    if (speculate and last and not isinstance(a, ToolCall) and a.type != "wait"
+                            and hasattr(env, "_digest") and hasattr(env, "_png")):
+                        obs, how = act_watching(env, a, s.guess)      # the planner's next call starts during the wait
+                        rule = "planner ahead" if how else None
+                    elif needs_reader is not None:   # what the next action needs, raced against the ordinary wait
                         nxt = actions[i + 1] if i + 1 < len(actions) else None
                         obs, rule, how = needs.act_then(env, a, nxt, needs_reader,
                                                         fixed_s=QUICK_WAIT_S if quick else None)
@@ -637,4 +760,9 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                           "error" if res.error else "done" if res.done else "failed")
     finally:
         res.wall_s = time.monotonic() - t0
+        if s.ahead is not None:
+            s._drop()
+        if s.dropped:                           # guesses given up on: their tokens are counted once they end
+            wait_futures(s.dropped, timeout=20)
+            res.usage["cost_usd"] = res.usage.get("cost_usd", 0.0) + s.planner["ahead"]["dropped_usd"]
     return res

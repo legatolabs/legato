@@ -421,3 +421,56 @@ def test_a_batchs_timing_says_which_action_each_wait_followed():
     for k in ("act_s", "settle_s", "obs_s"):                                       # the turn's sums are the actions'
         assert abs(sum(x[k] for x in per) - res.timings[0][k]) < 1e-9
     assert "act_s" in res.report() or res.report()                                 # the report still adds up
+
+
+def _watched_desktop(log, screen):
+    """A desktop whose wait can be watched: a frame id and its PNG, both from `screen["v"]`."""
+    pngs = {"a": real_png(40, 30), "b": real_png(40, 30, boxes=((5, 5, 20, 20),))}
+    env = legato.attach(screenshot=lambda: pngs[screen["v"]], execute=lambda a: (log.append(a), screen.update(t=__import__("time").monotonic())))
+    env._digest = lambda: screen["v"]
+    env._png = lambda: pngs[screen["v"]]
+    return env, pngs
+
+
+def test_the_planners_next_call_starts_during_the_wait_and_is_kept_when_the_screen_holds():
+    """Planner(speculate=True): after a batch's last action the next planner call starts on the first still frame;
+    the screen settles on it, so that reply is the next call's and no second request is made."""
+    h, p = harness([act("continue", {"key": "ctrl+s"}), act("done")], [], speculate=True)
+    log, screen = [], {"v": "a"}
+    env, _ = _watched_desktop(log, screen)
+    res = h.run("save", env)
+    assert res.done and [a.keys for a in log] == ["ctrl+s"]
+    assert len(p.client.sent) == 2                                    # two planner requests in all, none repeated
+    ahead = res.planner["ahead"]
+    assert (ahead["started"], ahead["used"], ahead["dropped"]) == (1, 1, 0) and ahead["saved_s"] > 0
+    per = res.timings[0]["actions"][0]
+    assert (per["need"], per["how"]) == ("planner ahead", "held")
+
+
+def test_a_guess_made_on_a_frame_the_screen_then_leaves_is_dropped_and_the_call_made_again():
+    import time as _time
+    h, p = harness([act("continue", {"key": "Return"}), act("fail"), act("done")], [], speculate=True)
+    log, screen = [], {"v": "a"}
+    env, pngs = _watched_desktop(log, screen)
+    digest = env._digest
+
+    def moving():                                   # the page arrives 0.3 s after the key: the first still frame is stale
+        if screen.get("t") and _time.monotonic() - screen["t"] > 0.3:
+            screen["v"] = "b"
+        return digest()
+    env._digest = moving
+    res = h.run("open the page", env)
+    assert res.done and len(log) == 1               # the dropped guess said fail; the real call, on the new screen, done
+    ahead = res.planner["ahead"]
+    assert (ahead["started"], ahead["used"], ahead["dropped"]) == (1, 0, 1)
+    assert len(p.client.sent) == 3 and res.timings[0]["actions"][0]["how"] == "changed"
+    last = lambda i: [c["image_url"]["url"] for c in p.client.sent[i]["messages"][1]["content"] if c.get("type") == "image_url"][-1]
+    assert last(1) != last(2)                       # the guess saw the old screen; the call that counts, the settled one
+
+
+def test_without_speculate_nothing_is_started_early():
+    h, p = harness([act("continue", {"key": "ctrl+s"}), act("done")], [])
+    log, screen = [], {"v": "a"}
+    env, _ = _watched_desktop(log, screen)
+    res = h.run("save", env)
+    assert res.done and res.planner["ahead"]["started"] == 0 and len(p.client.sent) == 2
