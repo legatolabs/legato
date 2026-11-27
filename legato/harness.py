@@ -752,8 +752,10 @@ class Harness:
         msgs = self._messages(ep.task, ep.mw, ep.mh, ep.turns)
         names = CLAUDE_STYLE_ACTIONS + (["screenshot"] if self.screenshot_action else [])
         if self.plan_mode:
+            extra = {n: t.parameters for n, t in self.tools.items() if n not in ("bash", "applescript")}
             tools = [plans.plan_tool(self.plan_max, progress=self.progress_note,
-                                     actions=plans.step_actions(*self._plan_can()))] if self.native_tools else None
+                                     actions=plans.step_actions(*self._plan_can()), extra=extra)] \
+                if self.native_tools else None
         else:
             tools = [computer_tool(names)] + [t.spec() for t in self.tools.values()] if self.native_tools else None
         # Claude caches only where asked: OpenRouter's automatic caching (one top-level marker that follows the end of
@@ -859,6 +861,10 @@ class Harness:
                     plan.invalid = why
                     break
                 plan.actions.append(plans.FindClick(label.strip(), a.type, (a.x, a.y), fallback=(a.x, a.y)))
+                continue
+            if kind in self.tools and kind not in ("bash", "applescript"):     # another tool, as a step of its name
+                props = self.tools[kind].parameters.get("properties") or {}
+                plan.actions.append(ToolCall(kind, {k: st[k] for k in props if st.get(k) is not None}))
                 continue
             if kind == "applescript":
                 tool = self.tools.get("applescript")

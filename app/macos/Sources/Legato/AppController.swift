@@ -46,6 +46,7 @@ final class AppController: NSObject {
             resume: { [weak self] in self?.resume() },
             stop: { [weak self] in self?.stop() },
             answer: { [weak self] yes in self?.answer(yes) },
+            allowForTask: { [weak self] in self?.answer(true, always: true) },
             history: { [weak self] in self?.showHistory(select: self?.model.runID) },
             close: { [weak self] in self?.hud.hide(); self?.model.phase = .idle; self?.refreshMenu() },
             settings: { [weak self] in self?.showSettings() }))
@@ -304,7 +305,7 @@ final class AppController: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
     }
 
-    private func answer(_ yes: Bool) {
+    private func answer(_ yes: Bool, always: Bool = false) {
         guard let ask = pendingAsk else { return }
         pendingAsk = nil
         model.phase = .acting
@@ -318,14 +319,16 @@ final class AppController: NSObject {
             }
         case .engine:
             if yes { monitor.beginActing() }
-            engine.reply(ask.id, ["allow": yes])
+            engine.reply(ask.id, ["allow": yes, "always": always])
         }
         model.question = ""
+        model.setChoices()
         refreshMenu()
     }
 
     private func ask(_ id: Int, kind: AskKind, question: String) {
         pendingAsk = (id, kind)
+        if kind == .click { model.setChoices(forTask: false) }      // a click is asked about each time
         model.phase = .confirming
         model.question = question
         hud.show()
@@ -485,7 +488,25 @@ final class AppController: NSObject {
             monitor.endActing()
             if model.stopping { engine.reply(id, ["stop": "stopped from the Legato app"]); return }
             let q = m["question"] as? String ?? "do something that can’t be undone"
-            ask(id, kind: .engine, question: "The agent wants to \(q).")
+            // a question with its own answers (quit_apps: "Discard and quit" / "Keep TextEdit open") is asked as it is
+            model.setChoices(yes: m["yes"] as? String, no: m["no"] as? String, forTask: (m["once"] as? Bool) != true)
+            ask(id, kind: .engine, question: m["text"] as? String ?? "The agent wants to \(q).")
+        case "apps":
+            engine.reply(id, ["apps": AppQuit.running()])
+        case "quit_apps":
+            let names = m["apps"] as? [String] ?? []
+            Task { @MainActor in
+                let r = await AppQuit.quit(names)
+                self.lastEngineAt = Date()
+                self.engine.reply(id, ["quit": r.quit, "unsaved": r.unsaved])
+            }
+        case "resolve_unsaved":
+            let name = m["app"] as? String ?? "", discard = m["discard"] as? Bool ?? false
+            Task { @MainActor in
+                let r = await AppQuit.resolve(name, discard: discard)
+                self.lastEngineAt = Date()
+                self.engine.reply(id, ["quit": r.quit, "pressed": r.pressed])
+            }
         default:
             engine.reply(id, ["error": "unknown request \(method)"])
         }

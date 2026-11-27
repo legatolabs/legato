@@ -38,7 +38,7 @@ import time
 import traceback
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from legato import safety
 from legato.actions import Action
@@ -365,7 +365,9 @@ def _app_plan_system() -> str:
         "out what the task means: look at the screen (pinned and recent chats, recently played). The script is "
         "compiled against the app's dictionary first; an error comes back with the app's real terms. check is a "
         "read-only script that reads back what you changed. Build dates from parts (set year, month, day, hours of "
-        "(current date)).\n") + s[j:].replace(
+        "(current date)).\n- quit_apps (keep; apps): quits apps: keep is a list of apps to leave open, apps the apps to "
+        "quit (leave it out for every app but keep). The person is asked once; an app with unsaved changes asks them "
+        "too. Use it to quit or close apps, never applescript, cmd+q or killall.\n") + s[j:].replace(
         "- wait_for (text; optional timeout_s, at most 15): waits until that label is on the screen.",
         "- wait_for (text; optional timeout_s, at most 15): waits until that label is on the screen. Only words can be "
         "read: an icon (play, pause, a heart) cannot be waited for; wait for a word that appears instead.", 1)
@@ -386,12 +388,13 @@ def _unescape(script: str) -> str:
     return script
 
 
-def applescript_tool(ask, timeout_s: float = 30.0, apps: tuple = SCRIPT_APPS) -> Tool:
+def applescript_tool(ask, timeout_s: float = 30.0, apps: tuple = SCRIPT_APPS, quits: bool = False) -> Tool:
     """The checked `applescript` tool (legato.tools.applescript: compiled first, the app's dictionary with any error, a
     read-back, two failures per app then the screen) behind the same guard as the shell: a script that deletes,
     sends, quits an app or presses keys in other apps waits for the person's yes (command_risk reads it as osascript).
     Only for `apps`, and not for reading through the person's data (see SCRIPT_APPS). Measured:
-    app-data tasks 164 -> 89 s, passes held."""
+    app-data tasks 164 -> 89 s, passes held. quits: there is a quit_apps tool, so a script that quits is sent there
+    (a quit waits on a save panel until the timeout)."""
     inner = applescript(timeout_s=timeout_s)
     allowed = {a.lower() for a in apps}
 
@@ -404,6 +407,9 @@ def applescript_tool(ask, timeout_s: float = 30.0, apps: tuple = SCRIPT_APPS) ->
             if other:
                 return (f"not run: AppleScript here is only for {', '.join(apps)}. Do this in {other[0]} on the "
                         "screen, or with the shell (open -a, an app's link).")
+            if quits and _SCRIPT_QUIT.search(script):
+                return ("not run: quit apps with the quit_apps tool. It asks the person once and never waits on a "
+                        "save panel.")
             if _TROLL.search(script):
                 return ("not run: this script reads through every item of the person's data. Scripts here only "
                         "create or change an item the task names. To find something, look at the screen.")
@@ -412,6 +418,78 @@ def applescript_tool(ask, timeout_s: float = 30.0, apps: tuple = SCRIPT_APPS) ->
                 return "not run: the person said no to this script. Do it on the screen, or another way."
         return inner.handler(args)
     return Tool(inner.name, APPLESCRIPT_APP_HINT, inner.parameters, handler)
+
+
+# ------------------------------------------------------------------ quitting apps: the app does it, not AppleScript
+QUIT_HINT = ("Quit apps on this Mac the way the person would, in about a second: keep is the apps to leave open; apps "
+             "is the apps to quit (leave it out to quit every app with a window except keep; Finder and Legato always "
+             "stay). The person is asked once, with the list. An app with unsaved changes is not left waiting: the "
+             "person chooses to discard them or keep that app open, and the result says which apps quit. Use this to "
+             "quit or close apps, never AppleScript, cmd+q or killall.")
+_QUIT_ARGS = {"type": "object", "properties": {
+    "keep": {"type": "array", "items": {"type": "string"}, "description": "quit_apps: apps to leave open"},
+    "apps": {"type": "array", "items": {"type": "string"}, "description": "quit_apps: apps to quit (default: all but keep)"}}}
+_ALWAYS_OPEN = {"finder", "legato", "legato test"}
+_SCRIPT_QUIT = re.compile(r"\bquit\b", re.I)
+
+
+def _app_names(v: Any) -> list[str]:
+    """A list of app names from a list, or one name or "A, B" (models write all three)."""
+    items = v if isinstance(v, list) else re.split(r"\s*,\s*", v) if isinstance(v, str) else []
+    out = []
+    for n in items:
+        n = str(n).strip()
+        if n.lower().endswith(".app"):
+            n = n[:-4]
+        if n:
+            out.append(n)
+    return out
+
+
+def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool]) -> Tool:
+    """The `quit_apps` tool: the app lists the running apps and quits them (NSRunningApplication.terminate), so there
+    is no Apple Event, no Automation prompt and nothing to wait on when an app has unsaved work. Measured on macOS 26:
+    0.1-0.4 s an app; `tell app to quit` took the same on a clean app and blocked until the AppleScript timeout (30 s
+    here) on one with unsaved changes. `ask` gets one yes for the list; an app still open after its quit (a save panel)
+    is a second question, discard or keep it open, through the app's `confirm` with its own button labels."""
+    def handler(args: dict) -> str:
+        keep, want = _app_names(args.get("keep")), _app_names(args.get("apps"))
+        running = [a for a in (request("apps").get("apps") or []) if isinstance(a, str)]
+        lower = {a.lower(): a for a in running}
+        stay = {k.lower() for k in keep} | _ALWAYS_OPEN
+        if want:
+            targets = [lower[w.lower()] for w in want if w.lower() in lower and w.lower() not in stay]
+            gone = [w for w in want if w.lower() not in lower]
+        else:
+            targets, gone = [a for a in running if a.lower() not in stay], []
+        targets = list(dict.fromkeys(targets))
+        if not targets:
+            return "nothing to quit" + (f" ({', '.join(gone)} not running)" if gone else "") + \
+                f". Open apps: {', '.join(running) or 'none'}."
+        left = [a for a in running if a not in targets and a.lower() not in _ALWAYS_OPEN]
+        if not ask(f"quit {', '.join(targets)}" + (f" ({', '.join(left)} stay open)" if left else "")):
+            return "not run: the person said no to quitting these apps."
+        r = request("quit_apps", apps=targets)
+        quit_, kept = [a for a in r.get("quit") or [] if isinstance(a, str)], []
+        for app in [a for a in r.get("unsaved") or [] if isinstance(a, str)]:
+            a = request("confirm", text=f"{app} has unsaved changes. Discard them and quit {app}?",
+                        question=f"discard the unsaved changes in {app} and quit it",
+                        yes="Discard and quit", no=f"Keep {app} open", once=True)
+            discard = bool(a.get("allow"))
+            done = request("resolve_unsaved", app=app, discard=discard)
+            if discard and done.get("quit"):
+                quit_.append(app)
+            else:
+                kept.append(app + (": kept open with its unsaved changes" if not discard
+                                   else ": still open, its save panel is in front"))
+        lines = [f"quit: {', '.join(quit_) or 'none'}"]
+        if kept:
+            lines.append("still open: " + "; ".join(kept))
+        if gone:
+            lines.append(f"not running: {', '.join(gone)}")
+        lines.append(f"left open as asked: {', '.join(left) or 'none'}")
+        return "\n".join(lines)
+    return Tool("quit_apps", QUIT_HINT, _QUIT_ARGS, handler)
 
 
 class Replan(Exception):
@@ -493,6 +571,7 @@ def app_env(link: Link, run: "Run", gui: Any = None, wait_scope: str = "screen")
         def __init__(self):
             super().__init__(mac_cmd=True, gui=gui, grabber=_NoGrab(), confirm=self._confirm, wait_scope=wait_scope)
             self.refocus = False                  # the app asks in a panel that never takes the focus
+            self.allowed: set[str] = set()        # kinds of question allowed for this task
             # the wait leaves out what moves on its own (a spinner in another window, a music player's progress bar): with
             # the whole screen exact, those held every action to the 2 s cap (the app's runs on 16-17 Nov)
             self.waiter = Waiter(self._digest, rules=LOCAL_RULES, background=wait_scope == "screen")
@@ -535,10 +614,21 @@ def app_env(link: Link, run: "Run", gui: Any = None, wait_scope: str = "screen")
 
         # -------------------------------------------------- the person
         def _confirm(self, question: str) -> bool:
-            r = link.request("confirm", question=question)
+            """A yes from the person. "Allow for this task" counts for the rest of the run for the same kind of
+            question (what comes before ":", e.g. "run this command, which deletes files")."""
+            kind = question.split(":", 1)[0].strip()
+            if kind in self.allowed:
+                return True
+            r = self._request("confirm", question=question)
+            if r.get("allow") and r.get("always"):
+                self.allowed.add(kind)
+            return bool(r.get("allow"))
+
+        def _request(self, method: str, **params) -> dict:
+            r = link.request(method, **params)
             if r.get("stop"):
                 raise safety.Stopped(r["stop"])
-            return bool(r.get("allow"))
+            return r
 
         def stop_requested(self) -> str | None:
             if run.stopping:
@@ -650,8 +740,11 @@ class Run:
                    routine={"from": routine["id"], "steps": len(routine["steps"]), "wall_s": routine.get("wall_s")} if routine else None)
         try:
             env = self.env_factory(self)
-            tools = ([shell_tool(env._confirm, focus=getattr(env, "_focus", None)), applescript_tool(env._confirm)]
-                     if m.get("shell") else [])
+            req = getattr(env, "_request", None)
+            tools = ([shell_tool(env._confirm, focus=getattr(env, "_focus", None)),
+                      applescript_tool(env._confirm, quits=req is not None)] if m.get("shell") else [])
+            if req is not None:
+                tools.append(quit_apps_tool(req, env._confirm))
             use_plans = m.get("plan", True) is not False      # one call carries several steps
             h = self.harness or Harness(model=m["model"], base_url=m["base_url"], api_key=m.get("api_key") or "",
                                         image_max=image_max, tools=tools, plan=use_plans,
