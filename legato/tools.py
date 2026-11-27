@@ -15,6 +15,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Union
 
@@ -186,11 +187,9 @@ def applescript(target: Union["Env", Callable[[str], Any], None] = None, *, time
         raise TypeError("applescript(env) or applescript() for this computer (macOS)")
     failures: dict[str, int] = {}
     summaries: dict[str, str] = {}
-    n = [0]
 
-    def write(script: str, tag: str) -> str:
-        n[0] += 1
-        path = f"/tmp/legato-as-{os.getpid()}-{n[0]}-{tag}.applescript"
+    def write(script: str, directory: str, tag: str) -> tuple[str, str]:
+        path = f"{directory}/legato-{tag}.applescript"
         # as base64, which no shell reads anything into: in a heredoc, a script with the closing word on a line of
         # its own ended the heredoc there and ran the lines after it as shell commands
         data = base64.b64encode(script.encode("utf-8")).decode("ascii")
@@ -219,20 +218,27 @@ def applescript(target: Union["Env", Callable[[str], Any], None] = None, *, time
         if out_of:
             return (f"not run: AppleScript for {out_of[0]} already failed {max_failures} times in this task. "
                     "Use the screen for that app.")
-        path, cmd = write(script, "main")
-        out, code = _exit_of(run(cmd + f"osacompile -o {shlex.quote(path + '.scpt')} {shlex.quote(path)}", timeout_s))
+        directory = f"/tmp/legato-as-{uuid.uuid4().hex}"
+        _, code = _exit_of(run(f"mkdir -m 700 {directory}", timeout_s))
         if code != "0":
-            return failed(apps, f"did not compile, so nothing ran:\n{out}")
-        out, code = _exit_of(run(f"osascript {shlex.quote(path + '.scpt')}", timeout_s))
-        if code != "0":
-            return failed(apps, f"compiled, then failed when it ran (exit {code}):\n{out}")
-        text = f"ran (exit 0). Result:\n{out or '(nothing)'}"
-        check = args.get("check")
-        if isinstance(check, str) and check.strip():
-            cpath, ccmd = write(check, "check")
-            cout, ccode = _exit_of(run(ccmd + f"osascript {shlex.quote(cpath)}", timeout_s))
-            text += f"\n\ncheck (exit {ccode}):\n{cout or '(nothing)'}"
-        return clip(text, max_chars)
+            return "error: could not create a private AppleScript directory"
+        try:
+            path, cmd = write(script, directory, "main")
+            out, code = _exit_of(run(cmd + f"osacompile -o {shlex.quote(path + '.scpt')} {shlex.quote(path)}", timeout_s))
+            if code != "0":
+                return failed(apps, f"did not compile, so nothing ran:\n{out}")
+            out, code = _exit_of(run(f"osascript {shlex.quote(path + '.scpt')}", timeout_s))
+            if code != "0":
+                return failed(apps, f"compiled, then failed when it ran (exit {code}):\n{out}")
+            text = f"ran (exit 0). Result:\n{out or '(nothing)'}"
+            check = args.get("check")
+            if isinstance(check, str) and check.strip():
+                cpath, ccmd = write(check, directory, "check")
+                cout, ccode = _exit_of(run(ccmd + f"osascript {shlex.quote(cpath)}", timeout_s))
+                text += f"\n\ncheck (exit {ccode}):\n{cout or '(nothing)'}"
+            return clip(text, max_chars)
+        finally:
+            run(f"rm -rf {directory}", timeout_s)
 
     return Tool(name, APPLESCRIPT_HINT, {"type": "object", "required": ["script"], "properties": {
         "script": {"type": "string", "description": "The AppleScript to run"},
