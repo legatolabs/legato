@@ -408,3 +408,67 @@ def test_windows_scroll_dispatches_wheel_notches_on_the_requested_axis(monkeypat
                      (0x0800, 0, 0, 360, 0), (0x0800, 0, 0, -360, 0)]
     assert gui.calls == [(name, args) for _ in range(4)
                          for name, args in (("moveTo", (20, 10)), ("failSafeCheck", ()))]
+
+
+def test_verified_click_returns_original_pixels_even_if_predicate_marks_its_image():
+    import io
+    from PIL import Image
+
+    e = env()
+    def check(image):
+        image.putpixel((0, 0), (255, 0, 0))
+        return True
+    obs = e.act(Action("click", x=2, y=3), until=check)
+    with Image.open(io.BytesIO(obs.screenshot)) as accepted:
+        assert accepted.size == e.size and accepted.getpixel((0, 0)) == (10, 20, 30)
+    assert e.gui.calls == [("click", (2, 3))]
+
+
+def test_verified_action_respects_stop_and_overridden_observation(monkeypatch):
+    import pytest
+    from legato import safety
+
+    e = env()
+    monkeypatch.setattr(e, "stop_requested", lambda: "test stop")
+    with pytest.raises(safety.Stopped):
+        e.act(Action("click", x=2, y=3), until=lambda image: pytest.fail("should not observe"))
+    assert e.gui.calls == []
+    e = env()
+    original = e.observe().screenshot
+    e._shot = lambda: original
+    monkeypatch.setattr(e, "_screen_image", lambda: pytest.fail("wrong capture surface"))
+    assert e.act(Action("click", x=2, y=3), until=lambda image: image.size == e.size).screenshot == original
+
+
+def test_verified_mac_paste_waits_for_its_receipt_before_reusing_the_clipboard(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+    import importlib
+    local_module = importlib.import_module("legato.local")
+    e = env(mac=True)
+    e.paste = e._paste_mac
+    sleeps, copies = [], []
+    def clipboard(cmd, **kwargs):
+        if cmd == ["pbcopy"]:
+            copies.append(kwargs["input"])
+        return SimpleNamespace(stdout=b"previous contents")
+    monkeypatch.setattr(local_module.subprocess, "run", clipboard)
+    monkeypatch.setattr(local_module.time, "sleep", sleeps.append)
+    action = Action("type", text="a unique receipt")
+    assert e.act(action, read=lambda: "a unique receipt", until=lambda s: s == action.text) == action.text
+    assert not sleeps and copies == [b"a unique receipt"]
+    e._restore_clipboard()
+    assert not sleeps and copies[-1] == b"previous contents"
+
+    def failed_read():
+        raise LookupError("window closed")
+    with pytest.raises(LookupError, match="window closed"):
+        e.act(action, read=failed_read, until=bool)
+    assert not sleeps
+    e._restore_clipboard()
+    assert len(sleeps) == 1 and 0 < sleeps[0] <= 0.4
+    assert copies[-1] == b"previous contents"
+
+    sleeps.clear()
+    e.act(Action("type", text="paste before return\n"), read=lambda: "ready", until=bool)
+    assert 0.4 in sleeps

@@ -23,18 +23,26 @@ import base64
 import functools
 import gzip
 import hashlib
+import io
 import json
+import math
 import os
 import shlex
 import struct
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar, overload
+
+from PIL import Image
 
 from legato.actions import Action
 from legato.settle import LOCAL_RULES, Waiter, _ScreenSample, rule_kind
 from legato.tools import wrap_command
+
+FramePredicate = Callable[[Image.Image], bool]
+_Receipt = TypeVar("_Receipt")
+
 
 class DesktopError(RuntimeError):
     """A desktop failed: it could not take a screenshot or run an action (a window that can't be captured, a sandbox
@@ -270,7 +278,36 @@ class Env:
         self.last = {"obs_s": time.monotonic() - t}
         return Obs(b, w, h)
 
-    def act(self, action: Action) -> Obs:
+    @overload
+    def act(self, action: Action, *, until: FramePredicate | None = None, timeout_s: float = 2.0) -> Obs: ...
+
+    @overload
+    def act(self, action: Action, *, read: Callable[[], _Receipt],
+            until: Callable[[_Receipt], bool], timeout_s: float = 2.0) -> _Receipt: ...
+
+    def act(self, action: Action, *, until: Callable[[Any], bool] | None = None, timeout_s: float = 2.0,
+            read: Callable[[], Any] | None = None) -> Any:
+        """Send one action. Normally return the settled screen. With until, wait for a caller-defined result.
+
+        By default until receives each fresh frame as a Pillow image. Return the accepted frame as an Obs.
+        With read, check its values instead and return the exact accepted value. A local or callback desktop
+        can then verify native state without capturing a screenshot. A remote step helper finishes its own step
+        first. timeout_s is a deadline after dispatch: no read starts after it, and a result that arrives after it
+        does not count, however good. A read already running is not interrupted, so keep readers quick and bound
+        their own I/O. A missing or late result raises TimeoutError without resending the action.
+        """
+        if read is not None and (not callable(read) or until is None):
+            raise TypeError("read needs an observation function and an until predicate")
+        if until is not None:
+            if not callable(until):
+                raise TypeError("until must be callable")
+            if not math.isfinite(timeout_s) or timeout_s <= 0:
+                raise ValueError("timeout_s must be finite and positive")
+        return self._act(action, until=until, timeout_s=timeout_s, read=read)
+
+    def _act(self, action: Action, *, until, timeout_s: float, read):
+        if until is not None:
+            return self._act_until(action, until, timeout_s, read)
         if action.done:
             return self.observe()
         timing = {}
@@ -304,6 +341,64 @@ class Env:
         obs = self.observe()
         self.last = {**timing, **self.last}
         return obs
+
+    def _checked_frame(self, until: FramePredicate, png: bytes | None) -> Obs | None:
+        if png is None:
+            obs = self.observe()
+        else:
+            obs = Obs(png, *png_size(png))
+        with Image.open(io.BytesIO(obs.screenshot)) as image:
+            return obs if until(image) else None
+
+    def _dispatch_for_check(self, action: Action) -> None:
+        self._execute(action)
+
+    def _act_until(self, action: Action, until, timeout_s: float, read):
+        timing = {"act_s": 0.0, "obs_s": 0.0, "settle_s": 0.0}
+        png = None
+        if not action.done:
+            if self._step is None:
+                start = time.monotonic()
+                self._dispatch_for_check(action)
+                timing["act_s"] = time.monotonic() - start
+            else:
+                timing.update(self._step(action) or {})
+                png = getattr(self, "_pending_png", None)
+                self._pending_png = None
+        deadline = time.monotonic() + timeout_s
+        late = False
+        try:
+            while True:
+                start = time.monotonic()
+                try:
+                    if read is None:
+                        value = self._checked_frame(until, png)
+                        accepted = value is not None
+                    else:
+                        value = read()
+                        accepted = until(value)
+                finally:
+                    timing["obs_s"] += time.monotonic() - start
+                if accepted:
+                    if time.monotonic() > deadline:      # the proof arrived after the deadline: not in time
+                        late = True
+                        break
+                    return value
+                png = None  # any later attempt needs a new frame
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                start = time.monotonic()
+                time.sleep(min(0.01, remaining))
+                timing["settle_s"] += time.monotonic() - start
+                if time.monotonic() >= deadline:
+                    break
+        finally:
+            self.last = timing
+        if late:
+            raise TimeoutError(f"the check answered after the {timeout_s:g} s deadline; the action was sent once and "
+                               "is not resent")
+        raise TimeoutError(f"desktop condition was not met within {timeout_s:g} s after dispatch")
 
 
 class E2BEnv(Env):

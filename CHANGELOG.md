@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Verified actions, opt-in, in the Python package.** `desktop.act(action)` still waits for the screen to settle.
+  A developer who knows how the application acknowledges an action can ask for proof instead, sent once and never
+  resent: `legato.verified_step` waits for the application's receipt for a request (a committed write),
+  `legato.checked_step` for an exact state the caller reads (a saved file, a field's value), and either can also
+  require that the returned screenshot shows the result, for a next step that reads pixels. Both use
+  `desktop.act(action, read=..., until=..., timeout_s=...)`, also usable directly. The timeout is a deadline: proof
+  that arrives after it does not count. `legato run`, `legato mcp` and the Mac app are unchanged
+  ([docs/python.md](docs/python.md#verified-actions)).
 - **`legato run --screen` and `legato.run(desktop="screen")` on a Mac wait the way the Mac app does:** cells of
   the screen that move on their own (a clock, a spinner in another app) no longer hold every action to the 2 s cap.
   `legato.local()` keeps its default (`wait="screen"`); pass `wait="cells"` for the same.

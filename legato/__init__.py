@@ -18,8 +18,10 @@ from legato.harness import Harness, RunResult, RunStatus, Usage, computer_tool
 from legato.local import local
 from legato.settle import Waiter, wrap
 from legato.tools import Tool
+from legato.verify import Receipt, VerifiedResult, VisibleResult, checked_step, verified_step
 
-__all__ = ["Action", "DesktopError", "DesktopStartError", "Env", "Harness", "Obs", "Planner", "RunResult", "RunStatus",
-           "Tool", "Usage", "Waiter", "agent_for", "attach", "computer_tool", "config", "local", "parse", "providers",
-           "run", "tools", "wrap"]
+__all__ = ["Action", "DesktopError", "DesktopStartError", "Env", "Harness", "Obs", "Planner", "Receipt", "RunResult",
+           "RunStatus", "Tool", "Usage", "VerifiedResult", "VisibleResult", "Waiter", "agent_for", "attach",
+           "checked_step", "computer_tool", "config", "local", "parse", "providers", "run", "tools", "verified_step",
+           "wrap"]
 __version__ = "0.3.2"
