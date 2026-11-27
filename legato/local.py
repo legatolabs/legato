@@ -31,7 +31,7 @@ from typing import Any, Callable
 
 from legato import safety
 from legato.actions import Action
-from legato.env import DesktopError, DesktopStartError, Env, Obs
+from legato.env import DesktopError, DesktopStartError, Env, FramePredicate, Obs
 from legato.settle import LOCAL_RULES, Waiter
 from legato.tools import local_shell
 
@@ -115,12 +115,17 @@ class MacMouse:
 
     def click(self, x: float, y: float, count: int) -> None:
         q = self.q
+        if count == 1:
+            # Send movement, down and up to the same point in event-queue order.
+            move = q.CGEventCreateMouseEvent(None, q.kCGEventMouseMoved, (x, y), q.kCGMouseButtonLeft)
+            q.CGEventPost(q.kCGHIDEventTap, move)
         for n in range(1, count + 1):
             for kind in (q.kCGEventLeftMouseDown, q.kCGEventLeftMouseUp):
                 ev = q.CGEventCreateMouseEvent(None, kind, (x, y), q.kCGMouseButtonLeft)
                 q.CGEventSetIntegerValueField(ev, q.kCGMouseEventClickState, n)
                 q.CGEventPost(q.kCGHIDEventTap, ev)
-                time.sleep(0.03)
+                if count > 1:
+                    time.sleep(0.03)
 
 
 def _need(name: str):
@@ -203,6 +208,7 @@ class LocalEnv(Env):
     exit does. False leaves it in front."""
 
     shell = staticmethod(local_shell)
+    _pending_paste_until = 0.0  # an unacknowledged native paste may still need the clipboard
 
     def __init__(self, mac_cmd: bool = True, fixed_wait_s: float | None = None, *, gui: Any = None, grabber: Any = None,
                  paste: Any = "auto", confirm: safety.Confirm | str | None = "auto", wait_scope: str = "screen",
@@ -212,6 +218,7 @@ class LocalEnv(Env):
         self.wait_scope = wait_scope
         if sys.platform == "darwin" and gui is None:
             no_dock_icon()
+        self._native_gui = gui is None
         self._windows_gui = sys.platform == "win32" and gui is None
         self.gui = gui or _need("pyautogui")
         self.gui.PAUSE = 0.02                     # pyautogui sleeps 0.1 s after every call by default
@@ -336,7 +343,7 @@ class LocalEnv(Env):
         except Exception:  # noqa: BLE001 - the whole screen still works
             return None
 
-    def _png(self) -> bytes:
+    def _screen_image(self):
         from PIL import Image
         g = self._grab()
         bgra = getattr(g, "bgra", None)
@@ -347,9 +354,27 @@ class LocalEnv(Env):
             im = Image.frombytes("RGB", g.size, bgra, "raw", "BGRX")
         if im.size != self.size:
             im = im.resize(self.size, Image.BILINEAR)
+        return im
+
+    @staticmethod
+    def _encode_png(im) -> bytes:
         buf = io.BytesIO()
         im.save(buf, "PNG", compress_level=1)
         return buf.getvalue()
+
+    def _png(self) -> bytes:
+        return self._encode_png(self._screen_image())
+
+    def _checked_frame(self, until: FramePredicate, png: bytes | None) -> Obs | None:
+        # Window-scoped, app-supplied and overridden observations must always use their own capture surface.
+        native_frame = (self._shot == self._png and type(self)._png is LocalEnv._png
+                        and type(self).observe is Env.observe)
+        if png is not None or not native_frame:
+            return super()._checked_frame(until, png)
+        image = self._screen_image()
+        if not until(image.copy()):  # callers may transform their copy while examining it
+            return None
+        return Obs(self._encode_png(image), *image.size)
 
     # ------------------------------------------------------------ the person's stop and yes
     def stop_requested(self) -> str | None:
@@ -422,10 +447,11 @@ class LocalEnv(Env):
             except (OSError, subprocess.SubprocessError):
                 pass
 
-    def act(self, action: Action) -> Obs:
+    def _act(self, action: Action, *, until, timeout_s: float, read):
         """Run `action`, unless the person has asked to stop (`safety.Stopped`) or says no to it (`safety.Denied`)."""
+        self._finish_pending_paste()
         if action.done:
-            return super().act(action)
+            return super()._act(action, until=until, timeout_s=timeout_s, read=read)
         if why := self.stop_requested():
             self._restore_clipboard()
             raise safety.Stopped(why)
@@ -443,7 +469,9 @@ class LocalEnv(Env):
                 raise safety.Denied(ask)
         self._typed = typed
         try:
-            return super().act(action)
+            result = super()._act(action, until=until, timeout_s=timeout_s, read=read)
+            self._pending_paste_until = 0.0
+            return result
         except self._failsafe:
             self._restore_clipboard()
             raise safety.Stopped("the mouse was moved into a corner of the screen") from None
@@ -471,7 +499,7 @@ class LocalEnv(Env):
             return name.lower()
         return name if len(name) == 1 else name.lower()
 
-    def _type(self, text: str) -> None:
+    def _type(self, text: str, *, verified: bool = False) -> None:
         if self.mac and self.paste is not None:
             # On macOS, text typed key by key is rewritten by autocorrect ("eggs" becomes "Eggs", "- " a dash), can
             # lose letters, and leaves a correction bubble open. Pasted text arrives exactly as given. The text is
@@ -483,7 +511,10 @@ class LocalEnv(Env):
             if body and KEYED.fullmatch(body):
                 self._keys(body)
             elif body:
-                self.paste(body)
+                if verified and body == text and self.paste == self._paste_mac:
+                    self._paste_mac(body, verified=True)
+                else:
+                    self.paste(body)
             for _ in range(len(text) - len(body)):
                 self._chord(["enter"])
             return
@@ -514,7 +545,7 @@ class LocalEnv(Env):
         else:
             self.gui.press(names[0])
 
-    def _paste_mac(self, text: str) -> None:
+    def _paste_mac(self, text: str, *, verified: bool = False) -> None:
         """Put `text` on the clipboard and paste it. The text that was on the clipboard is put back before the next
         action, not now: the app reads the clipboard when it gets to the keys, which can be later than any wait
         here (other clipboard kinds, such as an image, are not restored)."""
@@ -527,9 +558,20 @@ class LocalEnv(Env):
         if self._clip is None:                        # several pastes in a row: keep the oldest contents
             self._clip = before
         self._chord(["command", "v"])
-        time.sleep(0.4)
+        if verified:
+            self._pending_paste_until = time.monotonic() + 0.4
+        else:
+            time.sleep(0.4)
+
+    def _finish_pending_paste(self) -> None:
+        if self._pending_paste_until:
+            remaining = self._pending_paste_until - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+            self._pending_paste_until = 0.0
 
     def _restore_clipboard(self) -> None:
+        self._finish_pending_paste()
         if self._clip is not None:
             try:
                 subprocess.run(["pbcopy"], input=self._clip, timeout=5)
@@ -537,7 +579,13 @@ class LocalEnv(Env):
                 pass
             self._clip = None
 
-    def _exec(self, a: Action) -> None:
+    def _dispatch_for_check(self, action: Action) -> None:
+        if self._execute == LocalEnv._exec.__get__(self):
+            self._exec(action, verified=True)
+        else:  # an app, background window or custom driver owns dispatch
+            super()._dispatch_for_check(action)
+
+    def _exec(self, a: Action, *, verified: bool = False) -> None:
         g, t = self.gui, a.type
         if t != "type":
             self._restore_clipboard()
@@ -567,7 +615,13 @@ class LocalEnv(Env):
                         g.keyUp(k)
                     g.FAILSAFE = was
         elif t == "click":
-            g.click(a.x, a.y)
+            if verified and self.macmouse is not None and a.x is not None and a.y is not None:
+                g.failSafeCheck()
+                self.macmouse.click(a.x, a.y, 1)
+            elif verified and self._native_gui:
+                g.click(a.x, a.y, _pause=False)
+            else:
+                g.click(a.x, a.y)
         elif t in ("double_click", "triple_click"):
             n = 2 if t == "double_click" else 3
             if self.macmouse is not None:
@@ -580,7 +634,10 @@ class LocalEnv(Env):
         elif t == "right_click":
             g.rightClick(a.x, a.y)
         elif t == "type":
-            self._type(a.text or "")
+            if verified and type(self)._type is LocalEnv._type:
+                self._type(a.text or "", verified=True)
+            else:
+                self._type(a.text or "")
         elif t == "key":
             for combo in (a.keys or "").split():
                 self._chord([self.key(k) for k in combo.split("+") if k])

@@ -194,3 +194,30 @@ the report.
 
 `legato bench` runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)). RL rollouts at
 scale are part of Legato Cloud, in beta ([rl.md](rl.md)).
+
+### Waiting for a known application result
+
+When an integration knows what a successful action looks like, it can check the returned screen directly.
+
+```python
+# receipt_visible reads the expected order ID from the supplied screenshot.
+obs = desktop.act(legato.Action("click", x=120, y=80),
+                  until=lambda image: receipt_visible(image, expected_order_id),
+                  timeout_s=3.0)
+```
+
+The predicate receives a Pillow image. The runtime dispatches the action once and returns the first accepted frame as a normal screenshot observation. Use an expected value specific to this action so an earlier receipt cannot satisfy it. On a local or callback-based desktop, this replaces the usual quiet-screen wait for that action. Remote step helpers finish their step before checking the condition. An unmet condition raises `TimeoutError`. The application may have received the input, so inspect its state before retrying. A capture or predicate already running at the deadline may finish.
+
+If the application exposes a receipt through Accessibility, UI Automation or another local API, pass a read function. The result has the type returned by that function. For a save, read the application’s commit status along with the document identity and revision. Some editors display the new revision while a save is pending and can still roll it back.
+
+```python
+def saved(receipt):
+    return (receipt.document_id == document_id
+            and receipt.revision == expected_revision
+            and receipt.status == "committed")
+
+receipt = desktop.act(save, read=document.read_save_receipt,
+                      until=saved, timeout_s=3.0)
+```
+
+Scope the reader to the intended document or window and expected record. When deriving click coordinates from a screenshot, check that the pixels and the accessibility value refer to the same layout revision. Verify the selected record before sending dependent input. For an editor without a commit receipt, reopen the saved artifact and verify the expected change and any content the task must preserve. Call `desktop.observe()` when the next step also needs a screenshot.

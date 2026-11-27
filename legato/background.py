@@ -981,7 +981,7 @@ class BackgroundEnv(LocalEnv):
         return None
 
     # ------------------------------------------------------------ acting
-    def act(self, action: Action):
+    def _act(self, action: Action, *, until, timeout_s: float, read):
         if action.type == "key" and action.keys and HIDES.fullmatch(action.keys.lower().replace("ctrl", "cmd")):
             raise safety.Unavailable(f"{action.keys} would hide or minimize {self.app}'s window, the one this agent "
                                      "works in")
@@ -999,7 +999,7 @@ class BackgroundEnv(LocalEnv):
             if action.type in ("key", "type") and self._focus_own() is False:
                 raise safety.Unavailable(f"{action.describe()}: another {self.app} window has the keyboard right now "
                                          "(the person's, or another agent's), so the keys were not sent; try again")
-            return super().act(action)
+            return super()._act(action, until=until, timeout_s=timeout_s, read=read)
         finally:
             self._acting = False
             self.give_back_front(before)
