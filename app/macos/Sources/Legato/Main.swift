@@ -5,6 +5,7 @@ import AppKit
 enum Main {
     static func main() {
         let args = CommandLine.arguments
+        if args.contains("--screen-allowed") { exit(CGPreflightScreenCaptureAccess() ? 0 : 1) }   // PermissionState.probeScreen
         if let i = args.firstIndex(of: "--snapshots"), i + 1 < args.count {
             Snapshots.dirURL = URL(fileURLWithPath: args[i + 1])
             MainActor.assumeIsolated { Snapshots.render(to: Snapshots.dirURL) }

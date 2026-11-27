@@ -11,6 +11,8 @@ result does not depend on what someone remembers seeing.
    ```bash
    app/macos/check.sh build        # ~/Applications/Legato Test.app
    ```
+   With no Apple Development certificate it is signed ad hoc, so each build needs its permissions again;
+   `app/macos/build.sh --make-signing-id` (once) makes a local certificate that keeps them.
 2. Quit any other Legato (they share Fn and ⌥⇧Space), then `app/macos/check.sh start` to note the time and open it.
 3. A model key: the one `legato setup` saved is used (the app starts from it). Each task stops at $1.
 

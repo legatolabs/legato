@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import ScreenCaptureKit
+import Security
 import SwiftUI
 
 /// The three macOS permissions Legato needs, read without prompting, and how to ask for each.
@@ -43,6 +44,7 @@ enum Permission: String, CaseIterable, Identifiable {
     /// The first time, macOS's own prompt (it adds Legato to the list and offers System Settings); after that, the
     /// right pane of System Settings. Never both at once.
     func request() {
+        if self == .screen && Signing.team == nil { Signing.restartScreenPrompt() }
         // on recent macOS only a ScreenCaptureKit call puts Legato in the Screen Recording list (and asks)
         if self == .screen { Task { _ = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) } }
         let key = "asked.\(rawValue)"
@@ -90,6 +92,31 @@ enum Permission: String, CaseIterable, Identifiable {
     static var missing: [Permission] { allCases.filter { !$0.granted } }
 }
 
+/// How this copy of Legato is signed. A copy someone built has no team id, and an ad-hoc one a new signature each build.
+enum Signing {
+    static let (team, adhoc): (String?, Bool) = {
+        var code: SecCode?, staticCode: SecStaticCode?, info: CFDictionary?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+              SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let d = info as? [String: Any] else { return (nil, true) }
+        let flags = (d[kSecCodeInfoFlags as String] as? NSNumber)?.uint32Value ?? 0   // 0x2: kSecCodeSignatureAdhoc
+        return (d[kSecCodeInfoTeamIdentifier as String] as? String, flags & 0x2 != 0)
+    }()
+
+    /// macOS's Screen Recording prompt (universalAccessAuthWarn) runs for weeks and remembers the bundle id it read at
+    /// each app path. A copy rebuilt at the same path under another id would have its "Allow" saved for the old id, so it
+    /// never shows in System Settings. launchd starts the prompt again on the next request, reading this copy afresh.
+    static func restartScreenPrompt() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
+        p.arguments = ["universalAccessAuthWarn"]
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+        p.waitUntilExit()
+    }
+}
+
 final class PermissionState: ObservableObject {
     @Published var granted: [Permission: Bool] = [:]
     @Published var asked: Set<Permission> = Set(Permission.allCases.filter(\.asked))   // redraws the step after a click
@@ -106,13 +133,35 @@ final class PermissionState: ObservableObject {
 
     func stopPolling() { timer?.invalidate(); timer = nil }
 
+    private var screenAllowed = false
+    private var screenProbing = false
+
     func refresh() {
         var g: [Permission: Bool] = [:]
         for p in Permission.allCases { g[p] = p.granted }
+        if g[.screen] == false { g[.screen] = screenAllowed; probeScreen() }
         if g != granted {
             granted = g
             onChange?()
         }
+    }
+
+    /// CGPreflightScreenCaptureAccess keeps its first answer until Legato restarts, so the step would never see the
+    /// switch go on. A fresh copy of Legato (`--screen-allowed`) asks macOS again, and never brings up a prompt.
+    private func probeScreen() {
+        guard !screenProbing, !screenAllowed, let exe = Bundle.main.executableURL else { return }
+        screenProbing = true
+        let p = Process()
+        p.executableURL = exe
+        p.arguments = ["--screen-allowed"]
+        p.terminationHandler = { p in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.screenProbing = false
+                if p.terminationStatus == 0 { self.screenAllowed = true; self.refresh() }
+            }
+        }
+        if (try? p.run()) == nil { screenProbing = false }
     }
 
     /// Screen Recording takes effect only after Legato is reopened.
@@ -202,6 +251,9 @@ struct OnboardingView: View {
                 note("info.circle", perms.asked.contains(p)
                      ? "Switch on \(Self.appName) in the list System Settings shows. Not there? Drag the icon above into the list, or click + and choose it. This window moves on by itself."
                      : "macOS asks next: choose Open System Settings and switch on \(Self.appName).")
+                if p == .screen && Signing.adhoc && perms.asked.contains(p) {
+                    note("hammer", "This copy has no signing certificate, so each new build needs this again. On but stuck? Remove it with − and click Open System Settings.")
+                }
             }
         case .tryIt:
             header(symbol: "command", "Tap Fn to open Legato",
