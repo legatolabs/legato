@@ -129,34 +129,43 @@ def act_then(env: Any, action: Action, nxt: Any, reader: Any, *, fixed_s: float 
     digest = digest or getattr(env, "_digest", None)
     if reader is None or digest is None or action.done:
         return _ordinary(env, action, fixed_s), None, None
+    before = None
     try:
         before = reader.before(action)
         found = need(action, nxt, before, reader)
     except Exception:  # noqa: BLE001 - a reader that fails says nothing: the ordinary wait
         found = None
     if found is None:
-        return _ordinary(env, action, fixed_s), None, None
+        obs = _ordinary(env, action, fixed_s)
+        if isinstance(getattr(env, "last", None), dict):            # the log: what was there, and that nothing was raced
+            env.last["needs"] = {"before": summary(before), "next": getattr(nxt, "type", None)}
+        return obs, None, None
     rule, check = found
     r = LOCAL_RULES.get(rule_kind(action.type)) or LOCAL_RULES["default"]
     cap = fixed_s if fixed_s is not None else float(r.get("cap", 2.0))
     st: dict = {}
+    polls: list = []                                  # every read, for the log: [ms since the input, need met, screen changed]
 
     def probe() -> str | None:
         now = time.monotonic()
+        met = False
         try:
-            if check():
-                return "ready"
+            met = bool(check())
         except Exception:  # noqa: BLE001 - unreadable this time: keep waiting the ordinary way
             pass
-        if fixed_s is not None:
-            return None                               # the short pause has no settle test: it ends at its time
+        if met or fixed_s is not None:
+            polls.append([round((now - t) * 1000), int(met), None])
+            return "ready" if met else None           # the short pause has no settle test: it ends at its time
         d = digest()
         if "t0" not in st:
             st.update(t0=now, last=d, t_change=now, same=1)
+            polls.append([round((now - t) * 1000), 0, None])
         elif d != st["last"]:
             st.update(last=d, t_change=now, same=1)
+            polls.append([round((now - t) * 1000), 0, 1])
         else:
             st["same"] += 1
+            polls.append([round((now - t) * 1000), 0, 0])
         return "settled" if quiet_enough(now, st["t0"], st["t_change"], st["same"], r["floor"], r["quiet"],
                                          r["min_same"]) else None
 
@@ -169,8 +178,19 @@ def act_then(env: Any, action: Action, nxt: Any, reader: Any, *, fixed_s: float 
     obs = env.observe()                               # every action keeps its screenshot, as before
     took = time.monotonic() - t
     act_s, obs_s = sent.get("act_s", 0.0), (env.last or {}).get("obs_s", 0.0)
-    env.last = {"act_s": act_s, "obs_s": obs_s, "settle_s": max(0.0, took - act_s - obs_s)}
+    env.last = {"act_s": act_s, "obs_s": obs_s, "settle_s": max(0.0, took - act_s - obs_s),
+                "needs": {"before": summary(before), "next": getattr(nxt, "type", None), "rule": rule, "how": how,
+                          "polls": polls[:400]}}
     return obs, rule, how
+
+
+def summary(before: Before | None) -> dict | None:
+    """What the computer was like just before an action, in a few fields, for the run's log."""
+    if before is None:
+        return None
+    f = before.focus
+    return {"front": clean(before.title)[:50], "focus_kind": f.kind, "focus_has_text": bool(f.value),
+            "focus_all_selected": f.all_selected, "target": clean(before.target)[:50], "taskbar": before.target_in_taskbar}
 
 
 def _ordinary(env: Any, action: Action, fixed_s: float | None):

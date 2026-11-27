@@ -615,7 +615,8 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                     timing.setdefault("actions", []).append(
                         {"a": a.describe()[:80], **{k: env.last.get(k, 0.0) for k in ("act_s", "settle_s", "obs_s")},
                          **({"quick": True} if quick else {}),
-                         **({"need": rule, "how": how} if rule else {})})
+                         **({"need": rule, "how": how} if rule else {}),
+                         **({"log": env.last["needs"]} if isinstance(env.last.get("needs"), dict) else {})})
                     res.actions.append(a.describe())
                     ran.append(a)
                     s.ran(png)

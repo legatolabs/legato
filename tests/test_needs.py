@@ -105,7 +105,10 @@ def test_the_wait_ends_when_the_need_is_met_and_the_input_is_sent_once():
     t = time.monotonic()
     obs, rule, how = act_then(env, CLICK, CTRL_L, r, digest=lambda: next(frames))      # a screen that never holds still
     assert (rule, how, log) == ("program in front", "ready", [CLICK]) and time.monotonic() - t < 1.0
-    assert obs.screenshot and set(env.last) == {"act_s", "obs_s", "settle_s"}
+    assert obs.screenshot and set(env.last) == {"act_s", "obs_s", "settle_s", "needs"}
+    log_ = env.last["needs"]                          # the log: what was there before, and every read
+    assert log_["rule"] == "program in front" and log_["how"] == "ready" and log_["before"]["taskbar"] is True
+    assert log_["polls"][-1][1] == 1 and all(len(p) == 3 for p in log_["polls"])
 
 
 def test_a_need_that_never_comes_true_waits_exactly_as_before():
