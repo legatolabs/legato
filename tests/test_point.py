@@ -301,10 +301,15 @@ def test_on_windows_the_shell_tool_is_powershell_and_the_planner_is_told_so(monk
     class Done:
         returncode = 0
 
-        def communicate(self, timeout=None):
-            return b"3 files\r\n", None
+        def wait(self, timeout=None):
+            return 0
+
+    def popen(cmd, **kw):
+        ran.update(cmd=cmd, kw=kw)
+        kw["stdout"].write(b"3 files\r\n")          # the command's output goes to the file the tool reads back
+        return Done()
     monkeypatch.setattr(tools.sys, "platform", "win32")
-    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: (ran.update(cmd=cmd, kw=kw), Done())[1])
+    monkeypatch.setattr(subprocess, "Popen", popen)
     sh = legato.tools.bash()
     assert sh.runs == "PowerShell" and "PowerShell" in sh.description and sh.name == "bash"
     p = Planner("big", "http://x/v1", style="point",

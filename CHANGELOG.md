@@ -14,6 +14,11 @@
   `desktop.act(action, read=..., until=..., timeout_s=...)`, also usable directly. The timeout is a deadline: proof
   that arrives after it does not count. `legato run`, `legato mcp` and the Mac app are unchanged
   ([docs/python.md](docs/python.md#verified-actions)).
+- **A shell command that starts a program no longer holds the tool until that program lets go.** The shell tool
+  on this computer (`legato.tools.bash()`, and the Mac app's and `legato run`'s shell) read the command's output
+  through a pipe, which every program started from the command kept open: `Start-Process msedge <url>` on Windows
+  took 12 s or more to return, and `server &` ran to the timeout and was then killed with it. The output now goes
+  to a file and the tool returns when the command itself ends.
 - **`legato run --screen` and `legato.run(desktop="screen")` on a Mac wait the way the Mac app does:** cells of
   the screen that move on their own (a clock, a spinner in another app) no longer hold every action to the 2 s cap.
   `legato.local()` keeps its default (`wait="screen"`); pass `wait="cells"` for the same.
