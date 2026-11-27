@@ -155,22 +155,33 @@ final class AppSettings: ObservableObject {
         pastTasks = d.stringArray(forKey: "pastTasks") ?? []
         catalog = load("catalog", [String: [String]].self) ?? [:]
         catalogDate = load("catalogDate", [String: Date].self) ?? [:]
+        let restored = modelForEndpoint(model)
+        if model != restored { model = restored }
         if recents.isEmpty && !model.isEmpty { recents = [current] }
     }
 
     var preset: ProviderPreset { ProviderPreset.find(providerID) }
 
+    private func modelForEndpoint(_ candidate: String) -> String {
+        guard ["openai", "anthropic", "gemini"].contains(providerID),
+              baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == preset.baseURL,
+              !preset.models.contains(candidate), !(catalog[providerID] ?? []).contains(candidate),
+              ProviderPreset.all.contains(where: { $0.id != providerID && $0.models.contains(candidate) })
+        else { return candidate }
+        return (preset.models + (catalog[providerID] ?? [])).first ?? ""
+    }
+
     /// Switch provider. Each provider keeps its own URL and the model last used with it; a provider with neither a
     /// remembered nor a known model gets none, so `problem` asks for one instead of sending another provider's model id.
     func choose(_ p: ProviderPreset) {
         if !baseURL.isEmpty { d.set(baseURL, forKey: "baseURL." + providerID) }
-        if !model.isEmpty { d.set(model, forKey: "model." + providerID) }
+        d.set(model, forKey: "model." + providerID)
         providerID = p.id
         baseURL = d.string(forKey: "baseURL." + p.id) ?? p.baseURL
         if baseURL.isEmpty { baseURL = p.baseURL }
         let known = p.models + (catalog[p.id] ?? [])
-        if let m = d.string(forKey: "model." + p.id), !m.isEmpty {
-            model = m
+        if let m = d.string(forKey: "model." + p.id) {
+            model = modelForEndpoint(m)
         } else if !known.contains(model) {
             model = known.first ?? ""
         }
@@ -179,18 +190,17 @@ final class AppSettings: ObservableObject {
     /// Switch to `c` (the command bar's chips and picker): its provider, that provider's URL and key, and the model.
     func select(_ c: ModelChoice) {
         if c.provider != providerID { choose(c.preset) }
-        model = c.model
+        model = modelForEndpoint(c.model)
         noteUsed()
     }
 
     var current: ModelChoice { ModelChoice(provider: providerID, model: model) }
 
-    var apiKey: String {
-        get { key(for: providerID) }
-        set {
-            objectWillChange.send()
-            if newValue.isEmpty { Keychain.delete(account: providerID) } else { Keychain.write(newValue, account: providerID) }
-        }
+    var apiKey: String { key(for: providerID) }
+
+    func saveKey(_ value: String) -> Bool {
+        objectWillChange.send()
+        return value.isEmpty ? Keychain.delete(account: providerID) : Keychain.write(value, account: providerID)
     }
 
     /// The provider's key from the Keychain; without one, the key `legato setup` saved for that provider.
@@ -276,6 +286,8 @@ enum Keychain {
     static let account = "keys"
 
     private static let lock = NSLock()
+    // A partial read is useful for running tasks, but cannot be written over the complete item.
+    private static var writable = false
     private static var cache: [String: String]?
 
     static func read(account provider: String) -> String? {
@@ -283,19 +295,25 @@ enum Keychain {
         return loaded()[provider]
     }
 
-    static func write(_ value: String, account provider: String) {
+    static func write(_ value: String, account provider: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
         var keys = loaded()
-        guard keys[provider] != value else { return }
+        guard writable else { return false }
+        guard keys[provider] != value else { return true }
         keys[provider] = value
-        if save(keys) { cache = keys }
+        guard save(keys) else { return false }
+        cache = keys
+        return true
     }
 
-    static func delete(account provider: String) {
+    static func delete(account provider: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
         var keys = loaded()
-        guard keys.removeValue(forKey: provider) != nil else { return }
-        if save(keys) { cache = keys }
+        guard writable else { return false }
+        guard keys.removeValue(forKey: provider) != nil else { return true }
+        guard save(keys) else { return false }
+        cache = keys
+        return true
     }
 
     // ------------------------------------------------------------ the one item
@@ -315,10 +333,11 @@ enum Keychain {
         let status = SecItemCopyMatching(q as CFDictionary, &out)
         if status == errSecSuccess, let data = out as? Data,
            let keys = try? JSONDecoder().decode([String: String].self, from: data) {
+            writable = true
             cache = keys
             return keys
         }
-        guard status == errSecItemNotFound else { return [:] }     // denied or locked: ask again next launch
+        guard status == errSecItemNotFound else { cache = [:]; return [:] }     // denied or locked: ask again next launch
         let keys = migrate()
         cache = keys
         return keys
@@ -354,8 +373,10 @@ enum Keychain {
             }
         }
         // an old item that could not be read (denied) would be lost: keep the old layout and try again next launch
-        guard !keys.isEmpty, keys.count == found.count else { return keys }
+        guard keys.count == found.count else { return keys }
+        if keys.isEmpty { writable = true; return keys }
         if save(keys) {
+            writable = true
             for id in found where keys[id] != nil { SecItemDelete(query(id) as CFDictionary) }
         }
         return keys

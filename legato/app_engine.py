@@ -757,6 +757,7 @@ class Run:
                         idle = 0
                 shot = self._shot(pngs[-1], turn + 1) if pngs else None
                 self.record["turns"].append({"turn": turn + 1, "text": text[:2000], "actions": ran, "shot": shot,
+                                             "shot_expected": bool(pngs),
                                              "timing": {k: (round(v, 2) if isinstance(v, float) else v)
                                                         for k, v in timing.items()}})
                 self._save()

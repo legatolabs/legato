@@ -676,3 +676,35 @@ def test_the_whole_screen_on_a_mac_waits_as_the_mac_app_does(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     open_desktop("screen", confirm=None)
     assert made == {"confirm": None}
+
+
+@pytest.mark.parametrize("payload", ['{"answer": 391}', '```json\n{"answer": 391}\n```',
+                                      '{"action": "invoice approved"}'])
+def test_answer_preserves_json_data_beside_a_done_call(payload):
+    text = "The result is:\n" + payload
+    rec = {"content": text, "tool_calls": [{"function": {"name": "plan", "arguments": '{"steps":[{"action":"done"}]}'}}]}
+    assert _answer(rec, []) == text
+    assert _answer({"content": text + '\n{"action":"done"}'}, []) == text
+
+
+def test_config_write_preserves_sibling_and_cleans_up_on_failure(own_config):
+    sibling = own_config.with_suffix(".tmp")
+    sibling.write_text("unrelated")
+    saved(model="first")
+    with pytest.raises(TypeError):
+        config.save(config.Config(extra={"invalid": object()}))
+    assert config.load().model == "first"
+    assert sibling.read_text() == "unrelated"
+    assert not list(own_config.parent.glob(f".{own_config.name}.*.tmp"))
+
+
+def test_config_requires_private_acl_before_writing_key(own_config, monkeypatch):
+    saved(model="first")
+    def denied(path):
+        assert path.read_bytes() == b""
+        return False
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(config, "_windows_owner_only", denied)
+    with pytest.raises(PermissionError):
+        saved(model="second")
+    assert json.loads(own_config.read_text())["model"] == "first"

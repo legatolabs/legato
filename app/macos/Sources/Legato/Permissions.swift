@@ -129,7 +129,7 @@ struct OnboardingView: View {
             } else if perms.launchedWithScreen {
                 HStack(alignment: .top) {
                     Image(systemName: "info.circle")
-                    Text("If macOS asks whether Legato may “bypass the system private window picker”, click Allow. It takes screenshots only while a task runs, and asks this again now and then.")
+                    Text("If macOS asks whether Legato may “bypass the system private window picker”, click Allow. Legato takes a small screenshot to check access during setup. macOS may ask again later.")
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .font(.system(size: 11)).foregroundColor(.secondary)

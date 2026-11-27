@@ -1260,9 +1260,22 @@ def _answer(rec: dict, actions: list) -> str:
     if said:
         return said[-1].strip()[:2000]
     text = rec.get("content") if isinstance(rec.get("content"), str) else ""
-    text = re.sub(r"<tool_call>.*?(</tool_call>|$)|<function.*?(</function>|$)|```(?:json)?\s*\{.*?\}\s*```", "",
-                  text, flags=re.S)
-    text = "\n".join(line for line in text.splitlines() if not line.strip().startswith('{"'))
+    text = re.sub(r"<tool_call>.*?(</tool_call>|$)|<function.*?(</function>|$)", "", text, flags=re.S)
+
+    def strip_call(match: re.Match) -> str:
+        raw = match.group("fenced") if match.group("fenced") is not None else match.group("line")
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            return match.group()
+        steps = plans.plan_steps({"content": raw}) if isinstance(obj, dict) else None
+        if steps and all(step.get("action") in plans.STEP_ACTIONS for step in steps):
+            return ""
+        return match.group()
+
+    # A reply may itself contain JSON, including a fenced example or a multi-line object.
+    text = re.sub(r"```(?:json)?[ \t]*\n?(?P<fenced>.*?)```|^[ \t]*(?P<line>\{[^\n]*\})[ \t]*$",
+                  strip_call, text, flags=re.M | re.S)
     return text.strip()[:2000]
 
 

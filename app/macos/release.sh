@@ -4,6 +4,7 @@
 # certificate (hardened runtime), notarized by Apple and stapled, so it opens on any Mac without warnings.
 #
 #   app/macos/release.sh                 # app/macos/dist/Legato-<version>.dmg, notarized
+#   app/macos/release.sh --preview       # ad-hoc signed PR disk image with updates disabled
 #   NOTARIZE=0 app/macos/release.sh      # signed, not notarized (a quick check that it builds and runs)
 #
 # Also writes dist/appcast.xml: the Sparkle update feed for this version, signed with the update key.
@@ -35,9 +36,20 @@ CACHE="$HOME/Library/Caches/legato-release"
 # Accessibility (ApplicationServices)
 EXTRA_PKGS=(pyobjc-framework-Quartz pyobjc-framework-Vision pyobjc-framework-ApplicationServices)
 
-ID="${LEGATO_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
-  | sed -nE 's/.*"(Developer ID Application: [^"]*)".*/\1/p' | head -1)}"
-[ -n "$ID" ] || { echo "no Developer ID Application identity in the keychain (LEGATO_SIGN_ID)"; exit 1; }
+PREVIEW=false
+TIMESTAMP=--timestamp
+if [ "${1:-}" = "--preview" ]; then
+  PREVIEW=true
+  ID=-
+  TIMESTAMP=--timestamp=none
+  FEED_URL=""
+  ED_KEY=""
+  DMG="$DIST/Legato-preview.dmg"
+else
+  ID="${LEGATO_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -nE 's/.*"(Developer ID Application: [^"]*)".*/\1/p' | head -1)}"
+  [ -n "$ID" ] || { echo "no Developer ID Application identity in the keychain (LEGATO_SIGN_ID)"; exit 1; }
+fi
 echo "==> Legato $VERSION, signing as: $ID"
 
 rm -rf "$DIST" && mkdir -p "$DIST" "$CACHE"
@@ -88,7 +100,7 @@ du -sh "$ENGINE" | sed 's/^/==> engine size: /'
 
 # ---- sign, inside out: every Mach-O in the engine, the engine's python with its entitlements, then the app
 echo "==> signing"
-sign() { codesign --force --timestamp --options runtime --sign "$ID" "$@"; }
+sign() { codesign --force "$TIMESTAMP" --options runtime --sign "$ID" "$@"; }
 find "$ENGINE" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 | while IFS= read -r -d '' f; do sign "$f"; done
 find "$ENGINE/bin" -type f -perm -u+x -print0 | while IFS= read -r -d '' f; do
   if file "$f" | grep -q "Mach-O"; then sign --entitlements "$HERE/engine.entitlements" "$f"; fi
@@ -114,7 +126,9 @@ tiffutil -cathidpicheck "$HERE/dmg/background.png" "$HERE/dmg/background@2x.png"
 "$DMGB/bin/dmgbuild" -s "$HERE/dmg/settings.py" -D app="$APP" -D alias="$STAGE/Applications" \
   -D background="$STAGE/background.tiff" "Legato" "$DMG"
 rm -rf "$STAGE"
-codesign --force --timestamp --sign "$ID" "$DMG"
+codesign --force "$TIMESTAMP" --sign "$ID" "$DMG"
+
+if "$PREVIEW"; then exit 0; fi
 
 if [ "${NOTARIZE:-1}" = "1" ]; then
   echo "==> notarizing (a few minutes)"
@@ -135,7 +149,9 @@ echo "==> appcast"
 mkdir -p "$DIST/updates" && cp "$DMG" "$DIST/updates/"
 KEYARGS=()
 if [ -n "${SPARKLE_PRIVATE_KEY:-}" ]; then
-  KEYFILE="$(mktemp)" && chmod 600 "$KEYFILE" && printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEYFILE"
+  KEYFILE="$(mktemp)"
+  trap 'rm -f "$KEYFILE"' EXIT
+  chmod 600 "$KEYFILE" && printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEYFILE"
   KEYARGS=(--ed-key-file "$KEYFILE")
 fi
 "$SPARKLE/bin/generate_appcast" "${KEYARGS[@]}" --download-url-prefix "$DOWNLOADS" --link "https://legato.computer" \

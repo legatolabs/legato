@@ -28,8 +28,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import stat
 import sys
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -349,16 +349,17 @@ def save(cfg: Config) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     data = {k: v for k, v in asdict(cfg).items() if k not in ("extra", "default_from") and v}
     data.update(cfg.extra)
-    tmp = p.with_suffix(".tmp")
-    if tmp.exists():
-        tmp.unlink()
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, stat.S_IRUSR | stat.S_IWUSR)   # owner-only from the start
-    with os.fdopen(fd, "w") as f:
-        f.write(json.dumps(data, indent=2) + "\n")
-    os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
-    tmp.replace(p)
-    if sys.platform == "win32":       # chmod does not limit who reads a file on Windows: its access list does
-        _windows_owner_only(p)
+    fd, name = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.", suffix=".tmp")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "w") as f:
+            if sys.platform == "win32" and not _windows_owner_only(tmp):
+                raise PermissionError("Could not restrict access to the Legato config file.")
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        tmp.replace(p)
+    finally:
+        tmp.unlink(missing_ok=True)
     return p
 
 

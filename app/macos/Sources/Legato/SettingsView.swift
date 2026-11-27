@@ -6,6 +6,7 @@ struct SettingsView: View {
     @ObservedObject var test: TestState
     let runTest: () -> Void
     @State private var key = ""
+    @State private var keySaveFailed = false
     @State private var keyShown = false
     @State private var listing = false
     @State private var listed: String?
@@ -21,12 +22,20 @@ struct SettingsView: View {
         }
     }
 
+    private var keyBinding: Binding<String> {
+        Binding(get: { key }, set: { value in
+            key = value
+            keySaveFailed = !settings.saveKey(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        })
+    }
+
     var body: some View {
         Form {
             Section("Model") {
                 Picker("Provider", selection: Binding(get: { settings.providerID },
                                                       set: { id in
                                                           settings.choose(ProviderPreset.find(id))
+                                                          keySaveFailed = false
                                                           key = settings.apiKey
                                                           // no model to offer yet: list the provider's models if a key is there
                                                           if settings.model.isEmpty && settings.usable(id) { refreshModels() }
@@ -57,15 +66,18 @@ struct SettingsView: View {
                 HStack {
                     Group {
                         if keyShown {
-                            TextField("API key", text: $key, prompt: Text(settings.preset.keyHint))
+                            TextField("API key", text: keyBinding, prompt: Text(settings.preset.keyHint))
                         } else {
-                            SecureField("API key", text: $key, prompt: Text(settings.preset.keyHint))
+                            SecureField("API key", text: keyBinding, prompt: Text(settings.preset.keyHint))
                         }
                     }
-                    .onSubmit { settings.apiKey = key; refreshModels() }
-                    .onChange(of: key) { _, v in settings.apiKey = v.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .onSubmit { if !keySaveFailed { refreshModels() } }
                     Button(action: { keyShown.toggle() }) { Image(systemName: keyShown ? "eye.slash" : "eye") }
                         .buttonStyle(.borderless)
+                }
+                if keySaveFailed {
+                    Text("The key could not be saved. Reopen Legato and allow Keychain access, then enter it again.")
+                        .foregroundColor(.red)
                 }
                 HStack {
                     Button(test.running ? "Testing…" : "Test connection", action: runTest)

@@ -235,6 +235,9 @@ def first_task(cfg: C.Config, task: str = FIRST_TASK) -> int:
 def main(argv=None) -> int:
     try:
         return _main(argv)
+    except PermissionError as e:
+        print(f"legato setup: {e}", file=sys.stderr)
+        return 1
     except (EOFError, KeyboardInterrupt):
         print("\nlegato setup: stopped; nothing more was changed", file=sys.stderr)
         return 1

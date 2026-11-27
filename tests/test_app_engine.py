@@ -579,3 +579,25 @@ def test_a_refused_command_or_script_stops_the_plan(monkeypatch):
     monkeypatch.setattr(ae, "applescript", lambda timeout_s=30.0: Inner())
     out = ae.applescript_tool(lambda q: False).handler({"script": 'tell application "Notes" to delete note "Groceries"'})
     assert out.startswith("not run:") and plans.tool_failed(out)
+
+
+def test_history_verifier_requires_each_expected_frame(tmp_path):
+    import runpy
+    check = runpy.run_path(str(Path(__file__).resolve().parents[1] / "app/macos/check_history.py"))["check_history"]
+    assert not check(tmp_path, 0)
+    directory = tmp_path / "run"
+    directory.mkdir()
+    (directory / "first.jpg").touch()
+    turn = {"turn": 1, "actions": ["done"], "shot": None, "shot_expected": False}
+    record = {"first": "first.jpg", "turns": [turn]}
+    path = directory / "run.json"
+    path.write_text(json.dumps(record))
+    assert check(tmp_path, 0)
+    turn["shot_expected"] = True
+    path.write_text(json.dumps(record))
+    assert not check(tmp_path, 0)
+    turn["shot"] = "step.jpg"
+    path.write_text(json.dumps(record))
+    assert not check(tmp_path, 0)
+    (directory / "step.jpg").touch()
+    assert check(tmp_path, 0)

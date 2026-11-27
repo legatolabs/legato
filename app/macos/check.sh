@@ -63,24 +63,15 @@ if sys.argv[2] and j.get("status") != sys.argv[2]:
 EOF
   ;;
 history)
-  s=$(since); n=0; bad=0
-  for r in "$RUNS"/*/; do
-    [ "$(stat -f %m "$r")" -ge "$s" ] || continue; n=$((n+1))
-    python3 - "$r" <<'EOF' || bad=$((bad+1))
-import json, os, sys
-d = sys.argv[1]; j = json.load(open(os.path.join(d, "run.json")))
-missing = [t.get("shot") for t in j.get("turns", []) if t.get("shot") and not os.path.exists(os.path.join(d, t["shot"]))]
-print(f"{j.get('id')}: {j.get('status')}, {len(j.get('turns', []))} turns" + (f", missing {missing}" if missing else ""))
-sys.exit(1 if missing else 0)
-EOF
-  done
-  echo "$n runs since start"; [ "$bad" = 0 ] || fail "$bad runs with missing screenshots" ;;
+  python3 "$HERE/check_history.py" "$RUNS" "$(since)" ;;
 log)
   word="${2:-}"
   # what the engine wrote since start (the log's size then is in $MARK.log)
-  tail -c +"$(( $(cat "$MARK.log" 2>/dev/null || echo 0) + 1 ))" "$LOG" > "${TMPDIR:-/tmp}/legato-test.log"
-  if [ -n "$word" ]; then grep -i -- "$word" "${TMPDIR:-/tmp}/legato-test.log" | tail -5 || fail "no \"$word\" in the log"
-  else ! grep -n "Traceback" "${TMPDIR:-/tmp}/legato-test.log" | tail -3 || fail "a traceback in the engine log"; echo "no traceback"; fi ;;
+  excerpt=$(mktemp)
+  trap 'rm -f "$excerpt"' EXIT
+  tail -c +"$(( $(cat "$MARK.log" 2>/dev/null || echo 0) + 1 ))" "$LOG" > "$excerpt"
+  if [ -n "$word" ]; then grep -i -- "$word" "$excerpt" | tail -5 || fail "no \"$word\" in the log"
+  else ! grep -n "Traceback" "$excerpt" | tail -3 || fail "a traceback in the engine log"; echo "no traceback"; fi ;;
 alive)
   pgrep -f "Legato Test.app/Contents/MacOS" >/dev/null && echo "running" || fail "Legato Test is not running (crashed?)" ;;
 *)
