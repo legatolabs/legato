@@ -190,11 +190,6 @@ the other built-in desktops raise `legato.DesktopStartError` when they can't sta
 own code: `python agent.py "Open example.com and tell me the page's heading"`. It prints each turn, the answer and
 the report.
 
-## Benchmarks
-
-`legato bench` runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)). RL rollouts at
-scale are part of Legato Cloud, in beta ([rl.md](rl.md)).
-
 ### Waiting for a known application result
 
 When an integration knows what a successful action looks like, it can check the returned screen directly.
@@ -221,3 +216,39 @@ receipt = desktop.act(save, read=document.read_save_receipt,
 ```
 
 Scope the reader to the intended document or window and expected record. When deriving click coordinates from a screenshot, check that the pixels and the accessibility value refer to the same layout revision. Verify the selected record before sending dependent input. For an editor without a commit receipt, reopen the saved artifact and verify the expected change and any content the task must preserve. Call `desktop.observe()` when the next step also needs a screenshot.
+
+### Verified actions
+
+`desktop.act(action)` waits for the screen to settle, and that stays the default. When the next step depends on a result the application can prove, two helpers send the input once and return on that proof. Pick the one that matches what the next step needs.
+
+**A committed write.** The application issues a receipt for the request: this ID, accepted or rejected, and the state it committed.
+
+```python
+outcome = legato.verified_step(
+    desktop, legato.Action("click", x=120, y=80), request_id,
+    read_receipt=orders.read_receipt,                 # returns legato.Receipt(request_id, disposition, value) or None
+    matches_effect=lambda record: record == expected,
+    return_observation=False,                         # the next step needs the record, not the screen
+)
+if outcome.status == "unconfirmed":
+    ...                                               # sent once, no proof in time: reconcile before another change
+```
+
+**An exact state.** A saved file's contents, a field's value, a checkbox, the active view, read by your own function.
+
+```python
+outcome = legato.checked_step(
+    desktop, legato.Action("key", keys="ctrl+s"),
+    check=lambda: path.read_text() == expected_text,
+    guard=lambda: editor_window_is_in_front(),        # otherwise nothing is sent: "unbound"
+)
+```
+
+**A screenshot that shows it.** If the next step reads or clicks by pixels, the returned frame must show the result too. An application can commit a write before it repaints, and a screenshot taken in between still shows the old text. Pass `frame=` to `checked_step`, or `visible=legato.VisibleResult(expected, box, read_control, read_line)` to `verified_step`; `outcome.observation` is the frame that was checked.
+
+`outcome.status` is `confirmed`, `rejected` (the application refused this request), `unconfirmed`, `preexisting` (the request already had its receipt, nothing sent), `unbound` (the target was not there, nothing sent) or `settled` (`checked_step` only: the check was already true before the input, so the action was sent the ordinary way). The input is never sent twice. `timeout_s` is a deadline: proof that arrives after it does not count, so keep readers quick. A receipt must be the application's own, tied to one request and its payload; an ID the caller made up proves nothing.
+
+## Benchmarks
+
+`legato bench` runs the office benchmark and head-to-head comparisons ([benchmarks](benchmarks.md)). RL rollouts at
+scale are part of Legato Cloud, in beta ([rl.md](rl.md)).

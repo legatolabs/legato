@@ -292,8 +292,9 @@ class Env:
         By default until receives each fresh frame as a Pillow image. Return the accepted frame as an Obs.
         With read, check its values instead and return the exact accepted value. A local or callback desktop
         can then verify native state without capturing a screenshot. A remote step helper finishes its own step
-        first. timeout_s limits further reads after dispatch. A capture or callback already running can finish.
-        A missing result raises TimeoutError without resending the action.
+        first. timeout_s is a deadline after dispatch: no read starts after it, and a result that arrives after it
+        does not count, however good. A read already running is not interrupted, so keep readers quick and bound
+        their own I/O. A missing or late result raises TimeoutError without resending the action.
         """
         if read is not None and (not callable(read) or until is None):
             raise TypeError("read needs an observation function and an until predicate")
@@ -365,6 +366,7 @@ class Env:
                 png = getattr(self, "_pending_png", None)
                 self._pending_png = None
         deadline = time.monotonic() + timeout_s
+        late = False
         try:
             while True:
                 start = time.monotonic()
@@ -378,6 +380,9 @@ class Env:
                 finally:
                     timing["obs_s"] += time.monotonic() - start
                 if accepted:
+                    if time.monotonic() > deadline:      # the proof arrived after the deadline: not in time
+                        late = True
+                        break
                     return value
                 png = None  # any later attempt needs a new frame
                 remaining = deadline - time.monotonic()
@@ -390,6 +395,9 @@ class Env:
                     break
         finally:
             self.last = timing
+        if late:
+            raise TimeoutError(f"the check answered after the {timeout_s:g} s deadline; the action was sent once and "
+                               "is not resent")
         raise TimeoutError(f"desktop condition was not met within {timeout_s:g} s after dispatch")
 
 
