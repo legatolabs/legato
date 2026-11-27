@@ -28,6 +28,7 @@ TASKBAR = ("Shell_TrayWnd", "Shell_SecondaryTrayWnd")
 NOISE = {"pinned", "running", "window", "windows", "item", "items"}
 ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍﻿"))
 INERT = {"backspace", "delete", "home", "end", "left", "right", "up", "down", "tab", "shift+tab", "ctrl+a"}
+HOLD_S = 0.25      # a need already true before the input counts once it has held this long after it, the program idle
 
 
 @dataclass
@@ -82,15 +83,34 @@ def need(action: Action, nxt: Any, before: Before, reader: Any) -> tuple[str, Ca
         if combo in INERT or "+" not in combo:
             return None                               # only a shortcut moves the focus to a field
 
-        def field_ready() -> bool:
+        def field(moved: bool) -> bool:
             hwnd, pid, _title, _cls = reader.front()
             if hwnd != before.hwnd:                   # another window took the keyboard: not the intended field
                 return False
             f = reader.focus()
-            if f.pid != pid or f.ident == before.focus.ident or f.kind not in (EDIT, COMBO):
+            if f.pid != pid or f.kind not in (EDIT, COMBO) or (moved and f.ident == before.focus.ident):
                 return False
             return f.value == "" or f.all_selected    # typing replaces what was there, or there was nothing
-        return "field focused", field_ready
+
+        try:
+            already = field(False)                    # the field was ready before the shortcut was sent
+        except Exception:  # noqa: BLE001
+            already = False
+        if not already:
+            return "field focused", lambda: field(True)
+        # Already true proves nothing about the shortcut. It counts once it has stayed true, on every read, for
+        # HOLD_S after the input was sent and the program has no input left to process: the shortcut has been
+        # handled and the field is still the one that takes the text.
+        st: dict = {}
+
+        def still_ready() -> bool:
+            now = time.monotonic()
+            if not field(False):
+                st.pop("since", None)
+                return False
+            st.setdefault("since", now)
+            return now - st["since"] >= HOLD_S and reader.idle(before.pid) is True
+        return "field still ready", still_ready
     if action.type == "type" and nxt.type == "key" and action.text and "\n" not in action.text:
         text = action.text
 
@@ -194,6 +214,19 @@ class WindowsReader:
             self.user.GetWindowThreadProcessId(self.w.HWND(hwnd), self.ct.byref(pid))
         return (hwnd, pid.value, self._text(hwnd, self.user.GetWindowTextW) if hwnd else "",
                 self._text(hwnd, self.user.GetClassNameW) if hwnd else "")
+
+    def idle(self, pid: int) -> bool | None:
+        """Whether the program has handled its input and is waiting for more (WaitForInputIdle); None if unknown."""
+        k = self.ct.windll.kernel32
+        k.OpenProcess.restype = self.w.HANDLE
+        h = k.OpenProcess(0x0400 | 0x00100000, False, int(pid))       # PROCESS_QUERY_INFORMATION | SYNCHRONIZE
+        if not h:
+            return None
+        try:
+            r = self.user.WaitForInputIdle(self.w.HANDLE(h), 0)
+            return True if r == 0 else False if r == 258 else None    # idle, WAIT_TIMEOUT, or no message queue
+        finally:
+            k.CloseHandle(self.w.HANDLE(h))
 
     def focus(self) -> Focus:
         U = self.U

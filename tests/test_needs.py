@@ -19,6 +19,11 @@ class Reader:
     def focus(self):
         return self.f
 
+    def idle(self, pid):
+        return self.is_idle
+
+    is_idle = True
+
     def before(self, action):
         return Before(hwnd=self.hwnd, pid=self.pid, title=self.title, focus=self.f, target=self.target,
                       target_in_taskbar=self.taskbar)
@@ -116,3 +121,34 @@ def test_a_need_that_never_comes_true_waits_exactly_as_before():
     assert (rule, how) == ("text entered", "fixed") and len(log) == 3                   # the short pause, kept
     obs, rule, how = act_then(env, CLICK, CTRL_L, None)
     assert (rule, how) == (None, None) and len(log) == 4                                # no reader: the ordinary wait
+
+
+def test_a_field_already_ready_counts_only_after_it_has_held_with_the_program_idle(monkeypatch):
+    import legato.needs as n
+    clock = [100.0]
+    monkeypatch.setattr(n.time, "monotonic", lambda: clock[0])
+    r = Reader()
+    r.hwnd, r.pid, r.f = 30, 8, Focus(ident=(12,), kind=EDIT, pid=8, value="")       # a new window: the bar has the focus
+    rule, check = need(CTRL_L, URL, r.before(CTRL_L), r)
+    assert rule == "field still ready" and not check()               # just sent: it has not held yet
+    clock[0] += n.HOLD_S / 2
+    assert not check()
+    clock[0] += n.HOLD_S
+    r.is_idle = False
+    assert not check()                                               # the program still has input to handle
+    r.is_idle = None
+    assert not check()                                               # unknown is not idle
+    r.is_idle = True
+    assert check()
+    # the focus leaves inside the hold (a shortcut handled late): the clock starts again, and it never counts
+    rule, check = need(CTRL_L, URL, r.before(CTRL_L), r)
+    assert not check()
+    clock[0] += n.HOLD_S * 0.8
+    r.f = Focus(ident=(40,), kind=50000, pid=8)
+    assert not check()
+    clock[0] += n.HOLD_S * 2
+    assert not check()
+    r.f = Focus(ident=(12,), kind=EDIT, pid=8, value="")
+    assert not check()                                               # back, but it has to hold again from now
+    clock[0] += n.HOLD_S
+    assert check()
