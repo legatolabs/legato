@@ -33,6 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - run: swift test --package-path app/macos
       - run: app/macos/release.sh --preview
       - uses: actions/upload-artifact@v4
         with:

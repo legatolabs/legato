@@ -97,7 +97,7 @@ struct ModelChoice: Codable, Hashable, Identifiable {
 /// Settings in UserDefaults; the API key in Keychain. Observed by the settings window and read at each run.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
-    private let d = UserDefaults.standard
+    private let d: UserDefaults
 
     @Published var providerID: String { didSet { d.set(providerID, forKey: "providerID") } }
     @Published var baseURL: String { didSet { d.set(baseURL, forKey: "baseURL") } }
@@ -126,7 +126,8 @@ final class AppSettings: ObservableObject {
     /// What `legato setup` saved, when the app has no model of its own yet (nothing chosen in the app).
     private var shared: SharedSetup?
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        d = defaults
         let own = d.object(forKey: "model") != nil || d.object(forKey: "providerID") != nil
         d.register(defaults: ["providerID": ProviderPreset.start.id, "baseURL": ProviderPreset.start.baseURL,
                               "model": ProviderPreset.start.models[0], "maxSteps": 40, "maxCost": 1.0, "imageMax": 4, "guardClicks": true, "allowShell": true,
@@ -200,12 +201,12 @@ final class AppSettings: ObservableObject {
 
     func saveKey(_ value: String) -> Bool {
         objectWillChange.send()
-        return value.isEmpty ? Keychain.delete(account: providerID) : Keychain.write(value, account: providerID)
+        return value.isEmpty ? Keychain.shared.delete(account: providerID) : Keychain.shared.write(value, account: providerID)
     }
 
     /// The provider's key from the Keychain; without one, the key `legato setup` saved for that provider.
     func key(for provider: String) -> String {
-        if let k = Keychain.read(account: provider), !k.isEmpty { return k }
+        if let k = Keychain.shared.read(account: provider), !k.isEmpty { return k }
         if let s = shared, s.provider == provider { return s.apiKey }
         return ""
     }
@@ -280,22 +281,25 @@ final class AppSettings: ObservableObject {
 /// Every provider's key in one Keychain item (a JSON object, provider id -> key), read once and kept in memory.
 /// macOS asks to unlock each item an app reads, so one item means at most one prompt, and none after Always Allow.
 /// Keys from before (one item per provider) are moved into it the first time it is read, then deleted.
-enum Keychain {
+final class Keychain {
     /// "computer.legato.mac.api-key" for the release; a build with another bundle id (a test copy) gets its own.
-    static let service = (Bundle.main.bundleIdentifier ?? "computer.legato.mac") + ".api-key"
-    static let account = "keys"
+    static let shared = Keychain(service: (Bundle.main.bundleIdentifier ?? "computer.legato.mac") + ".api-key")
+    private let service: String
 
-    private static let lock = NSLock()
+    init(service: String) { self.service = service }
+    private let account = "keys"
+
+    private let lock = NSLock()
     // A partial read is useful for running tasks, but cannot be written over the complete item.
-    private static var writable = false
-    private static var cache: [String: String]?
+    private var writable = false
+    private var cache: [String: String]?
 
-    static func read(account provider: String) -> String? {
+    func read(account provider: String) -> String? {
         lock.lock(); defer { lock.unlock() }
         return loaded()[provider]
     }
 
-    static func write(_ value: String, account provider: String) -> Bool {
+    func write(_ value: String, account provider: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
         var keys = loaded()
         guard writable else { return false }
@@ -306,7 +310,7 @@ enum Keychain {
         return true
     }
 
-    static func delete(account provider: String) -> Bool {
+    func delete(account provider: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
         var keys = loaded()
         guard writable else { return false }
@@ -317,14 +321,14 @@ enum Keychain {
     }
 
     // ------------------------------------------------------------ the one item
-    private static func query(_ account: String) -> [String: Any] {
+    private func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
          kSecAttrAccount as String: account]
     }
 
     /// The keys, from memory or the Keychain. A read the person denied gives no keys this launch and changes nothing
     /// in the Keychain; only an item that is not there yet is made (from the old items, if any).
-    private static func loaded() -> [String: String] {
+    private func loaded() -> [String: String] {
         if let cache { return cache }
         var q = query(account)
         q[kSecReturnData as String] = true
@@ -343,7 +347,7 @@ enum Keychain {
         return keys
     }
 
-    private static func save(_ keys: [String: String]) -> Bool {
+    private func save(_ keys: [String: String]) -> Bool {
         guard let data = try? JSONEncoder().encode(keys) else { return false }
         let q = query(account)
         let status = SecItemUpdate(q as CFDictionary, [kSecValueData as String: data] as CFDictionary)
@@ -357,7 +361,7 @@ enum Keychain {
 
     /// The old layout, one item per provider (account = provider id): read each once, save them as the one item,
     /// and delete the old ones only once the new one is saved.
-    private static func migrate() -> [String: String] {
+    private func migrate() -> [String: String] {
         var keys: [String: String] = [:]
         var found: [String] = []
         for p in ProviderPreset.all {
