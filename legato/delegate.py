@@ -86,6 +86,8 @@ class Planner:
     #                                      (on by default: it does not slow short tasks)
     shell_name: str = ""                 # point: what the harness's shell tool runs, as the planner is told ("":
     #                                      what the tool says it runs: bash, or PowerShell on Windows)
+    next_needs: bool = False             # point, experimental: an action followed by a key or text ends its wait as
+    #                                      soon as what that next action needs is true (legato/needs.py)
 
     def __post_init__(self) -> None:
         if self.client is None:

@@ -543,6 +543,10 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
             timing["planner_s"] = planner_s
         return timing
     seen = [0.0, 0.0]                       # the planner's and the pointer's seconds already in the timings
+    needs_reader = None
+    if getattr(h.planner, "next_needs", False):
+        from legato import needs
+        needs_reader = getattr(env, "needs_reader", None) or needs.reader()
 
     def told(timing: dict, ran: list) -> None:
         res.timings.append(timing)
@@ -575,7 +579,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                     told(timing, ran)
                 break
             try:
-                for a, quick in zip(actions, list(s.quick)):
+                for i, (a, quick) in enumerate(zip(actions, list(s.quick))):
                     if isinstance(a, ToolCall):     # a command: its output goes into the list the planner reads
                         t1 = time.monotonic()
                         out = h.call_tool(a)
@@ -588,7 +592,14 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                         ran.append(a)
                         s.ran(png, out)
                         continue
-                    if quick:      # it only edits the focused field and a key or text follows: a short fixed pause
+                    rule = how = None
+                    if needs_reader is not None:   # what the next action needs, raced against the ordinary wait
+                        nxt = actions[i + 1] if i + 1 < len(actions) else None
+                        obs, rule, how = needs.act_then(env, a, nxt, needs_reader,
+                                                        fixed_s=QUICK_WAIT_S if quick else None)
+                        if quick:
+                            timing["quick"] = timing.get("quick", 0) + 1
+                    elif quick:    # it only edits the focused field and a key or text follows: a short fixed pause
                         wait_before, env.fixed_wait_s = env.fixed_wait_s, QUICK_WAIT_S
                         try:
                             obs = env.act(a)
@@ -603,7 +614,8 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                     # where the turn's seconds went, action by action (the sums above stay the turn's)
                     timing.setdefault("actions", []).append(
                         {"a": a.describe()[:80], **{k: env.last.get(k, 0.0) for k in ("act_s", "settle_s", "obs_s")},
-                         **({"quick": True} if quick else {})})
+                         **({"quick": True} if quick else {}),
+                         **({"need": rule, "how": how} if rule else {})})
                     res.actions.append(a.describe())
                     ran.append(a)
                     s.ran(png)
