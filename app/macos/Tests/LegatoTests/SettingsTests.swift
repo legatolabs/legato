@@ -34,26 +34,4 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(reopened.write("updated", account: "openai"))
         XCTAssertEqual(Keychain(service: service).read(account: "gemini"), "second")
     }
-
-    func testLegacyModelSelectionAndCustomEndpoint() throws {
-        let suite = "legato.test." + UUID().uuidString
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let openAI = ProviderPreset.find("openai")
-        let foreignModel = ProviderPreset.start.models[0]
-        defaults.set(openAI.id, forKey: "providerID")
-        defaults.set(openAI.baseURL, forKey: "baseURL")
-        defaults.set(foreignModel, forKey: "model")
-        let settings = AppSettings(defaults: defaults)
-        XCTAssertEqual(settings.model, "")
-        settings.choose(.start)
-        settings.choose(openAI)
-        XCTAssertEqual(settings.model, "")
-
-        settings.baseURL = "https://models.example/v1"
-        settings.model = foreignModel
-        settings.choose(.start)
-        settings.choose(openAI)
-        XCTAssertEqual(settings.model, foreignModel)
-    }
 }

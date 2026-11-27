@@ -97,7 +97,7 @@ struct ModelChoice: Codable, Hashable, Identifiable {
 /// Settings in UserDefaults; the API key in Keychain. Observed by the settings window and read at each run.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
-    private let d: UserDefaults
+    private let d = UserDefaults.standard
 
     @Published var providerID: String { didSet { d.set(providerID, forKey: "providerID") } }
     @Published var baseURL: String { didSet { d.set(baseURL, forKey: "baseURL") } }
@@ -126,8 +126,7 @@ final class AppSettings: ObservableObject {
     /// What `legato setup` saved, when the app has no model of its own yet (nothing chosen in the app).
     private var shared: SharedSetup?
 
-    init(defaults: UserDefaults = .standard) {
-        d = defaults
+    init() {
         let own = d.object(forKey: "model") != nil || d.object(forKey: "providerID") != nil
         d.register(defaults: ["providerID": ProviderPreset.start.id, "baseURL": ProviderPreset.start.baseURL,
                               "model": ProviderPreset.start.models[0], "maxSteps": 40, "maxCost": 1.0, "imageMax": 4, "guardClicks": true, "allowShell": true,
@@ -156,33 +155,22 @@ final class AppSettings: ObservableObject {
         pastTasks = d.stringArray(forKey: "pastTasks") ?? []
         catalog = load("catalog", [String: [String]].self) ?? [:]
         catalogDate = load("catalogDate", [String: Date].self) ?? [:]
-        let restored = modelForEndpoint(model)
-        if model != restored { model = restored }
         if recents.isEmpty && !model.isEmpty { recents = [current] }
     }
 
     var preset: ProviderPreset { ProviderPreset.find(providerID) }
 
-    private func modelForEndpoint(_ candidate: String) -> String {
-        guard ["openai", "anthropic", "gemini"].contains(providerID),
-              baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == preset.baseURL,
-              !preset.models.contains(candidate), !(catalog[providerID] ?? []).contains(candidate),
-              ProviderPreset.all.contains(where: { $0.id != providerID && $0.models.contains(candidate) })
-        else { return candidate }
-        return (preset.models + (catalog[providerID] ?? [])).first ?? ""
-    }
-
     /// Switch provider. Each provider keeps its own URL and the model last used with it; a provider with neither a
     /// remembered nor a known model gets none, so `problem` asks for one instead of sending another provider's model id.
     func choose(_ p: ProviderPreset) {
         if !baseURL.isEmpty { d.set(baseURL, forKey: "baseURL." + providerID) }
-        d.set(model, forKey: "model." + providerID)
+        if !model.isEmpty { d.set(model, forKey: "model." + providerID) }
         providerID = p.id
         baseURL = d.string(forKey: "baseURL." + p.id) ?? p.baseURL
         if baseURL.isEmpty { baseURL = p.baseURL }
         let known = p.models + (catalog[p.id] ?? [])
-        if let m = d.string(forKey: "model." + p.id) {
-            model = modelForEndpoint(m)
+        if let m = d.string(forKey: "model." + p.id), !m.isEmpty {
+            model = m
         } else if !known.contains(model) {
             model = known.first ?? ""
         }
@@ -191,7 +179,7 @@ final class AppSettings: ObservableObject {
     /// Switch to `c` (the command bar's chips and picker): its provider, that provider's URL and key, and the model.
     func select(_ c: ModelChoice) {
         if c.provider != providerID { choose(c.preset) }
-        model = modelForEndpoint(c.model)
+        model = c.model
         noteUsed()
     }
 

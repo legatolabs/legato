@@ -17,10 +17,7 @@ def check_history(runs: Path, since: int) -> bool:
         if turns or record.get("first"):
             shots.append(("initial screen", record.get("first")))
         for turn in turns:
-            # Older engines did not record whether a fresh frame was available.
-            acted = any(a not in ("done", "fail") for a in turn.get("actions", []))
-            if turn.get("shot") or turn.get("shot_expected", acted):
-                shots.append((f"turn {turn['turn']}", turn.get("shot")))
+            shots.append((f"turn {turn['turn']}", turn.get("shot")))
         for label, name in shots:
             if not name or not (directory / name).is_file():
                 print(f"{directory.name}: missing screenshot for {label}")

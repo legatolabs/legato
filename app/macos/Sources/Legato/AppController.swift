@@ -19,7 +19,6 @@ final class AppController: NSObject {
     var bar: CommandBarController!
     var statusItem: NSStatusItem!
 
-    private var checkingScreen = false
     private var windows: [String: NSWindow] = [:]
     private var heldWillAct: Int?                  // a go-ahead held while the run is paused
     private var pendingAsk: (id: Int, kind: AskKind)?
@@ -101,7 +100,7 @@ final class AppController: NSObject {
             if let c = self?.capturer { Task { await c.invalidate() } }
         }
         // after the first time, only a missing permission brings it back: a task without a model says so itself
-        if !settings.onboarded || !Permission.missing.isEmpty || UserDefaults.standard.bool(forKey: "screenCheckPending") {
+        if !settings.onboarded || !Permission.missing.isEmpty {
             showOnboarding()
         }
     }
@@ -644,18 +643,9 @@ final class AppController: NSObject {
         present(w)
         // macOS asks once more ("bypass the system private window picker") on the first capture: ask here, where the
         // window says to click Allow, not over the app of the first task
-        let defaults = UserDefaults.standard
-        if !perms.launchedWithScreen {
-            defaults.set(true, forKey: "screenCheckPending")
-        } else if !checkingScreen && (!settings.onboarded || defaults.bool(forKey: "screenCheckPending")) {
-            checkingScreen = true
-            defaults.set(true, forKey: "screenCheckPending")
-            Task { @MainActor in
-                defer { checkingScreen = false }
-                if (try? await capturer.image(size: CGSize(width: 64, height: 40))) != nil {
-                    defaults.removeObject(forKey: "screenCheckPending")
-                }
-            }
+        if perms.launchedWithScreen {
+            let c = capturer
+            Task { _ = try? await c.image(size: CGSize(width: 64, height: 40)) }
         }
     }
 

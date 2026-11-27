@@ -32,7 +32,6 @@ under the Mac app epic (#93) with the case id.
 | A5 | "Open Keyboard Settings" | Keyboard settings open | look |
 | A6 | Done | The window closes and stays closed on the next launch | `check.sh onboarded` |
 | A7 | Close the window with the red button instead (fresh copy) | Treated as Later (#85) | `check.sh onboarded` |
-| A8 | Choose Later before the Screen Recording restart. Grant all permissions, quit and relaunch | Setup checks capture on relaunch. Complete any macOS prompt there, then run the first task | look |
 
 ## B. Settings and keys
 
@@ -71,7 +70,7 @@ under the Mac app epic (#93) with the case id.
 
 | Id | Do | Should happen | Check |
 |---|---|---|---|
-| E1 | History | Every run above, with the initial screenshot and each fresh frame recorded during a step, time and cost | `check.sh history` |
+| E1 | History | Every run above, with a screenshot per step, time and cost | `check.sh history` |
 | E2 | Quit and reopen | No onboarding, no Keychain prompt, the last model kept | `check.sh keychain` |
 | E3 | The engine log | No traceback | `check.sh log` |
 

@@ -1,7 +1,8 @@
 # The Mac app for each version tag (v*): Legato-<version>.dmg (its own engine inside, signed with the Developer ID,
 # notarized) and appcast.xml (the Sparkle update feed) on the GitHub release v<version>. The app checks
 # https://github.com/legatolabs/legato/releases/latest/download/appcast.xml for updates.
-# Pull requests build an ad-hoc signed disk image without loading release credentials.
+# On a pull request that changes the app, the same build runs as a dry run: the files are kept as the run's artifact,
+# nothing is published.
 #
 # Secrets (Settings -> Secrets and variables -> Actions), added by a maintainer:
 #   MACOS_CERT_P12        base64 of the Developer ID Application certificate exported from Keychain (.p12):
@@ -24,7 +25,7 @@ on:
         required: true
 concurrency: mac-app-${{ github.ref }}
 jobs:
-  build:
+  swift-tests:
     if: github.event_name == 'pull_request'
     runs-on: macos-15
     permissions:
@@ -34,15 +35,10 @@ jobs:
         with:
           persist-credentials: false
       - run: swift test --package-path app/macos
-      - run: app/macos/release.sh --preview
-      - uses: actions/upload-artifact@v4
-        with:
-          name: legato-mac-dry-run
-          path: app/macos/dist/Legato-preview.dmg
-          if-no-files-found: error
 
   dmg:
-    if: github.event_name != 'pull_request'
+    # pull requests from forks get no secrets, so they cannot sign
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: macos-15
     permissions:
       contents: write
@@ -53,6 +49,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref }}
       - name: The tag matches the package version
+        if: github.event_name != 'pull_request'
         run: |
           v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           test "v$v" = "$TAG" || { echo "$TAG != version $v in pyproject.toml"; exit 1; }
@@ -82,7 +79,16 @@ jobs:
           echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
           NOTARY_KEY_PATH="$RUNNER_TEMP/notary.p8" app/macos/release.sh
           rm -f "$RUNNER_TEMP/notary.p8"
+      - name: Dry run (pull request) - the files as the run's artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: legato-mac-dry-run
+          path: |
+            app/macos/dist/*.dmg
+            app/macos/dist/appcast.xml
       - name: On the GitHub release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
