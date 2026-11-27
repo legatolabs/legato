@@ -77,25 +77,32 @@ def wrap_command(cmd: str, timeout_s: float) -> str:
 
 
 def local_shell(cmd: str, timeout_s: float = 30.0) -> str:
-    """Run `cmd` on this computer. On timeout the whole process group is killed, background children included."""
+    """Run `cmd` on this computer and return its output once the command itself has ended. A program the command
+    only started (`Start-Process msedge ...`, `open -a ...`, `server &`) keeps running and is not waited for: the
+    output goes to a file, not a pipe that every program started from the command would hold open. On timeout the
+    whole process group is killed, background children included."""
+    import tempfile
     unix = sys.platform != "win32"
-    if unix:
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                             start_new_session=True, executable="/bin/bash" if os.path.exists("/bin/bash") else None)
-    else:       # Windows: PowerShell (what its files, settings and apps are scripted in), with no console window
-        p = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    try:
-        out, _ = p.communicate(timeout=timeout_s)
-        code: Any = p.returncode
-    except subprocess.TimeoutExpired:
+    with tempfile.TemporaryFile() as log:
         if unix:
-            os.killpg(p.pid, signal.SIGKILL)
-        else:
-            p.kill()
-        out, _ = p.communicate()
-        code = f"timeout after {timeout_s:g} s"
+            p = subprocess.Popen(cmd, shell=True, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 start_new_session=True, executable="/bin/bash" if os.path.exists("/bin/bash") else None)
+        else:   # Windows: PowerShell (what its files, settings and apps are scripted in), with no console window
+            p = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], stdout=log,
+                                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:
+            p.wait(timeout=timeout_s)
+            code: Any = p.returncode
+        except subprocess.TimeoutExpired:
+            if unix:
+                os.killpg(p.pid, signal.SIGKILL)
+            else:
+                p.kill()
+            p.wait()
+            code = f"timeout after {timeout_s:g} s"
+        log.seek(0)
+        out = log.read()
     return f"{(out or b'').decode(errors='replace')}[exit {code}]"
 
 

@@ -83,3 +83,22 @@ def test_a_desktop_without_a_shell_is_refused():
     assert env.shell is None
     with pytest.raises(TypeError):
         legato.tools.bash(env)
+
+
+def test_the_shell_returns_when_its_command_ends_not_when_a_program_it_started_does():
+    """A command that only starts something (a browser, a server) used to hold the tool until that program closed
+    its output: `Start-Process msedge <url>` took 12 s or more."""
+    import sys
+    import time
+
+    from legato.tools import local_shell
+    if sys.platform == "win32":
+        cmd = "Start-Process powershell -ArgumentList '-Command', 'Start-Sleep 6' -NoNewWindow; 'started'"
+    else:
+        cmd = "(sleep 6 &) ; echo started"
+    t = time.monotonic()
+    out = local_shell(cmd, timeout_s=20)
+    assert "started" in out and out.rstrip().endswith("[exit 0]") and time.monotonic() - t < 4
+    t = time.monotonic()
+    out = local_shell("sleep 30" if sys.platform != "win32" else "Start-Sleep 30", timeout_s=0.5)
+    assert "timeout after 0.5 s" in out and time.monotonic() - t < 5
