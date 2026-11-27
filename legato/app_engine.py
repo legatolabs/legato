@@ -755,7 +755,8 @@ class Run:
                             results = list(results or []) + [END_NOTE]
                     else:
                         idle = 0
-                shot = self._shot(pngs[-1], turn + 1) if pngs else None
+                # A completion-only turn uses the frame the model saw for this decision.
+                shot = self._shot(pngs[-1] if pngs else seen, turn + 1)
                 self.record["turns"].append({"turn": turn + 1, "text": text[:2000], "actions": ran, "shot": shot,
                                              "timing": {k: (round(v, 2) if isinstance(v, float) else v)
                                                         for k, v in timing.items()}})

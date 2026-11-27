@@ -105,6 +105,7 @@ def test_the_answer_is_the_done_steps_words_not_the_json_written_after_them(tmp_
     r = Run(link, {"id": "r1", "task": "make it bold", "model": "m", "base_url": "http://x/v1", "runs_dir": str(tmp_path)},
             env_factory=lambda run: ScriptEnv(), harness=Wordy(["done"]))
     rec = r()
+    assert (tmp_path / "r1" / rec["turns"][-1]["shot"]).is_file()
     assert rec["status"] == "done" and rec["message"] == "The text is bold."
 
 
@@ -579,3 +580,22 @@ def test_a_refused_command_or_script_stops_the_plan(monkeypatch):
     monkeypatch.setattr(ae, "applescript", lambda timeout_s=30.0: Inner())
     out = ae.applescript_tool(lambda q: False).handler({"script": 'tell application "Notes" to delete note "Groceries"'})
     assert out.startswith("not run:") and plans.tool_failed(out)
+
+
+def test_history_verifier_requires_a_screenshot_for_every_turn(tmp_path):
+    import runpy
+    check = runpy.run_path(str(Path(__file__).resolve().parents[1] / "app/macos/check_history.py"))["check_history"]
+    assert not check(tmp_path, 0)
+    directory = tmp_path / "run"
+    directory.mkdir()
+    (directory / "first.jpg").touch()
+    turn = {"turn": 1, "actions": ["done"], "shot": None}
+    record = {"first": "first.jpg", "turns": [turn]}
+    path = directory / "run.json"
+    path.write_text(json.dumps(record))
+    assert not check(tmp_path, 0)
+    turn["shot"] = "step.jpg"
+    path.write_text(json.dumps(record))
+    assert not check(tmp_path, 0)
+    (directory / "step.jpg").touch()
+    assert check(tmp_path, 0)

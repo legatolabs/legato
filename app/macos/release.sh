@@ -135,7 +135,9 @@ echo "==> appcast"
 mkdir -p "$DIST/updates" && cp "$DMG" "$DIST/updates/"
 KEYARGS=()
 if [ -n "${SPARKLE_PRIVATE_KEY:-}" ]; then
-  KEYFILE="$(mktemp)" && chmod 600 "$KEYFILE" && printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEYFILE"
+  KEYFILE="$(mktemp)"
+  trap 'rm -f "$KEYFILE"' EXIT
+  chmod 600 "$KEYFILE" && printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEYFILE"
   KEYARGS=(--ed-key-file "$KEYFILE")
 fi
 "$SPARKLE/bin/generate_appcast" "${KEYARGS[@]}" --download-url-prefix "$DOWNLOADS" --link "https://legato.computer" \

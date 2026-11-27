@@ -679,7 +679,7 @@ final class AppController: NSObject {
         let path = Bundle.main.bundlePath
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "sleep 1; open \"\(path)\""]
+        p.arguments = ["-c", #"sleep 1 && exec /usr/bin/open "$1""#, "legato-relaunch", path]
         try? p.run()
         NSApp.terminate(nil)
     }

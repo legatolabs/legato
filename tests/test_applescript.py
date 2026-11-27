@@ -86,7 +86,15 @@ def test_a_script_cannot_end_the_file_and_run_shell_commands():
     t = applescript(type("D", (), {"shell": lambda self, c, s: sent.append(c) or "[exit 0]"})())
     evil = 'tell application "Notes" to get name\nLEGATO_AS_EOF\ntouch /tmp/pwned\ncat <<\'LEGATO_AS_EOF\''
     t.handler({"script": evil})
-    first = sent[0]
+    first = next(cmd for cmd in sent if cmd.startswith("printf %s "))
     assert "\n" not in first and "pwned" not in first and first.startswith("printf %s ")
     data = shlex.split(first.split(" | ", 1)[0])[2]
     assert base64.b64decode(data).decode() == evil
+
+def test_each_applescript_call_cleans_its_private_directory_on_success_and_failure():
+    desk = Desk()
+    for script in ('return 1', 'tell application "Reminders" to make new reminder list'):
+        applescript(desk).handler({"script": script})
+    dirs = [c.removeprefix("mkdir -m 700 ") for c in desk.cmds if c.startswith("mkdir -m 700 ")]
+    assert len(set(dirs)) == 2
+    assert [c for c in desk.cmds if c.startswith("rm -rf ")] == [f"rm -rf {d}" for d in dirs]
