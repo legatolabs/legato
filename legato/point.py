@@ -517,7 +517,9 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
     call, the planner's and the pointer's, and so does the result's steps; its usage and timings hold both models'
     tokens, cost and seconds (result.planner has the planner's share, and its final notes). res: the result to fill
     in (Harness.run's); limits: its deadline, cancel event and cost limit, checked before each planner turn.
-    on_step(turn, actions, timing) is called after each batch, and after the planner's last call."""
+    on_step(turn, actions, timing) is called after each batch, and after the planner's last call. A batch's
+    timing also lists its actions in order (`timing["actions"]`: what ran, and its input, wait and screenshot
+    seconds), so a wait can be traced to the action it followed."""
     from legato.harness import RunResult, _book
     res = RunResult(task) if res is None else res
     t0 = time.monotonic()
@@ -579,6 +581,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                         out = h.call_tool(a)
                         timing["act_s"] += time.monotonic() - t1
                         timing["shell"] = timing.get("shell", 0) + 1
+                        timing.setdefault("actions", []).append({"a": a.describe()[:80], "act_s": time.monotonic() - t1})
                         obs = env.observe()
                         png = obs.screenshot
                         res.actions.append(a.describe())
@@ -597,6 +600,10 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                     png = obs.screenshot
                     for k in ("act_s", "settle_s", "obs_s"):
                         timing[k] += env.last.get(k, 0.0)
+                    # where the turn's seconds went, action by action (the sums above stay the turn's)
+                    timing.setdefault("actions", []).append(
+                        {"a": a.describe()[:80], **{k: env.last.get(k, 0.0) for k in ("act_s", "settle_s", "obs_s")},
+                         **({"quick": True} if quick else {})})
                     res.actions.append(a.describe())
                     ran.append(a)
                     s.ran(png)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A planner run's timings say which action each wait followed.** With a planner that points
+  (`Planner(style="point")`), each batch's entry in `result.timings` also has `actions`: every action that ran, in
+  order, with its input, wait and screenshot seconds, and whether it took the short pause. The batch's totals are
+  unchanged.
 - **`legato run --screen` and `legato.run(desktop="screen")` on a Mac wait the way the Mac app does:** cells of
   the screen that move on their own (a clock, a spinner in another app) no longer hold every action to the 2 s cap.
   `legato.local()` keeps its default (`wait="screen"`); pass `wait="cells"` for the same.
