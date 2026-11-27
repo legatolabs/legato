@@ -185,16 +185,17 @@ final class AppSettings: ObservableObject {
 
     var current: ModelChoice { ModelChoice(provider: providerID, model: model) }
 
-    var apiKey: String { key(for: providerID) }
-
-    func saveKey(_ value: String) -> Bool {
-        objectWillChange.send()
-        return value.isEmpty ? Keychain.shared.delete(account: providerID) : Keychain.shared.write(value, account: providerID)
+    var apiKey: String {
+        get { key(for: providerID) }
+        set {
+            objectWillChange.send()
+            if newValue.isEmpty { Keychain.delete(account: providerID) } else { Keychain.write(newValue, account: providerID) }
+        }
     }
 
     /// The provider's key from the Keychain; without one, the key `legato setup` saved for that provider.
     func key(for provider: String) -> String {
-        if let k = Keychain.shared.read(account: provider), !k.isEmpty { return k }
+        if let k = Keychain.read(account: provider), !k.isEmpty { return k }
         if let s = shared, s.provider == provider { return s.apiKey }
         return ""
     }
@@ -269,54 +270,43 @@ final class AppSettings: ObservableObject {
 /// Every provider's key in one Keychain item (a JSON object, provider id -> key), read once and kept in memory.
 /// macOS asks to unlock each item an app reads, so one item means at most one prompt, and none after Always Allow.
 /// Keys from before (one item per provider) are moved into it the first time it is read, then deleted.
-final class Keychain {
+enum Keychain {
     /// "computer.legato.mac.api-key" for the release; a build with another bundle id (a test copy) gets its own.
-    static let shared = Keychain(service: (Bundle.main.bundleIdentifier ?? "computer.legato.mac") + ".api-key")
-    private let service: String
+    static let service = (Bundle.main.bundleIdentifier ?? "computer.legato.mac") + ".api-key"
+    static let account = "keys"
 
-    init(service: String) { self.service = service }
-    private let account = "keys"
+    private static let lock = NSLock()
+    private static var cache: [String: String]?
 
-    private let lock = NSLock()
-    // A partial read is useful for running tasks, but cannot be written over the complete item.
-    private var writable = false
-    private var cache: [String: String]?
-
-    func read(account provider: String) -> String? {
+    static func read(account provider: String) -> String? {
         lock.lock(); defer { lock.unlock() }
         return loaded()[provider]
     }
 
-    func write(_ value: String, account provider: String) -> Bool {
+    static func write(_ value: String, account provider: String) {
         lock.lock(); defer { lock.unlock() }
         var keys = loaded()
-        guard writable else { return false }
-        guard keys[provider] != value else { return true }
+        guard keys[provider] != value else { return }
         keys[provider] = value
-        guard save(keys) else { return false }
-        cache = keys
-        return true
+        if save(keys) { cache = keys }
     }
 
-    func delete(account provider: String) -> Bool {
+    static func delete(account provider: String) {
         lock.lock(); defer { lock.unlock() }
         var keys = loaded()
-        guard writable else { return false }
-        guard keys.removeValue(forKey: provider) != nil else { return true }
-        guard save(keys) else { return false }
-        cache = keys
-        return true
+        guard keys.removeValue(forKey: provider) != nil else { return }
+        if save(keys) { cache = keys }
     }
 
     // ------------------------------------------------------------ the one item
-    private func query(_ account: String) -> [String: Any] {
+    private static func query(_ account: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
          kSecAttrAccount as String: account]
     }
 
     /// The keys, from memory or the Keychain. A read the person denied gives no keys this launch and changes nothing
     /// in the Keychain; only an item that is not there yet is made (from the old items, if any).
-    private func loaded() -> [String: String] {
+    private static func loaded() -> [String: String] {
         if let cache { return cache }
         var q = query(account)
         q[kSecReturnData as String] = true
@@ -325,17 +315,16 @@ final class Keychain {
         let status = SecItemCopyMatching(q as CFDictionary, &out)
         if status == errSecSuccess, let data = out as? Data,
            let keys = try? JSONDecoder().decode([String: String].self, from: data) {
-            writable = true
             cache = keys
             return keys
         }
-        guard status == errSecItemNotFound else { cache = [:]; return [:] }     // denied or locked: ask again next launch
+        guard status == errSecItemNotFound else { return [:] }     // denied or locked: ask again next launch
         let keys = migrate()
         cache = keys
         return keys
     }
 
-    private func save(_ keys: [String: String]) -> Bool {
+    private static func save(_ keys: [String: String]) -> Bool {
         guard let data = try? JSONEncoder().encode(keys) else { return false }
         let q = query(account)
         let status = SecItemUpdate(q as CFDictionary, [kSecValueData as String: data] as CFDictionary)
@@ -349,7 +338,7 @@ final class Keychain {
 
     /// The old layout, one item per provider (account = provider id): read each once, save them as the one item,
     /// and delete the old ones only once the new one is saved.
-    private func migrate() -> [String: String] {
+    private static func migrate() -> [String: String] {
         var keys: [String: String] = [:]
         var found: [String] = []
         for p in ProviderPreset.all {
@@ -365,10 +354,8 @@ final class Keychain {
             }
         }
         // an old item that could not be read (denied) would be lost: keep the old layout and try again next launch
-        guard keys.count == found.count else { return keys }
-        if keys.isEmpty { writable = true; return keys }
+        guard !keys.isEmpty, keys.count == found.count else { return keys }
         if save(keys) {
-            writable = true
             for id in found where keys[id] != nil { SecItemDelete(query(id) as CFDictionary) }
         }
         return keys

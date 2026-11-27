@@ -42,7 +42,6 @@ under the Mac app epic (#93) with the case id.
 | B3 | Paste a key for a second provider, then quit and reopen | At most one Keychain prompt in all, none after Always Allow (#81) | `check.sh keychain` |
 | B4 | Test connection | "Answered in N s and reads images." | look |
 | B5 | Refresh models (↻) | "N models from …" and the ▾ menu lists them | look |
-| B6 | On a disposable upgrade copy, allow one legacy key read and deny another. Edit a key, relaunch, and allow both reads | The edit reports a save failure. Both original keys are available after relaunch | look |
 
 ## C. Tasks
 

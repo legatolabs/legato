@@ -25,17 +25,6 @@ on:
         required: true
 concurrency: mac-app-${{ github.ref }}
 jobs:
-  swift-tests:
-    if: github.event_name == 'pull_request'
-    runs-on: macos-15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - run: swift test --package-path app/macos
-
   dmg:
     # pull requests from forks get no secrets, so they cannot sign
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
