@@ -718,3 +718,11 @@ def test_apps_the_person_named_in_a_quit_task_are_quit_without_asking():
     t.handler({"apps": ["TextEdit"]})
     assert unsaved.asked[0]["title"] == "Unsaved changes"
     assert t.handler.summary == "Nothing quit. TextEdit stays open with its unsaved changes."
+
+
+def test_a_tab_or_window_in_the_task_is_not_a_yes_to_quit_the_app():
+    from legato import app_engine as ae
+    for task in ("close the Safari tab", "close Safari's windows", "Safari: quit", "open Safari and close Chess"):
+        app = QuitApp(["Safari", "Chess"])
+        ae.quit_apps_tool(app.request, app.ask, task=task).handler({"apps": ["Safari"]})
+        assert app.asked == ["quit Safari"], task

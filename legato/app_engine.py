@@ -510,13 +510,16 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool], tas
     return Tool("quit_apps", QUIT_HINT, _QUIT_ARGS, handler)
 
 
-_QUIT_WORD = re.compile(r"\b(?:quit|close|exit)\b", re.I)
+_PART_OF_APP = re.compile(r"\b(?:tabs?|windows?|documents?|docs?|pages?|files?|chats?|notes?|messages?)\b", re.I)
 
 
 def _asked_to_quit(task: str, apps: list[str]) -> bool:
-    """The person's own words say to quit, and name each of these apps."""
-    return bool(_QUIT_WORD.search(task)) and all(
-        re.search(r"(?<!\w)" + re.escape(a) + r"(?!\w)", task, re.I) for a in apps)
+    """The person's own words say to quit or close each of these apps by name, and not a tab, window or document
+    in one: "close the Safari tab" is still asked about."""
+    if _PART_OF_APP.search(task):
+        return False
+    return all(re.search(r"\b(?:quit|close|exit)\b[^.;!?\n]*?(?<!\w)" + re.escape(a) + r"(?!\w)", task, re.I)
+               for a in apps)
 
 
 class Replan(Exception):
