@@ -76,6 +76,53 @@ def wrap_command(cmd: str, timeout_s: float) -> str:
             'echo "[exit $?]"')
 
 
+_APP_DIRS: list[str] | None = None
+
+
+def app_path_dirs(keys: Callable[[], Any] | None = None) -> list[str]:
+    """The folders of the programs Windows has registered by name (the App Paths registry keys: msedge.exe,
+    chrome.exe, winword.exe...). `Start-Process msedge` finds a program that way, but only after PowerShell has
+    spent about 12 s looking elsewhere; with its folder on PATH it starts at once. `keys`: for tests, something that
+    yields each entry's (default value, Path value)."""
+    global _APP_DIRS
+    if keys is None and _APP_DIRS is not None:
+        return _APP_DIRS
+    import ntpath                    # Windows paths, whatever this is tested on
+    found: list[str] = []
+
+    def registered():
+        import winreg
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                root = winreg.OpenKey(hive, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths")
+            except OSError:
+                continue
+            with root:
+                for i in range(winreg.QueryInfoKey(root)[0]):
+                    try:
+                        with winreg.OpenKey(root, winreg.EnumKey(root, i)) as k:
+                            def value(name):
+                                try:
+                                    return winreg.QueryValueEx(k, name)[0]
+                                except OSError:
+                                    return None
+                            yield value(""), value("Path")
+                    except OSError:
+                        continue
+    try:
+        for exe, folder in (keys or registered)():
+            for d in (ntpath.dirname(os.path.expandvars(str(exe)).strip('"')) if exe else "",
+                      *[x for x in os.path.expandvars(str(folder or "")).split(";")]):
+                d = d.strip().strip('"').rstrip("\\")
+                if d and d not in found:
+                    found.append(d)
+    except Exception:  # noqa: BLE001 - a registry that cannot be read leaves PATH as it is
+        pass
+    if keys is None:
+        _APP_DIRS = found
+    return found
+
+
 def local_shell(cmd: str, timeout_s: float = 30.0) -> str:
     """Run `cmd` on this computer and return its output once the command itself has ended. A program the command
     only started (`Start-Process msedge ...`, `open -a ...`, `server &`) keeps running and is not waited for: the
@@ -88,8 +135,13 @@ def local_shell(cmd: str, timeout_s: float = 30.0) -> str:
             p = subprocess.Popen(cmd, shell=True, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                  start_new_session=True, executable="/bin/bash" if os.path.exists("/bin/bash") else None)
         else:   # Windows: PowerShell (what its files, settings and apps are scripted in), with no console window
+            env = dict(os.environ)      # programs registered by name start at once (see app_path_dirs)
+            have = {x.rstrip("\\").lower() for x in env.get("PATH", "").split(";")}
+            extra = [d for d in app_path_dirs() if d.lower() not in have]
+            if extra:
+                env["PATH"] = ";".join([env.get("PATH", "")] + extra)
             p = subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd], stdout=log,
-                                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         try:
             p.wait(timeout=timeout_s)
