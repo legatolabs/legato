@@ -744,6 +744,7 @@ def test_apps_named_like_parts_of_apps_can_be_quit_without_asking():
     ae.quit_apps_tool(app.request, app.ask, task="Quit Notes, Messages and Pages").handler(
         {"apps": ["Notes", "Messages", "Pages"]})
     assert app.asked == []
-    app = QuitApp(["Notes"])
-    ae.quit_apps_tool(app.request, app.ask, task="close the note in Notes").handler({"apps": ["Notes"]})
-    assert app.asked == ["quit Notes"]
+    for task in ("close the note in Notes", "Close all notes in Notes"):
+        app = QuitApp(["Notes"])
+        ae.quit_apps_tool(app.request, app.ask, task=task).handler({"apps": ["Notes"]})
+        assert app.asked == ["quit Notes"], task
