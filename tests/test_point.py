@@ -560,5 +560,5 @@ def test_a_shell_step_that_starts_a_program_is_followed_by_a_wait_for_what_it_op
     p2 = Planner("big", "http://x/v1", style="point", client=Scripted([act("done")]))
     h2 = legato.Harness("small", "http://x/v1", planner=p2, tools=[sh])
     h2.client = Scripted([])
-    h2.run("open the page", desktop([]))
+    h2.run("open the page", legato.attach(screenshot=lambda: pngs["a"], execute=lambda a: None))     # the same screen size
     assert p.client.sent[0]["messages"][0]["content"] == p2.client.sent[0]["messages"][0]["content"]      # the prompt is the same
