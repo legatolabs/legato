@@ -102,3 +102,38 @@ def test_the_shell_returns_when_its_command_ends_not_when_a_program_it_started_d
     t = time.monotonic()
     out = local_shell("sleep 30" if sys.platform != "win32" else "Start-Sleep 30", timeout_s=0.5)
     assert "timeout after 0.5 s" in out and time.monotonic() - t < 5
+
+
+def test_on_windows_the_shell_finds_programs_registered_by_name():
+    """`Start-Process msedge` takes about 12 s when Edge's folder is not on PATH; the tool adds the folders of the
+    programs Windows has registered by name (App Paths)."""
+    from legato.tools import app_path_dirs
+    entries = [(r'"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"', None),
+               (r"C:\Program Files\Office\WINWORD.EXE", r"C:\Program Files\Office\;C:\Program Files\Common\Office"),
+               (None, None), (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge_proxy.exe", None)]
+    assert app_path_dirs(lambda: iter(entries)) == [r"C:\Program Files (x86)\Microsoft\Edge\Application",
+                                                    r"C:\Program Files\Office", r"C:\Program Files\Common\Office"]
+
+    def broken():
+        raise OSError("no registry")
+        yield
+    assert app_path_dirs(broken) == []
+
+
+def test_the_windows_shell_runs_with_those_folders_at_the_end_of_path(monkeypatch):
+    import subprocess
+
+    import legato.tools as tools
+    ran = {}
+
+    class Done:
+        returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+    monkeypatch.setattr(tools.sys, "platform", "win32")
+    monkeypatch.setattr(tools, "_APP_DIRS", [r"C:\Edge\Application", r"C:\Windows"])
+    monkeypatch.setenv("PATH", r"C:\Windows;C:\Tools")
+    monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kw: (ran.update(kw=kw), Done())[1])
+    tools.local_shell("Start-Process msedge")
+    assert ran["kw"]["env"]["PATH"] == r"C:\Windows;C:\Tools;C:\Edge\Application"       # added once, after what was there

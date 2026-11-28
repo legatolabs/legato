@@ -557,9 +557,8 @@ def test_a_shell_step_that_starts_a_program_is_followed_by_a_wait_for_what_it_op
     assert res.timings[0]["settle_s"] == 0 and 0.2 < res.timings[1]["settle_s"] < 2.0
     last = lambda i: [c["image_url"]["url"] for c in p.client.sent[i]["messages"][1]["content"] if c.get("type") == "image_url"][-1]
     assert last(1) != last(2)                        # the look after the launch shows the new window
-    assert "Start-Process '<address or path>'" in p.client.sent[0]["messages"][0]["content"]
     p2 = Planner("big", "http://x/v1", style="point", client=Scripted([act("done")]))
     h2 = legato.Harness("small", "http://x/v1", planner=p2, tools=[sh])
     h2.client = Scripted([])
-    h2.run("x", desktop([]))
-    assert "Do not name the browser" not in p2.client.sent[0]["messages"][0]["content"]      # off by default
+    h2.run("open the page", desktop([]))
+    assert p.client.sent[0]["messages"][0]["content"] == p2.client.sent[0]["messages"][0]["content"]      # the prompt is the same

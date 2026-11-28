@@ -218,10 +218,6 @@ OSA_NOTE = """
 - {{"applescript": "<script>"}}: runs with osascript; prefer it for Calendar, Reminders, Notes, Contacts, Finder and \
 System Events."""
 SHELL_PROPS = {"shell": {"type": "string"}, "applescript": {"type": "string"}}
-OPEN_NOTE_WINDOWS = """
-To open a web page, a file or a folder from the shell, give its address or path alone: Start-Process \
-'<address or path>'. It opens in the default program at once. Do not name the browser \
-(Start-Process msedge ...): starting it by name holds the shell for many seconds."""
 # a shell command that starts a program or opens something: the screen is about to change
 LAUNCHES = re.compile(r"(?i)\b(start-process|saps|start|invoke-item|ii|explorer|open|xdg-open|notepad|msedge|chrome|code)\b|\.exe\b|\.app\b")
 LAUNCH_FIRST_S, LAUNCH_CAP_S = 2.5, 4.0   # how long the window may take to appear, and the whole wait at most
@@ -361,9 +357,6 @@ class Pointing:
         system = PLANNER_SYSTEM.format(max_actions=p.max_steps, w=self.ep.w, h=self.ep.h)
         if self.shell:
             system += SHELL_NOTE.format(shell=p.shell_name or getattr(h.tools.get("bash"), "runs", "") or "bash", osa=OSA_NOTE.format() if "applescript" in self.shell else "")
-        if self.shell and getattr(p, "launch_wait", False) and "powershell" in (
-                p.shell_name or getattr(h.tools.get("bash"), "runs", "") or "").lower():
-            system += OPEN_NOTE_WINDOWS
         if p.notes:
             system += NOTES_NOTE
         if getattr(p, "finish", False):

@@ -89,8 +89,7 @@ class Planner:
     next_needs: bool = False             # point, experimental: an action followed by a key or text ends its wait as
     #                                      soon as what that next action needs is true (legato/needs.py)
     launch_wait: bool = False            # point, experimental: after a shell step that starts a program the screen is
-    #                                      waited for before the planner looks, and on Windows the planner is told
-    #                                      the quick way to open a page or a file
+    #                                      waited for before the planner looks
     finish: bool = False                 # point, experimental: a list may say it completes the task and how to check
     #                                      that without a screenshot (a file, a window title); if the check holds
     #                                      after the last action the task ends as done with no further call
