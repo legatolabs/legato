@@ -68,7 +68,7 @@ enum AppQuit {
         return (app.isTerminated, pressed)
     }
 
-    /// The first button, in `titles` order, in any of the app's windows and their sheets.
+    /// The first button, in `titles` order, in the app's sheets and dialog windows.
     static func find(in pid: pid_t, titles: [String]) -> (AXUIElement, String)? {
         let root = AXUIElementCreateApplication(pid)
         var found: [String: AXUIElement] = [:]
@@ -82,7 +82,11 @@ enum AppQuit {
         }
         var windows: CFTypeRef?
         AXUIElementCopyAttributeValue(root, kAXWindowsAttribute as CFString, &windows)
-        for w in (windows as? [AXUIElement]) ?? [] { walk(w, depth: 0) }
+        for w in (windows as? [AXUIElement]) ?? [] {             // only save panels: never a document's own Delete
+            let sub = string(w, kAXSubroleAttribute)
+            if sub == kAXDialogSubrole as String || sub == kAXSystemDialogSubrole as String { walk(w, depth: 0); continue }
+            for c in children(w) where string(c, kAXRoleAttribute) == kAXSheetRole as String { walk(c, depth: 0) }
+        }
         for t in titles { if let e = found[t] { return (e, t) } }
         return nil
     }
