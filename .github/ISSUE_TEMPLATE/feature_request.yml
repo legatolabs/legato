@@ -1,0 +1,16 @@
+name: Idea or request
+description: A task Legato should handle, or a model, desktop or editor it should support.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: What you want to do
+      description: The task, and where it runs. A real example helps most.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today
+      description: What Legato does now, or what you use instead.

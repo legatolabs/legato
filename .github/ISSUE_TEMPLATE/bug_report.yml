@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in Legato doesn't work as the docs say.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: The task or command you ran, and what it did instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: way-in
+    attributes:
+      label: Way in
+      options: [legato run, MCP server, Python package, Mac app, legato setup]
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and provider
+      placeholder: claude-sonnet-5-5 on Anthropic, qwen3.8-27b on vLLM...
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop and OS
+      placeholder: this Mac (macOS 26.1, background), --sandbox docker, e2b...
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `legato doctor`
+      description: It says what is installed and set up. Check it for anything you'd rather not post.
+      render: text
+  - type: textarea
+    id: report
+    attributes:
+      label: Run report or log
+      description: "`result.report()`, `legato run --json`, or the Mac app's engine.log. Screenshots can show your
+        desktop: crop them first."
+      render: text

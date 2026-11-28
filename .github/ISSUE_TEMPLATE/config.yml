@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/legatolabs/legato/security/advisories/new
+    about: Privately, please. See SECURITY.md for what counts.
+  - name: Docs and FAQ
+    url: https://legato.computer/docs
+    about: Setup, models, desktops, the MCP server and the Mac app.
