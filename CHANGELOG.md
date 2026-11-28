@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **On Windows, a shell command that starts a program by its name starts it at once.** `Start-Process msedge
+  <address>` took about 12 s before the browser appeared: PowerShell finds a program that Windows has registered
+  by name (Edge, Chrome, Word...) only after looking elsewhere first. The shell tool now runs commands with those
+  programs' folders at the end of `PATH`.
 - **A shell command that starts a program no longer holds the tool until that program lets go.** The shell tool
   on this computer (`legato.tools.bash()`, and the Mac app's and `legato run`'s shell) read the command's output
   through a pipe, which every program started from the command kept open: `Start-Process msedge <url>` on Windows
