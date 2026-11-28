@@ -523,3 +523,43 @@ def test_a_list_cut_short_finishes_nothing_and_the_option_is_off_by_default(tmp_
     h, p = harness([fin("continue", {"file": str(out)}, {"key": "ctrl+s"}), act("done")], [])
     res = h.run("save", desktop([]))
     assert len(p.client.sent) == 2 and '"finish"' not in p.client.sent[0]["messages"][0]["content"]
+
+
+def test_a_shell_step_that_starts_a_program_is_followed_by_a_wait_for_what_it_opens(monkeypatch):
+    """Planner(launch_wait=True): the planner's look after `Start-Process ...` shows the window, not the desktop
+    before it; a command that starts nothing is not waited for; on Windows the planner is told how to open a page."""
+    import time as _time
+    import legato.point as lp
+    import legato.tools
+    monkeypatch.setattr(lp, "LAUNCH_FIRST_S", 0.6)
+    screen = {"v": "a"}
+    pngs = {"a": real_png(40, 30), "b": real_png(40, 30, boxes=((5, 5, 20, 20),))}
+
+    def run(args):
+        if "Start-Process" in args["command"]:
+            screen["t"] = _time.monotonic()          # the window appears 0.2 s after the command returns
+        return "ok\n[exit 0]"
+    sh = legato.tools.Tool("bash", "Run a PowerShell command.", {"type": "object", "properties": {"command": {"type": "string"}}}, run)
+    sh.runs = "PowerShell"
+    p = Planner("big", "http://x/v1", style="point", launch_wait=True,
+                client=Scripted([act("continue", {"shell": "Get-ChildItem"}), act("continue", {"shell": "Start-Process 'https://example.com'"}), act("done")]))
+    h = legato.Harness("small", "http://x/v1", planner=p, tools=[sh])
+    h.client = Scripted([])
+    env = legato.attach(screenshot=lambda: pngs[screen["v"]], execute=lambda a: None)
+
+    def digest():
+        if screen.get("t") and _time.monotonic() - screen["t"] > 0.2:
+            screen["v"] = "b"
+        return screen["v"]
+    env._digest = digest
+    res = h.run("open the page", env)
+    assert res.done and [t.get("launch_waits") for t in res.timings[:2]] == [None, 1]
+    assert res.timings[0]["settle_s"] == 0 and 0.2 < res.timings[1]["settle_s"] < 2.0
+    last = lambda i: [c["image_url"]["url"] for c in p.client.sent[i]["messages"][1]["content"] if c.get("type") == "image_url"][-1]
+    assert last(1) != last(2)                        # the look after the launch shows the new window
+    assert "Start-Process '<address or path>'" in p.client.sent[0]["messages"][0]["content"]
+    p2 = Planner("big", "http://x/v1", style="point", client=Scripted([act("done")]))
+    h2 = legato.Harness("small", "http://x/v1", planner=p2, tools=[sh])
+    h2.client = Scripted([])
+    h2.run("x", desktop([]))
+    assert "Do not name the browser" not in p2.client.sent[0]["messages"][0]["content"]      # off by default

@@ -218,6 +218,13 @@ OSA_NOTE = """
 - {{"applescript": "<script>"}}: runs with osascript; prefer it for Calendar, Reminders, Notes, Contacts, Finder and \
 System Events."""
 SHELL_PROPS = {"shell": {"type": "string"}, "applescript": {"type": "string"}}
+OPEN_NOTE_WINDOWS = """
+To open a web page, a file or a folder from the shell, give its address or path alone: Start-Process \
+'<address or path>'. It opens in the default program at once. Do not name the browser \
+(Start-Process msedge ...): starting it by name holds the shell for many seconds."""
+# a shell command that starts a program or opens something: the screen is about to change
+LAUNCHES = re.compile(r"(?i)\b(start-process|saps|start|invoke-item|ii|explorer|open|xdg-open|notepad|msedge|chrome|code)\b|\.exe\b|\.app\b")
+LAUNCH_FIRST_S, LAUNCH_CAP_S = 2.5, 4.0   # how long the window may take to appear, and the whole wait at most
 NOTES_NOTE = """
 Every call may also carry `notes`: what you have worked out and must not lose (values read from a file or a screen, \
 the items still to do, what is already checked). Your notes are given back to you at every later call, in full, and \
@@ -354,6 +361,9 @@ class Pointing:
         system = PLANNER_SYSTEM.format(max_actions=p.max_steps, w=self.ep.w, h=self.ep.h)
         if self.shell:
             system += SHELL_NOTE.format(shell=p.shell_name or getattr(h.tools.get("bash"), "runs", "") or "bash", osa=OSA_NOTE.format() if "applescript" in self.shell else "")
+        if self.shell and getattr(p, "launch_wait", False) and "powershell" in (
+                p.shell_name or getattr(h.tools.get("bash"), "runs", "") or "").lower():
+            system += OPEN_NOTE_WINDOWS
         if p.notes:
             system += NOTES_NOTE
         if getattr(p, "finish", False):
@@ -648,6 +658,36 @@ class Pointing:
         self.why = ("denied", "The last action was not allowed and was not run. This is the screen now.")
 
 
+def wait_for_launch(env: "Env") -> float:
+    """After a shell command that starts a program: wait for the screen to change (the window appearing) and then
+    to hold still, so the planner's next look shows what the command opened and it need not ask for a wait.
+    Returns the seconds waited. If nothing appears in LAUNCH_FIRST_S the wait ends there."""
+    from legato.settle import LOCAL_RULES, quiet_enough
+    digest = getattr(env, "_digest", None)
+    t0 = time.monotonic()
+    if digest is None:
+        w = getattr(env, "waiter", None)
+        if w is not None:
+            w.settle("default")
+        return time.monotonic() - t0
+    r = LOCAL_RULES["default"]
+    last, t_change, same, changed = digest(), None, 1, False
+    while True:
+        time.sleep(0.04)
+        now, d = time.monotonic(), digest()
+        if d != last:
+            last, t_change, same, changed = d, now, 1, True
+        else:
+            same += 1
+        if not changed and now - t0 >= LAUNCH_FIRST_S:
+            break
+        if changed and quiet_enough(now, t0, t_change, same, r["floor"], r["quiet"], r["min_same"]):
+            break
+        if now - t0 >= LAUNCH_CAP_S:
+            break
+    return time.monotonic() - t0
+
+
 def act_watching(env: "Env", a, guess: Callable[[bytes], bool]):
     """Send `a` once and wait for the screen as usual, but watching it: on the first frame that holds still after
     the wait's floor, `guess(png)` is called (the planner's next call starts). Returns (observation, how): how is
@@ -729,6 +769,7 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
         return timing
     seen = [0.0, 0.0]                       # the planner's and the pointer's seconds already in the timings
     speculate = bool(getattr(h.planner, "speculate", False))
+    launch_wait = bool(getattr(h.planner, "launch_wait", False))
     finish_title = None
     if getattr(h.planner, "finish", False):
         from legato import needs as _needs
@@ -776,6 +817,10 @@ def run_pointed(h: "Harness", task: str, env: "Env", max_steps: int = 40,
                         out = h.call_tool(a)
                         timing["act_s"] += time.monotonic() - t1
                         timing["shell"] = timing.get("shell", 0) + 1
+                        if launch_wait and a.name == "bash" and LAUNCHES.search(str((a.args or {}).get("command", ""))):
+                            waited = wait_for_launch(env)          # what it opened is on the screen before the look
+                            timing["settle_s"] += waited
+                            timing["launch_waits"] = timing.get("launch_waits", 0) + 1
                         timing.setdefault("actions", []).append({"a": a.describe()[:80], "act_s": time.monotonic() - t1})
                         obs = env.observe()
                         png = obs.screenshot
