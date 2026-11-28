@@ -498,6 +498,7 @@ final class AppController: NSObject {
             Task { @MainActor in
                 let r = await AppQuit.quit(names)
                 self.lastEngineAt = Date()
+                self.monitor.endActing()
                 self.engine.reply(id, ["quit": r.quit, "unsaved": r.unsaved])
             }
         case "resolve_unsaved":
@@ -505,6 +506,7 @@ final class AppController: NSObject {
             Task { @MainActor in
                 let r = await AppQuit.resolve(name, discard: discard) { [weak self] in self?.model.stopping ?? true }
                 self.lastEngineAt = Date()
+                self.monitor.endActing()
                 self.engine.reply(id, ["quit": r.quit, "pressed": r.pressed])
             }
         default:
