@@ -489,7 +489,8 @@ final class AppController: NSObject {
             if model.stopping { engine.reply(id, ["stop": "stopped from the Legato app"]); return }
             let q = m["question"] as? String ?? "do something that can’t be undone"
             // a question with its own answers (quit_apps: "Discard and quit" / "Keep TextEdit open") is asked as it is
-            model.setChoices(yes: m["yes"] as? String, no: m["no"] as? String, forTask: (m["once"] as? Bool) != true)
+            model.setChoices(title: m["title"] as? String, yes: m["yes"] as? String, no: m["no"] as? String,
+                             forTask: (m["once"] as? Bool) != true)
             ask(id, kind: .engine, question: m["text"] as? String ?? "The agent wants to \(q).")
         case "apps":
             Task { @MainActor in self.engine.reply(id, ["apps": AppQuit.running()]) }

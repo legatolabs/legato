@@ -13,6 +13,7 @@ final class RunModel: ObservableObject {
     @Published var cost: Double = 0
     @Published var pausedWhy = ""
     @Published var question = ""           // what the agent wants a yes for
+    @Published var askTitle = "Allow this?"
     @Published var yesLabel = "Allow"
     @Published var noLabel = "Don’t allow"
     @Published var canAllowForTask = true      // "Allow for this task": the same kind of question is not asked again
@@ -47,7 +48,8 @@ final class RunModel: ObservableObject {
     }
 
     /// The answers the next question offers (the defaults: Allow, Don’t allow, Allow for this task).
-    func setChoices(yes: String? = nil, no: String? = nil, forTask: Bool = true) {
+    func setChoices(title: String? = nil, yes: String? = nil, no: String? = nil, forTask: Bool = true) {
+        askTitle = title ?? "Allow this?"
         yesLabel = yes ?? "Allow"
         noLabel = no ?? "Don’t allow"
         canAllowForTask = forTask

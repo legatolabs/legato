@@ -700,3 +700,21 @@ def test_the_app_offers_quit_apps_and_its_step_in_plans(tmp_path, monkeypatch):
                "shell": True}, env_factory=lambda run: app_env(link, run, gui=FakeGui()))()
     assert [t.name for t in made["tools"]] == ["bash", "applescript", "quit_apps"]
     assert "- quit_apps (keep; apps)" in made["system"]
+
+
+def test_apps_the_person_named_in_a_quit_task_are_quit_without_asking():
+    from legato import app_engine as ae
+    app = QuitApp(["Calculator", "Chess", "Notes"])
+    tool = ae.quit_apps_tool(app.request, app.ask, task="Close Chess and Calculator")
+    out = tool.handler({"apps": ["Calculator", "Chess"]})
+    assert app.asked == [] and out.startswith("quit: Calculator, Chess")
+    assert tool.handler.summary == "Quit Calculator, Chess."
+    tool.handler({"apps": ["Notes"]})                     # not named in the task: asked
+    broad = QuitApp(["Calculator", "Chess", "Notes"])
+    ae.quit_apps_tool(broad.request, broad.ask, task="close everything except Notes").handler({"keep": ["Notes"]})
+    assert app.asked == ["quit Notes"] and broad.asked == ["quit Calculator, Chess (Notes stays open)"]
+    unsaved = QuitApp(["TextEdit"], unsaved={"TextEdit"}, discard=False)
+    t = ae.quit_apps_tool(unsaved.request, unsaved.ask, task="quit TextEdit")
+    t.handler({"apps": ["TextEdit"]})
+    assert unsaved.asked[0]["title"] == "Unsaved changes"
+    assert t.handler.summary == "Nothing quit. TextEdit stays open with its unsaved changes."

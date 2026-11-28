@@ -163,7 +163,7 @@ struct HUDView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised.fill").foregroundColor(Theme.neon)
-                Text("Allow this?").font(.system(size: 13, weight: .semibold))
+                Text(model.askTitle).font(.system(size: 13, weight: .semibold))
             }
             Text(model.question)
                 .font(.system(size: 12))

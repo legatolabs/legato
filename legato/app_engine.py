@@ -446,12 +446,13 @@ def _app_names(v: Any) -> list[str]:
     return out
 
 
-def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool]) -> Tool:
+def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool], task: str = "") -> Tool:
     """The `quit_apps` tool: the app lists the running apps and quits them (NSRunningApplication.terminate), so there
     is no Apple Event, no Automation prompt and nothing to wait on when an app has unsaved work. Measured on macOS 26:
     0.1-0.4 s an app; `tell app to quit` took the same on a clean app and blocked until the AppleScript timeout (30 s
     here) on one with unsaved changes. `ask` gets one yes for the list; an app still open after its quit (a save panel)
-    is a second question, discard or keep it open, through the app's `confirm` with its own button labels."""
+    is a second question, discard or keep it open, through the app's `confirm` with its own button labels. When the
+    person's `task` already says to quit or close and names every app on the list, that is their yes: no question."""
     chose_keep: set[str] = set()                # apps the person kept open with their unsaved work, for this run
 
     def handler(args: dict) -> str:
@@ -474,14 +475,15 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool]) -> 
             return "nothing to quit" + (f" ({', '.join(gone)} not running)" if gone else "") + \
                 f". Open apps: {', '.join(running) or 'none'}."
         left = [] if want else [a for a in running if a not in targets and a.lower() not in _ALWAYS_OPEN]
-        if not ask(f"quit {', '.join(targets)}" + (f" ({', '.join(left)} stay open)" if left else "")):
+        if not (want and _asked_to_quit(task, targets)) and \
+                not ask(f"quit {', '.join(targets)}" + (f" ({', '.join(left)} {'stays' if len(left) == 1 else 'stay'} open)" if left else "")):
             return "not run: the person said no to quitting these apps."
         r = request("quit_apps", apps=targets)
         quit_, kept = [a for a in r.get("quit") or [] if isinstance(a, str)], []
         for app in [a for a in r.get("unsaved") or [] if isinstance(a, str)]:
             a = request("confirm", text=f"{app} has unsaved changes. Discard them and quit {app}?",
                         question=f"discard the unsaved changes in {app} and quit it",
-                        yes="Discard and quit", no=f"Keep {app} open", once=True)
+                        yes="Discard and quit", no=f"Keep {app} open", once=True, title="Unsaved changes")
             discard = bool(a.get("allow"))
             done = request("resolve_unsaved", app=app, discard=discard)
             if discard and done.get("quit"):
@@ -499,10 +501,22 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool]) -> 
             lines.append(f"not running: {', '.join(gone)}")
         if left:
             lines.append(f"left open as asked: {', '.join(left)}")
+        handler.summary = (f"Quit {', '.join(quit_)}." if quit_ else "Nothing quit.") + "".join(
+            f" {k.split(':')[0]} stays open with its unsaved changes." for k in kept + chosen)
         if any("as the person chose" in k for k in kept) or chosen:
             lines.append("That is the person's answer: don't quit those again; the task is done.")
         return "\n".join(lines)
+    handler.summary = ""
     return Tool("quit_apps", QUIT_HINT, _QUIT_ARGS, handler)
+
+
+_QUIT_WORD = re.compile(r"\b(?:quit|close|exit)\b", re.I)
+
+
+def _asked_to_quit(task: str, apps: list[str]) -> bool:
+    """The person's own words say to quit, and name each of these apps."""
+    return bool(_QUIT_WORD.search(task)) and all(
+        re.search(r"(?<!\w)" + re.escape(a) + r"(?!\w)", task, re.I) for a in apps)
 
 
 class Replan(Exception):
@@ -745,6 +759,7 @@ class Run:
                        "status": "running", "turns": [],
                        "usage": {"prompt": 0, "completion": 0, "cached": 0, "cost_usd": 0.0}}
         status, message, error = "max_steps", "", None
+        quitter = None
         if routine:
             self.record["routine"] = {"from": routine["id"], "steps": len(routine["steps"])}
         if fu:
@@ -757,7 +772,8 @@ class Run:
             tools = ([shell_tool(env._confirm, focus=getattr(env, "_focus", None)),
                       applescript_tool(env._confirm, quits=req is not None)] if m.get("shell") else [])
             if req is not None:
-                tools.append(quit_apps_tool(req, env._confirm))
+                quitter = quit_apps_tool(req, env._confirm, task=task)
+                tools.append(quitter)
             use_plans = m.get("plan", True) is not False      # one call carries several steps
             h = self.harness or Harness(model=m["model"], base_url=m["base_url"], api_key=m.get("api_key") or "",
                                         image_max=image_max, tools=tools, plan=use_plans,
@@ -873,7 +889,8 @@ class Run:
                     break
                 if not note and (plan.done or plan.failed):
                     # the done step's own words, not the whole reply (which can carry the step's JSON too)
-                    status, message = ("done" if plan.done else "failed"), _answer(plan.rec, plan.actions) or text
+                    status, message = ("done" if plan.done else "failed"), _answer(plan.rec, plan.actions) or text \
+                        or (getattr(quitter.handler, "summary", "") if quitter and plan.done else "")
                     break
                 cap = float(m.get("max_cost_usd") or 0)
                 if cap > 0 and self.record["usage"]["cost_usd"] >= cap:
