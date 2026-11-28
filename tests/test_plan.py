@@ -377,3 +377,17 @@ def test_the_plan_prompt_names_the_shell_that_runs_and_is_unchanged_with_everyth
     assert plans.step_actions("", False, False) == ["left_click", "right_click", "double_click", "triple_click",
                                                     "left_click_drag", "type", "key", "scroll", "wait", "done", "fail"]
     assert plans.plan_tool(12) == plans.plan_tool(12, actions=plans.step_actions())
+
+
+def test_another_tool_is_a_plan_step_of_its_own_name(server, monkeypatch):
+    labels(monkeypatch, {})
+    seen = []
+    tool = Tool("quit_apps", "quits apps", {"type": "object", "properties": {
+        "keep": {"type": "array", "items": {"type": "string"}}}}, lambda a: seen.append(a) or "quit: Safari")
+    server["script"] = [{"tool_calls": [call("plan", {"steps": [
+        {"action": "quit_apps", "keep": ["Notes"], "coordinate": [1, 2]}, {"action": "done"}]})]}]
+    res = legato.Harness("m", server["url"], tools=[tool], plan=True).run("t", fake_env([]))
+    assert res.done and seen == [{"keep": ["Notes"]}]
+    step = server["bodies"][0]["tools"][0]["function"]["parameters"]["properties"]["steps"]["items"]["properties"]
+    assert "quit_apps" in step["action"]["enum"] and step["keep"]["type"] == "array"
+    assert plans.plan_tool(12, extra={}) == plans.plan_tool(12)

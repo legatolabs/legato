@@ -79,6 +79,7 @@ struct HUDActions {
     var resume: () -> Void
     var stop: () -> Void
     var answer: (Bool) -> Void
+    var allowForTask: () -> Void = {}
     var history: () -> Void
     var close: () -> Void
     var settings: () -> Void
@@ -162,7 +163,7 @@ struct HUDView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised.fill").foregroundColor(Theme.neon)
-                Text("Allow this?").font(.system(size: 13, weight: .semibold))
+                Text(model.askTitle).font(.system(size: 13, weight: .semibold))
             }
             Text(model.question)
                 .font(.system(size: 12))
@@ -171,8 +172,11 @@ struct HUDView: View {
             HStack {
                 Spacer()
                 PillButton(title: "Stop", action: actions.stop)
-                PillButton(title: "Don’t allow", action: { actions.answer(false) })
-                PillButton(title: "Allow", primary: true, action: { actions.answer(true) })
+                PillButton(title: model.noLabel, action: { actions.answer(false) })
+                if model.canAllowForTask {
+                    PillButton(title: "Allow for this task", action: actions.allowForTask)
+                }
+                PillButton(title: model.yesLabel, primary: true, action: { actions.answer(true) })
             }
         }
     }

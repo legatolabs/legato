@@ -13,6 +13,10 @@ final class RunModel: ObservableObject {
     @Published var cost: Double = 0
     @Published var pausedWhy = ""
     @Published var question = ""           // what the agent wants a yes for
+    @Published var askTitle = "Allow this?"
+    @Published var yesLabel = "Allow"
+    @Published var noLabel = "Don’t allow"
+    @Published var canAllowForTask = true      // "Allow for this task": the same kind of question is not asked again
     @Published var status = ""             // done, failed, stopped, error, max_steps, cost_cap
     @Published var message = ""            // the model's final words, or the error
     @Published var wall: Double = 0
@@ -34,12 +38,21 @@ final class RunModel: ObservableObject {
         cost = 0
         pausedWhy = ""
         question = ""
+        setChoices()
         status = ""
         message = ""
         wall = 0
         stopping = false
         feed = []
         routine = ""
+    }
+
+    /// The answers the next question offers (the defaults: Allow, Don’t allow, Allow for this task).
+    func setChoices(title: String? = nil, yes: String? = nil, no: String? = nil, forTask: Bool = true) {
+        askTitle = title ?? "Allow this?"
+        yesLabel = yes ?? "Allow"
+        noLabel = no ?? "Don’t allow"
+        canAllowForTask = forTask
     }
 
     /// Add a done step to the feed, in the past tense ("Typing “x”" -> "Typed “x”"), skipping repeats and waits.
@@ -69,6 +82,7 @@ final class RunModel: ObservableObject {
                 return "Ran " + (c.count > 48 ? String(c.prefix(47)) + "…" : c)
             }
             if a.hasPrefix("applescript(") { return "Ran AppleScript" }
+            if a.hasPrefix("quit_apps(") { return "Quit apps" }
             return nil
         }
     }

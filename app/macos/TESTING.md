@@ -55,6 +55,8 @@ under the Mac app epic (#93) with the case id.
 | C4 | Hold Fn on a Mac with no mic, or with another app holding it | An error in the pill, no crash (#88) | `check.sh alive` |
 | C5 | A follow-up within 10 min: "now make it bold" | Works on the same document | `check.sh run done` |
 | C6 | History → Run again on C1 | Starts and finishes; "Reusing N steps" shows | `check.sh run done` |
+| C7 | Open Safari, Preview and TextEdit with one unsaved document. Type `Quit all my apps except Notes` | One question lists Safari, Preview and TextEdit, with Allow for this task; then "TextEdit has unsaved changes": Keep TextEdit open. Safari and Preview quit, TextEdit stays with its document, done in under 15 s plus your answers | `check.sh run done` |
+| C8 | Same as C7 with nothing unsaved | One question, every app but Notes quits, no macOS "wants to control" prompt, done in under 8 s plus your answer | `check.sh run done` |
 
 ## D. Control
 

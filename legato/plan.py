@@ -179,9 +179,11 @@ PROGRESS_NOTE = ("\nEach plan also carries `progress`: one line, what is done so
                  "screenshots are left out of what you see, so your progress lines are how you keep your place.")
 
 
-def plan_tool(max_steps: int, progress: bool = False, actions: list[str] | None = None) -> dict:
+def plan_tool(max_steps: int, progress: bool = False, actions: list[str] | None = None,
+              extra: dict[str, dict] | None = None) -> dict:
     """The `plan` tool in OpenAI function format (progress: a required one-line `progress` beside the steps; actions:
-    the steps it offers, as step_actions gives them, default all)."""
+    the steps it offers, as step_actions gives them, default all; extra: other tools, {name: parameters}, offered as
+    steps of their own name)."""
     step = {"type": "object", "required": ["action"], "properties": {
         "action": {"type": "string", "enum": actions or STEP_ACTIONS},
         "coordinate": {"type": "array", "items": {"type": "number"}, "description": "[x, y] on the screenshot you see now"},
@@ -210,6 +212,13 @@ def plan_tool(max_steps: int, progress: bool = False, actions: list[str] | None 
         tool["function"]["description"] = "Run steps in order: " + ", ".join(
             ["screen actions"] + [a for a in ("click_text", "shell", "applescript", "wait_for") if a in actions]) + \
             ", then done."
+    for name, params in (extra or {}).items():
+        step["properties"]["action"]["enum"] = step["properties"]["action"]["enum"] + [name]
+        for k, v in (params.get("properties") or {}).items():
+            step["properties"].setdefault(k, v)
+    if extra:
+        d = tool["function"]["description"]
+        tool["function"]["description"] = d[: -len(", then done.")] + ", " + ", ".join(extra) + ", then done."
     if progress:
         params = tool["function"]["parameters"]
         params["properties"]["progress"] = {"type": "string",

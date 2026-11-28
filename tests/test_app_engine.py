@@ -579,3 +579,172 @@ def test_a_refused_command_or_script_stops_the_plan(monkeypatch):
     monkeypatch.setattr(ae, "applescript", lambda timeout_s=30.0: Inner())
     out = ae.applescript_tool(lambda q: False).handler({"script": 'tell application "Notes" to delete note "Groceries"'})
     assert out.startswith("not run:") and plans.tool_failed(out)
+
+
+class QuitApp:
+    """The app's side of quit_apps: running apps, which quit, which have unsaved work, and the person's answers."""
+
+    def __init__(self, running, unsaved=(), allow=True, discard=True):
+        self.running, self.unsaved, self.allow, self.discard = list(running), set(unsaved), allow, discard
+        self.calls, self.asked = [], []
+
+    def request(self, method, **p):
+        self.calls.append((method, p))
+        if method == "apps":
+            return {"apps": self.running}
+        if method == "quit_apps":
+            return {"quit": [a for a in p["apps"] if a not in self.unsaved],
+                    "unsaved": [a for a in p["apps"] if a in self.unsaved]}
+        if method == "confirm":
+            self.asked.append(p)
+            return {"allow": self.discard}
+        if method == "resolve_unsaved":
+            return {"quit": p["discard"]}
+        raise AssertionError(method)
+
+    def ask(self, q):
+        self.asked.append(q)
+        return self.allow
+
+
+def test_quit_apps_asks_once_with_the_list_and_quits_all_but_keep_finder_and_legato():
+    from legato import app_engine as ae
+    app = QuitApp(["Safari", "TextEdit", "Notes", "Spotify", "Messages", "Preview", "Finder", "Legato Test"])
+    out = ae.quit_apps_tool(app.request, app.ask).handler({"keep": ["Notes", "spotify.app", "Messages"]})
+    assert app.asked == ["quit Safari, TextEdit, Preview (Notes, Spotify, Messages stay open)"]
+    assert ("quit_apps", {"apps": ["Safari", "TextEdit", "Preview"]}) in app.calls
+    assert out.startswith("quit: Safari, TextEdit, Preview") and "still open" not in out
+    named = QuitApp(["Safari", "Finder"])
+    out = ae.quit_apps_tool(named.request, named.ask).handler({"apps": "Safari, Finder, Pages"})
+    assert named.asked == ["quit Safari"] and "not running: Pages" in out and "left open" not in out
+
+
+def test_quit_apps_says_no_and_nothing_to_quit_without_quitting():
+    from legato import app_engine as ae
+    from legato import plan as plans
+    app = QuitApp(["Safari", "Notes"], allow=False)
+    out = ae.quit_apps_tool(app.request, app.ask).handler({"keep": ["Notes"]})
+    assert out.startswith("not run:") and plans.tool_failed(out) and [c[0] for c in app.calls] == ["apps"]
+    none = QuitApp(["Notes", "Finder"])
+    out = ae.quit_apps_tool(none.request, none.ask).handler({"keep": ["Notes"]})
+    assert out.startswith("nothing to quit") and none.asked == [] and not plans.tool_failed(out)
+
+
+@pytest.mark.parametrize("discard", [True, False])
+def test_an_app_with_unsaved_work_is_one_question_with_its_own_answers(discard):
+    # 27 Nov: AppleScript `quit` waited 30 s on TextEdit's save panel, then the model gave up rather than choose
+    from legato import app_engine as ae
+    app = QuitApp(["Safari", "TextEdit"], unsaved={"TextEdit"}, discard=discard)
+    out = ae.quit_apps_tool(app.request, app.ask).handler({})
+    q = app.asked[1]
+    assert q["once"] and q["yes"] == "Discard and quit" and q["no"] == "Keep TextEdit open"
+    assert ("resolve_unsaved", {"app": "TextEdit", "discard": discard}) in app.calls
+    if discard:
+        assert out.startswith("quit: Safari, TextEdit") and "still open" not in out
+    else:
+        assert out.startswith("quit: Safari") and "still open: TextEdit: kept open with its unsaved changes" in out
+        assert "the task is done" in out
+
+
+def test_an_app_the_person_kept_open_is_not_asked_about_again():
+    # 27 Nov: after "Keep TextEdit open" the model called quit_apps for TextEdit again, asked twice, then gave up
+    from legato import app_engine as ae
+    app = QuitApp(["Safari", "TextEdit"], unsaved={"TextEdit"}, discard=False)
+    tool = ae.quit_apps_tool(app.request, app.ask)
+    tool.handler({"apps": ["Safari", "TextEdit"]})
+    n = len(app.calls)
+    out = tool.handler({"apps": ["TextEdit"]})
+    assert out.startswith("nothing more to quit") and "the task is done" in out
+    assert [c[0] for c in app.calls[n:]] == ["apps"]
+
+
+def test_applescript_that_quits_goes_to_quit_apps_when_the_app_has_it(monkeypatch):
+    from legato import app_engine as ae
+
+    class Inner:
+        name, description, parameters = "applescript", "checked", {}
+
+        def handler(self, args):
+            return "ran (exit 0). Result:\nok"
+    monkeypatch.setattr(ae, "applescript", lambda timeout_s=30.0: Inner())
+    script = 'tell application "System Events" to quit (every process whose name is "TextEdit")'
+    asked = []
+    out = ae.applescript_tool(lambda q: asked.append(q) or True, quits=True).handler({"script": script})
+    assert out.startswith("not run: quit apps with the quit_apps tool") and asked == []
+    assert ae.applescript_tool(lambda q: True).handler({"script": script}).startswith("ran")
+
+
+def test_allow_for_this_task_is_not_asked_again_for_the_same_kind(tmp_path):
+    answers = iter([{"allow": True, "always": True}, {"allow": True}, {"allow": False}])
+    link = FakeLink(lambda m, p: next(answers) if m == "confirm" else {"go": True})
+    r = Run(link, {"id": "q1", "task": "t", "model": "m", "base_url": "http://x/v1", "runs_dir": str(tmp_path)})
+    env = app_env(link, r, gui=FakeGui())
+    assert env._confirm("run this command, which deletes files: rm a")
+    assert env._confirm("run this command, which deletes files: rm b")
+    assert env._confirm("quit Safari") and not env._confirm("quit Preview")
+    assert [m["question"] for m in link.sent if m.get("method") == "confirm"] == [
+        "run this command, which deletes files: rm a", "quit Safari", "quit Preview"]
+
+
+def test_the_app_offers_quit_apps_and_its_step_in_plans(tmp_path, monkeypatch):
+    import legato.app_engine as eng
+    made = {}
+
+    class H(FakeHarness):
+        def __init__(self, **kw):
+            made.update(kw)
+            super().__init__(["done"])
+    monkeypatch.setattr(eng, "Harness", H)
+    link = FakeLink()
+    Run(link, {"id": "q2", "task": "t", "model": "m", "base_url": "http://x/v1", "runs_dir": str(tmp_path),
+               "shell": True}, env_factory=lambda run: app_env(link, run, gui=FakeGui()))()
+    assert [t.name for t in made["tools"]] == ["bash", "applescript", "quit_apps"]
+    assert "- quit_apps (keep; apps)" in made["system"]
+
+
+def test_apps_the_person_named_in_a_quit_task_are_quit_without_asking():
+    from legato import app_engine as ae
+    app = QuitApp(["Calculator", "Chess", "Notes"])
+    tool = ae.quit_apps_tool(app.request, app.ask, task="Close Chess and Calculator")
+    out = tool.handler({"apps": ["Calculator", "Chess"]})
+    assert app.asked == [] and out.startswith("quit: Calculator, Chess")
+    assert tool.handler.summary == "Quit Calculator, Chess."
+    tool.handler({"apps": ["Notes"]})                     # not named in the task: asked
+    broad = QuitApp(["Calculator", "Chess", "Notes"])
+    ae.quit_apps_tool(broad.request, broad.ask, task="close everything except Notes").handler({"keep": ["Notes"]})
+    assert app.asked == ["quit Notes"] and broad.asked == ["quit Calculator, Chess (Notes stays open)"]
+    unsaved = QuitApp(["TextEdit"], unsaved={"TextEdit"}, discard=False)
+    t = ae.quit_apps_tool(unsaved.request, unsaved.ask, task="quit TextEdit")
+    t.handler({"apps": ["TextEdit"]})
+    assert unsaved.asked[0]["title"] == "Unsaved changes"
+    assert t.handler.summary == "Nothing quit. TextEdit stays open with its unsaved changes."
+
+
+def test_a_tab_or_window_in_the_task_is_not_a_yes_to_quit_the_app():
+    from legato import app_engine as ae
+    for task in ("close the Safari tab", "close Safari's windows", "Safari: quit", "open Safari and close Chess"):
+        app = QuitApp(["Safari", "Chess"])
+        ae.quit_apps_tool(app.request, app.ask, task=task).handler({"apps": ["Safari"]})
+        assert app.asked == ["quit Safari"], task
+
+
+def test_the_summary_keeps_apps_quit_in_earlier_calls():
+    from legato import app_engine as ae
+    app = QuitApp(["Calculator", "TextEdit"], unsaved={"TextEdit"}, discard=False)
+    tool = ae.quit_apps_tool(app.request, app.ask, task="quit Calculator and TextEdit")
+    tool.handler({"apps": ["Calculator"]})
+    tool.handler({"apps": ["TextEdit"]})
+    tool.handler({"apps": ["TextEdit"]})
+    assert tool.handler.summary == "Quit Calculator. TextEdit stays open with its unsaved changes."
+
+
+def test_apps_named_like_parts_of_apps_can_be_quit_without_asking():
+    from legato import app_engine as ae
+    app = QuitApp(["Notes", "Messages", "Pages"])
+    ae.quit_apps_tool(app.request, app.ask, task="Quit Notes, Messages and Pages").handler(
+        {"apps": ["Notes", "Messages", "Pages"]})
+    assert app.asked == []
+    for task in ("close the note in Notes", "Close all notes in Notes"):
+        app = QuitApp(["Notes"])
+        ae.quit_apps_tool(app.request, app.ask, task=task).handler({"apps": ["Notes"]})
+        assert app.asked == ["quit Notes"], task
