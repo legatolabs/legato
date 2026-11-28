@@ -726,3 +726,13 @@ def test_a_tab_or_window_in_the_task_is_not_a_yes_to_quit_the_app():
         app = QuitApp(["Safari", "Chess"])
         ae.quit_apps_tool(app.request, app.ask, task=task).handler({"apps": ["Safari"]})
         assert app.asked == ["quit Safari"], task
+
+
+def test_the_summary_keeps_apps_quit_in_earlier_calls():
+    from legato import app_engine as ae
+    app = QuitApp(["Calculator", "TextEdit"], unsaved={"TextEdit"}, discard=False)
+    tool = ae.quit_apps_tool(app.request, app.ask, task="quit Calculator and TextEdit")
+    tool.handler({"apps": ["Calculator"]})
+    tool.handler({"apps": ["TextEdit"]})
+    tool.handler({"apps": ["TextEdit"]})
+    assert tool.handler.summary == "Quit Calculator. TextEdit stays open with its unsaved changes."

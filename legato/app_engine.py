@@ -454,6 +454,7 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool], tas
     is a second question, discard or keep it open, through the app's `confirm` with its own button labels. When the
     person's `task` already says to quit or close and names every app on the list, that is their yes: no question."""
     chose_keep: set[str] = set()                # apps the person kept open with their unsaved work, for this run
+    quit_all: list[str] = []                    # every app quit this run, for the summary
 
     def handler(args: dict) -> str:
         keep, want = _app_names(args.get("keep")), _app_names(args.get("apps"))
@@ -501,8 +502,10 @@ def quit_apps_tool(request: Callable[..., dict], ask: Callable[[str], bool], tas
             lines.append(f"not running: {', '.join(gone)}")
         if left:
             lines.append(f"left open as asked: {', '.join(left)}")
-        handler.summary = (f"Quit {', '.join(quit_)}." if quit_ else "Nothing quit.") + "".join(
-            f" {k.split(':')[0]} stays open with its unsaved changes." for k in kept + chosen)
+        quit_all.extend(a for a in quit_ if a not in quit_all)
+        still = [k.split(':')[0] for k in kept] + [c for c in chosen if c not in {k.split(':')[0] for k in kept}]
+        handler.summary = (f"Quit {', '.join(quit_all)}." if quit_all else "Nothing quit.") + "".join(
+            f" {k} stays open with its unsaved changes." for k in still)
         if any("as the person chose" in k for k in kept) or chosen:
             lines.append("That is the person's answer: don't quit those again; the task is done.")
         return "\n".join(lines)
