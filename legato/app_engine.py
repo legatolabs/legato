@@ -519,7 +519,10 @@ _PART_OF_APP = re.compile(r"\b(?:tabs?|windows?|documents?|docs?|pages?|files?|c
 def _asked_to_quit(task: str, apps: list[str]) -> bool:
     """The person's own words say to quit or close each of these apps by name, and not a tab, window or document
     in one: "close the Safari tab" is still asked about."""
-    if _PART_OF_APP.search(task):
+    rest = task
+    for a in apps:
+        rest = re.sub(r"(?<!\w)" + re.escape(a) + r"(?!\w)", " ", rest, flags=re.I)
+    if _PART_OF_APP.search(rest):                 # the names themselves may be words like Notes or Pages
         return False
     return all(re.search(r"\b(?:quit|close|exit)\b[^.;!?\n]*?(?<!\w)" + re.escape(a) + r"(?!\w)", task, re.I)
                for a in apps)

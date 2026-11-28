@@ -736,3 +736,14 @@ def test_the_summary_keeps_apps_quit_in_earlier_calls():
     tool.handler({"apps": ["TextEdit"]})
     tool.handler({"apps": ["TextEdit"]})
     assert tool.handler.summary == "Quit Calculator. TextEdit stays open with its unsaved changes."
+
+
+def test_apps_named_like_parts_of_apps_can_be_quit_without_asking():
+    from legato import app_engine as ae
+    app = QuitApp(["Notes", "Messages", "Pages"])
+    ae.quit_apps_tool(app.request, app.ask, task="Quit Notes, Messages and Pages").handler(
+        {"apps": ["Notes", "Messages", "Pages"]})
+    assert app.asked == []
+    app = QuitApp(["Notes"])
+    ae.quit_apps_tool(app.request, app.ask, task="close the note in Notes").handler({"apps": ["Notes"]})
+    assert app.asked == ["quit Notes"]
