@@ -503,7 +503,7 @@ final class AppController: NSObject {
         case "resolve_unsaved":
             let name = m["app"] as? String ?? "", discard = m["discard"] as? Bool ?? false
             Task { @MainActor in
-                let r = await AppQuit.resolve(name, discard: discard)
+                let r = await AppQuit.resolve(name, discard: discard) { [weak self] in self?.model.stopping ?? true }
                 self.lastEngineAt = Date()
                 self.engine.reply(id, ["quit": r.quit, "pressed": r.pressed])
             }

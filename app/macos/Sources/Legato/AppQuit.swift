@@ -39,11 +39,13 @@ enum AppQuit {
     static let keep = ["Cancel"]
 
     /// Press `discard` or Cancel on the app's save panels (a panel can lead to the next one), then wait for it to quit.
+    /// Stop stops discarding at the next panel.
     /// Whether it quit, and the buttons pressed.
-    static func resolve(_ name: String, discard: Bool, timeout: TimeInterval = 3) async -> (quit: Bool, pressed: [String]) {
+    static func resolve(_ name: String, discard: Bool, timeout: TimeInterval = 3,
+                        stopped: () -> Bool = { false }) async -> (quit: Bool, pressed: [String]) {
         guard let app = AppFocus.find(name: name, bundle: nil, url: nil) else { return (true, []) }
         var pressed: [String] = []
-        for _ in 0..<6 where !app.isTerminated {
+        for _ in 0..<6 where !app.isTerminated && !(discard && stopped()) {
             guard let (button, title) = find(in: app.processIdentifier, titles: discard ? Self.discard : Self.keep) else {
                 if !discard { break }
                 try? await Task.sleep(nanoseconds: 300_000_000)
